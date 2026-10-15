@@ -1,7 +1,7 @@
 // Maré — Service Worker (Parte 4): cache offline, atualização controlada, push e ação "+250 ml" da notificação.
 // A cada deploy, aumente VERSION (e APP_VERSION em js/app.js): é isso que dispara o aviso "Nova versão disponível".
 // Não use firebase-messaging-sw.js: o firebase.js registra o token FCM neste SW e o push chega aqui como "data".
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const CACHE = 'mare-' + VERSION, RUNTIME = 'mare-sdk', TAG = 'mare-lembrete';
 const SHELL = new URL('./', self.location).href, ROOT = new URL('./', self.location).pathname;
 const CORE = ['./', './manifest.webmanifest', './css/app.css', './js/app.js', './js/core.js', './js/store.js',
@@ -10,10 +10,15 @@ const CORE = ['./', './manifest.webmanifest', './css/app.css', './js/app.js', '.
 const EXTRA = ['./js/firebase-config.js', './js/firebase.js', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png',
   './icons/maskable-512.png', './icons/apple-touch-icon.png', './icons/badge-72.png'];
 
-self.addEventListener('install', (e) => {
+// Guarda o app no cache. Roda na instalação e de novo se o cache sumir: vários apps dividem esta mesma origem
+// (usuario.github.io) e alguns Service Workers deles apagam TODOS os caches que não são seus ao atualizar.
+function precache() {
   const get = (u) => new Request(u, { cache: 'reload' }); // ignora o cache HTTP para não guardar arquivo velho
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(CORE.map(get))
-    .then(() => Promise.all(EXTRA.map((u) => c.add(get(u)).catch(() => null))))));
+  return caches.open(CACHE).then((c) => c.addAll(CORE.map(get))
+    .then(() => Promise.all(EXTRA.map((u) => c.add(get(u)).catch(() => null)))));
+}
+self.addEventListener('install', (e) => {
+  e.waitUntil(precache());
   // Sem skipWaiting aqui: a página mostra "Nova versão disponível" e a pessoa escolhe a hora (platform.js)
 });
 self.addEventListener('activate', (e) => {
@@ -32,7 +37,12 @@ self.addEventListener('fetch', (e) => {
     if (req.mode === 'navigate') {
       // A tela do app (com qualquer ?add=, ?tab=, ?source=) sai do cache; outras páginas tentam a rede primeiro
       const app = url.pathname === ROOT || url.pathname === ROOT + 'index.html';
-      e.respondWith(app ? caches.match(SHELL).then((r) => r || fetch(req)) : fetch(req).catch(() => caches.match(SHELL)));
+      if (app) {
+        const hit = caches.match(SHELL);
+        // Sem cache (apagado por outro app da mesma origem)? Serve da rede agora e refaz o cache em segundo plano
+        e.waitUntil(hit.then((r) => (r ? null : precache().catch(() => null))));
+        e.respondWith(hit.then((r) => r || fetch(req)));
+      } else e.respondWith(fetch(req).catch(() => caches.match(SHELL)));
       return;
     }
     e.respondWith(caches.match(req).then((r) => r || fetch(req).then((res) => {

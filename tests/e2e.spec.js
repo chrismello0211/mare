@@ -155,4 +155,67 @@ test.describe('offline', () => {
     await expect(page.locator('#drop')).toBeVisible();
     await context.setOffline(false);
   });
+
+  // No github.io vários apps dividem a mesma origem e alguns Service Workers apagam todos os caches que não são deles
+  test('refaz o cache se outro app da mesma origem o apagar', async ({ page, context, browserName }) => {
+    test.skip(browserName !== 'chromium', 'Service Worker testado no Chromium');
+    await seed(page);
+    await page.goto('/');
+    await page.waitForFunction(() => !!(navigator.serviceWorker && navigator.serviceWorker.controller));
+    await page.evaluate(async () => { for (const k of await caches.keys()) await caches.delete(k); });
+    await page.reload(); // online: abre pela rede e refaz o cache em segundo plano
+    await expect(page.locator('#drop')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => caches.match(new URL('./', location.href).href).then(Boolean))).toBe(true);
+    await context.setOffline(true);
+    await page.reload();
+    await expect(page.locator('#drop')).toBeVisible();
+    await context.setOffline(false);
+  });
+});
+
+// A nuvem (login anônimo + documento no Firestore) só deve ligar depois do onboarding: quem apenas abre a tela de
+// boas-vindas (ou um robô) não cria conta nem documento. Os módulos do Firebase são trocados por stubs.
+async function stubCloud(page) {
+  await page.route('**/js/firebase-config.js', (r) => r.fulfill({ contentType: 'text/javascript',
+    body: 'export const FIREBASE_ENABLED = true; export const firebaseConfig = {}; export const VAPID_KEY = ""; export const USE_EMULATORS = false;' }));
+  await page.route('**/js/firebase.js', (r) => r.fulfill({ contentType: 'text/javascript',
+    body: 'export async function initCloud() { window.__cloudInit = (window.__cloudInit || 0) + 1; return { push: false, syncDays() {}, syncMeta() {}, enablePush: async () => { window.__pushEnabled = (window.__pushEnabled || 0) + 1; return true; }, wipe: async () => {} }; }' }));
+}
+const cloudInits = (page) => page.evaluate(() => window.__cloudInit || 0);
+
+test('a nuvem só liga depois do onboarding', async ({ page }) => {
+  await stubCloud(page);
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Beba água no seu ritmo' })).toBeVisible();
+  await page.waitForTimeout(800);
+  expect(await cloudInits(page)).toBe(0);
+  await page.getByRole('button', { name: 'Começar', exact: true }).click();
+  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Continuar', exact: true }).click(); // perfil, atividade, horários
+  await page.getByRole('button', { name: 'Perfeito, continuar' }).click();
+  expect(await cloudInits(page)).toBe(0); // ainda no onboarding
+  await page.getByRole('button', { name: /Agora não|Começar a usar/ }).click();
+  await expect(page.locator('#tabbar')).toBeVisible();
+  await expect.poll(() => cloudInits(page)).toBe(1);
+});
+
+test('com o app já configurado, a nuvem liga na abertura', async ({ page }) => {
+  await stubCloud(page);
+  await seed(page);
+  await page.goto('/');
+  await expect(page.locator('#drop')).toBeVisible();
+  await expect.poll(() => cloudInits(page)).toBe(1);
+});
+
+test('lembretes ativados no onboarding registram o push quando a nuvem liga', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'permissão de notificação simulada só no Chromium');
+  await context.grantPermissions(['notifications']);
+  await stubCloud(page);
+  await page.goto('/');
+  test.skip(/iPhone|iPad/.test(await page.evaluate(() => navigator.userAgent)), 'no iOS as notificações exigem o app instalado');
+  await page.getByRole('button', { name: 'Começar', exact: true }).click();
+  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+  await page.getByRole('button', { name: 'Perfeito, continuar' }).click();
+  await page.getByRole('button', { name: 'Ativar lembretes' }).click();
+  await expect(page.locator('#tabbar')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__pushEnabled || 0)).toBe(1);
 });

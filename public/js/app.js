@@ -12,12 +12,12 @@ import { isNative, reducedMotion, onMedia, haptic, registerSW, applyUpdate, noti
 import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboardingView, OB_STEPS, tabbarHTML, drinkSheet,
   entrySheet, daySheet, installSheet, notifHelpSheet, dropOpts, paceInfo, goalSumHTML, remNoteText, shareText, fmtW } from './views.js';
 
-export const APP_VERSION = '1.0.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.0.1'; // aumente a cada deploy, junto com VERSION no sw.js
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;
 let tab = 'today', ym = '', ob = null, dr = null, dropSt = null, curDay = '', remT = 0, climBusy = false, fileIn = null;
-let cloud = null, syncState = 'off';
+let cloud = null, syncState = 'off', cloudOn = false;
 
 /* ---------- utilidades ---------- */
 const info = () => ({ version: 'v' + APP_VERSION, sync: syncState, push: !!(cloud && cloud.push) });
@@ -146,6 +146,7 @@ function finishOb() {
   syncTodayGoal(); save();
   tab = 'today';
   render(); planReminder(); updateBadge(); persistStorage();
+  startCloud();
   toast('Tudo pronto! Sua meta de hoje é ' + vol(goalNow()) + ' 💧');
 }
 
@@ -428,6 +429,7 @@ function applyBackup(s) {
   ob = null; tab = 'today'; dropSt = null;
   syncTodayGoal(); save(); applyTheme();
   render(); planReminder(); updateBadge();
+  startCloud();
   sync(Object.keys(S.days));
   toast('Backup restaurado ✓');
 }
@@ -452,6 +454,13 @@ function shareProgress() {
 
 /* ---------- nuvem (opcional) ---------- */
 // Sem firebase-config.js (ou com FIREBASE_ENABLED = false) o app segue 100% local.
+// A nuvem só liga depois do onboarding: quem apenas abre a tela de boas-vindas não cria login nem documento
+// (e a primeira abertura fica mais leve, sem baixar o SDK do Firebase).
+function startCloud() {
+  if (cloudOn || !S.onboarded) return;
+  cloudOn = true;
+  initCloudLayer();
+}
 function initCloudLayer() {
   import('./firebase-config.js')
     .then((c) => (c.FIREBASE_ENABLED ? import('./firebase.js') : null))
@@ -649,7 +658,7 @@ function boot() {
     else { armTimer(); const m = reminderText(); scheduleNative(r.enabled ? r.nextAt : 0, m.title, m.body); }
     updateBadge(); refreshClimate(false); persistStorage();
   }
-  initCloudLayer();
+  startCloud();
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') onResume(); });
   window.addEventListener('pageshow', (e) => { if (e.persisted) onResume(); });
   setInterval(() => { // o ritmo muda com o relógio, mesmo sem novos registros
