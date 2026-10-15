@@ -6,10 +6,11 @@
 //  • Painel de registro: #eMl, #eTime, #eErr. Onboarding: #obName, #obWeight, #obWake, #obSleep, #obGoal (data-total), #obDrop.
 //  • "Hoje" é montado em partes com id (TODAY_PARTS) para atualizar sem redesenhar a gota (#drop).
 //  • Barras com data-w crescem via ui.animBars; a gota enche via ui.dropTo(el, total, meta, dropOpts(total, meta)).
-import { DRINKS, ACTIVITY, LEVELS, ACHIEVEMENTS, drink, eff, dayTotal, isMet, calcGoal, goalToday, expectedBy, dayWindow,
-  streak, bestStreak, levelFor, missionFor, missionProgress, stats, insights, dayKey, keyToDate, addDays, minOf, fmtHM, fmtNum } from './core.js';
-import { S, esc, clamp, plural, byT, p2, cap, MONTHS, today, longDate, shortDate, relDay, goalNow, totalNow, allMl, firstName,
-  U, vol, unitL, fromMl, big, compact, presets } from './store.js';
+import { WATERS, OTHERS, ACTIVITY, LEVELS, ACHIEVEMENTS, drink, isOther, dayTotal, dayOther, isMet, calcGoal, goalToday, expectedBy,
+  dayWindow, streak, bestStreak, levelFor, missionFor, missionProgress, stats, insights, dayKey, keyToDate, addDays, minOf, fmtHM,
+  fmtNum } from './core.js';
+import { S, esc, clamp, plural, byT, p2, cap, MONTHS, today, longDate, shortDate, relDay, goalNow, totalNow, otherNow, othersOn, allMl,
+  firstName, U, vol, unitL, fromMl, big, compact, presets } from './store.js';
 import { svgI, sheetHead, dropSVG } from './ui.js';
 import { isIOS, isAndroid, iosVersion, isStandalone, isNative, canInstall, notifStatus } from './platform.js';
 
@@ -36,7 +37,7 @@ const tip = (id, e, title, text, b) => '<section class="card tip"><span class="e
   id + '" aria-label="Dispensar dica">×</button></section>';
 const steps = (list) => '<ol class="steps">' + list.map((s) => '<li>' + s + '</li>').join('') + '</ol>';
 const shareIco = () => svgI('share', 'ico-share');
-const fLabel = (d) => (d.f === 1 ? 'hidrata 100%' : d.f === 0 ? 'não conta na meta' : 'conta ' + Math.round(d.f * 100) + '%');
+export const OTHER_NOTE = 'Outros líquidos contam à parte e não entram na meta de água.';
 export const fmtW = (w) => String(Math.round((+w || 0) * 10) / 10).replace('.', ',');
 
 function greet() {
@@ -81,12 +82,10 @@ function metaHTML() {
   return '<div class="pace' + (pc.c ? ' ' + pc.c : '') + '"><span class="dot" aria-hidden="true"></span>' + pc.t + '</div>' + nextLine(total >= goal) +
     (hot ? '<p class="next">☀️ Máxima de ' + g.temp + '°C hoje: meta +' + vol(g.bonus) + '</p>' : '');
 }
+// Registro rápido de ÁGUA (a que conta na meta): água comum ou com gás. Os outros líquidos têm a segunda gota.
 function quickHTML() {
-  const d = drink(S.last);
-  return '<section class="card" aria-label="Registro rápido"><div class="quick-top">' +
-    '<button class="drink-pick" type="button" data-action="pick-drink" aria-label="Bebida atual: ' + d.l + '. Toque para trocar">' +
-    '<span class="em" aria-hidden="true">' + d.e + '</span><span class="dp-t"><b>' + d.l + '</b><small>' + cap(fLabel(d)) +
-    ' · toque para trocar</small></span><span class="caret" aria-hidden="true">▾</span></button>' +
+  return '<section class="card" aria-label="Registro rápido de água"><div class="quick-top">' +
+    seg('set-water', drink(S.last).id, WATERS.map((d) => [d.id, '<span class="sg-e">' + d.e + '&nbsp;</span>' + d.n]), 'Tipo de água') +
     '<button class="btn-icon" type="button" data-action="add-custom" aria-label="Outro volume ou horário">' + svgI('plus') +
     '<small>Outro</small></button></div><div class="cups">' + S.cups.map((ml) => '<button class="cup" type="button" data-action="add" data-ml="' +
     ml + '" aria-label="Adicionar ' + vol(ml) + '">' + glass(ml) + '<span>' + vol(ml) + '</span></button>').join('') + '</div></section>';
@@ -115,47 +114,69 @@ function missionHTML() {
     '<div class="bar" role="progressbar" aria-label="Progresso da missão" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + p + '">' +
     '<i style="width:' + from + '%" data-w="' + p + '"></i></div></div></section>';
 }
+// Com "outros líquidos" desligado em Ajustes, esses registros ficam guardados, mas não aparecem nas listas.
+const shown = (es) => (othersOn() ? es : es.filter((e) => !isOther(e)));
 function entryItem(k, e) {
-  const d = drink(e.d), v = eff(e);
+  const d = drink(e.d);
   return '<li><button class="log-item" type="button" data-action="edit-entry" data-day="' + k + '" data-id="' + esc(e.id) + '">' +
     '<span class="li-e" aria-hidden="true">' + d.e + '</span><span class="li-b"><b>' + d.l + '</b><small>' + fmtHM(minOf(e.t)) +
-    (v !== e.ml ? ' · ' + (v ? 'conta ' + vol(v) : 'não conta na meta') : '') + '</small></span><span class="li-v">' + vol(e.ml) + '</span></button></li>';
+    (d.g === 'o' ? ' · outros líquidos' : '') + '</small></span><span class="li-v">' + vol(e.ml) + '</span></button></li>';
 }
 function entryList(k) {
-  const d = S.days[k], es = d && d.entries ? d.entries.slice().sort(byT).reverse() : [];
+  const d = S.days[k], es = d && d.entries ? shown(d.entries.slice().sort(byT).reverse()) : [];
   return es.length ? '<ul class="log-list">' + es.map((e) => entryItem(k, e)).join('') + '</ul>' : '';
 }
 function logHTML() {
-  const k = today(), d = S.days[k], n = d && d.entries ? d.entries.length : 0;
+  const k = today(), d = S.days[k], n = d && d.entries ? shown(d.entries).length : 0;
   return '<section class="card"><div class="card-h"><h2>Registros de hoje</h2><small>' + (n ? plural(n, 'registro', 'registros') : '') + '</small></div>' +
     (n ? entryList(k) : empty('🫗', 'Nada por aqui ainda. Que tal começar com um copo agora?')) + '</section>';
 }
 export const TODAY_PARTS = { tTop: topHTML, tMeta: metaHTML, tQuick: quickHTML, tTips: tipsHTML, tMission: missionHTML, tLog: logHTML };
 const part = (id) => '<div id="' + id + '">' + TODAY_PARTS[id]() + '</div>';
+// A segunda gota (outros líquidos) fica no canto da principal. Como a principal, não é redesenhada a cada registro:
+// o app.js só sobe e desce o nível dela (paintDrop2).
+export const drop2Label = (ml) => 'Outros líquidos: ' + vol(ml) + ' hoje. Toque para registrar';
+function drop2HTML() {
+  return '<button class="drop2" id="drop2btn" type="button" data-action="others" aria-label="' + drop2Label(otherNow()) + '">' +
+    '<span class="drop-wrap alt" id="drop2">' + dropSVG('hd2', { pct: '', num: '', sub: '', label: '' }).replace(' role="img" aria-label=""', ' aria-hidden="true"') +
+    '</span><span class="d2-cap" aria-hidden="true">Outros líquidos</span></button>';
+}
 export function todayView() {
-  return part('tTop') + '<section class="hero" aria-label="Progresso de hoje"><div class="drop-wrap" id="drop">' +
-    dropSVG('hd', { pct: '', num: '', sub: '', label: 'Progresso de hoje' }) + '</div><div class="hero-meta" id="tMeta">' + metaHTML() + '</div></section>' +
+  return part('tTop') + '<section class="hero" aria-label="Progresso de hoje"><div class="drops"><div class="drop-wrap" id="drop">' +
+    dropSVG('hd', { pct: '', num: '', sub: '', label: 'Progresso de hoje' }) + '</div>' + (othersOn() ? drop2HTML() : '') +
+    '</div><div class="hero-meta" id="tMeta">' + metaHTML() + '</div></section>' +
     part('tQuick') + part('tTips') + part('tMission') + part('tLog');
 }
 export function dropOpts(total, goal) {
   return { fmt: (n) => fmtNum(n, U()), sub: 'de ' + vol(goal),
     label: vol(total) + ' de ' + vol(goal) + ' (' + Math.round((total / goal) * 100) + '% da meta)' };
 }
+export const dropOpts2 = () => ({ fmt: (n) => fmtNum(n, U()), sub: unitL() });
 
 /* ---------- painéis ---------- */
-export function drinkSheet(sel) {
-  return sheetHead('O que você está bebendo?') + '<div class="drinks" role="radiogroup" aria-label="Bebidas">' + DRINKS.map((d) =>
-    '<button class="drink" type="button" role="radio" aria-checked="' + att(d.id === sel) + '" data-action="set-drink" data-d="' + d.id +
-    '"><span class="em" aria-hidden="true">' + d.e + '</span><b>' + d.n + '</b><small>' + fLabel(d) + '</small></button>').join('') +
-    '</div><p class="note">A bebida escolhida vale para os copos rápidos. Os fatores de hidratação são estimativas gerais, não orientação médica.</p>';
+// Painel da segunda gota: escolhe o líquido e registra num toque (4 volumes dos copos rápidos)
+export function othersSheet(sel) {
+  const cur = drink(sel);
+  return sheetHead('Outros líquidos') +
+    '<p class="sheet-text">Café, chá, suco e companhia ficam numa contagem à parte e não entram na meta de água.</p>' +
+    '<div class="drinks o" role="radiogroup" aria-label="Bebida">' + OTHERS.map((d) =>
+      '<button class="drink" type="button" role="radio" aria-checked="' + att(d.id === cur.id) + '" data-action="set-other" data-d="' + d.id +
+      '"><span class="em" aria-hidden="true">' + d.e + '</span><b>' + d.n + '</b></button>').join('') + '</div>' +
+    '<span class="lbl lbl-cups">' + cur.n + ': toque no volume para registrar</span><div class="cups alt">' + S.cups.map((ml) =>
+      '<button class="cup" type="button" data-action="add-o" data-ml="' + ml + '" aria-label="Adicionar ' + vol(ml) + ' de ' + esc(cur.l.toLowerCase()) +
+      '">' + glass(ml) + '<span>' + vol(ml) + '</span></button>').join('') + '</div>' +
+    btn('add-custom-o', 'Outro volume ou horário', 'block ghost mt');
 }
 // dr = { mode: 'add'|'edit', day, id, d, ml, time: 'HH:MM' }
 export function entrySheet(dr) {
-  const edit = dr.mode === 'edit';
+  const edit = dr.mode === 'edit', other = drink(dr.d).g === 'o';
+  const chip = (x) => '<button class="pill' + (x.g === 'o' ? ' o' : '') + '" type="button" data-action="draft-drink" data-d="' + x.id +
+    '" aria-pressed="' + att(x.id === dr.d) + '">' + x.e + '&nbsp;' + x.n + '</button>';
   return sheetHead(edit ? 'Editar registro' : 'Novo registro') +
     (dr.day !== today() ? '<p class="sheet-text">Registro de ' + relDay(dr.day) + '</p>' : '') +
-    '<span class="lbl">Bebida</span><div class="dchips">' + DRINKS.map((x) => '<button class="pill" type="button" data-action="draft-drink" data-d="' +
-      x.id + '" aria-pressed="' + att(x.id === dr.d) + '">' + x.e + '&nbsp;' + x.n + '</button>').join('') + '</div>' +
+    '<span class="lbl">Bebida</span><div class="dchips">' + WATERS.map(chip).join('') +
+      (othersOn() || other ? '<i class="dsep" aria-hidden="true"></i>' + OTHERS.map(chip).join('') : '') + '</div>' +
+    '<p class="e-note" id="eNote">' + (other ? OTHER_NOTE : '') + '</p>' +
     '<label class="lbl" for="eMl">Quantidade</label><div class="amt"><input class="in" id="eMl" type="text" inputmode="numeric" pattern="[0-9]*" ' +
       'autocomplete="off" maxlength="5" value="' + fromMl(dr.ml) + '"><span class="unit">' + unitL() + '</span></div>' +
     '<div class="presets">' + presets().map((ml) => '<button class="pill" type="button" data-action="draft-ml" data-ml="' + ml + '" aria-pressed="' +
@@ -166,9 +187,12 @@ export function entrySheet(dr) {
 }
 export function daySheet(k) {
   const d = S.days[k], total = dayTotal(d), goal = (d && d.goal) || goalToday(S, k), pc = Math.round((total / goal) * 100);
+  const oth = othersOn() ? dayOther(d) : 0;
   return sheetHead(cap(relDay(k))) + '<div class="day-sum"><div><b>' + vol(total) + '</b><small>de ' + vol(goal) + ' · ' + pc + '% da meta</small></div>' +
     (isMet(d) ? '<span class="pace done"><span class="dot" aria-hidden="true"></span>Meta batida</span>' : '') + '</div>' +
-    '<div class="bar"><i data-w="' + Math.min(100, pc) + '"></i></div>' + (entryList(k) || empty('🫙', 'Nenhum registro neste dia.')) +
+    '<div class="bar"><i data-w="' + Math.min(100, pc) + '"></i></div>' +
+    (oth ? '<p class="day-oth">+ <b>' + vol(oth) + '</b> de outros líquidos, contados à parte</p>' : '') +
+    (entryList(k) || empty('🫙', 'Nenhum registro neste dia.')) +
     btn('new-entry', '+ Adicionar registro', 'block ghost mt', ' data-day="' + k + '"');
 }
 export function installSheet() {
@@ -219,7 +243,7 @@ export function historyView(ym) {
     stat('📊', 'Média 7 dias', sx.avg7 == null ? '—' : vol(sx.avg7)) +
     stat('🎯', 'Constância 30d', sx.cons30 == null ? '—' : Math.round(sx.cons30 * 100) + '%') + '</div>' +
     '<section class="card">' + calHTML(ym || k.slice(0, 7)) + '</section>' +
-    '<p class="hint">Toque em qualquer dia para ver, corrigir ou adicionar registros esquecidos.</p>';
+    '<p class="hint">Toque em qualquer dia para ver, corrigir ou adicionar registros esquecidos. A meta e os gráficos contam só água, com ou sem gás.</p>';
 }
 function calHTML(ym) {
   const k = today(), y = +ym.slice(0, 4), m = +ym.slice(5, 7) - 1, first = new Date(y, m, 1).getDay(), n = new Date(y, m + 1, 0).getDate();
@@ -249,7 +273,7 @@ export function journeyView() {
     '</p><p class="lv-n">' + lv.n + '</p><div class="bar" role="progressbar" aria-label="Progresso até o próximo nível" aria-valuemin="0" ' +
     'aria-valuemax="100" aria-valuenow="' + pct + '"><i data-w="' + pct + '"></i></div><p class="lv-s">' +
     (lv.next ? 'Faltam ' + big(Math.max(100, (lv.next.at - lv.liters) * 1000)) + ' para ' + lv.next.e + ' ' + lv.next.n : 'Você chegou ao topo da maré!') +
-    '<br>' + big(tot) + ' hidratados · ' + plural(mis, 'missão cumprida', 'missões cumpridas') + '</p><div class="path" aria-hidden="true">' +
+    '<br>' + big(tot) + ' de água · ' + plural(mis, 'missão cumprida', 'missões cumpridas') + '</p><div class="path" aria-hidden="true">' +
     LEVELS.map((l, i) => '<span' + (i <= lv.i ? ' class="on"' : '') + '>' + l.e + '</span>').join('') + '</div></section>' +
     '<div class="card-h out"><h2>Seus padrões</h2><small>últimas 4 semanas</small></div><section class="card">' + (ins.length
       ? '<div class="ins-list">' + ins.map((x) => '<div class="ins"><span class="em" aria-hidden="true">' + x.e + '</span><p>' + x.t + '</p></div>').join('') + '</div>'
@@ -264,8 +288,8 @@ export function journeyView() {
 }
 export function shareText() {
   const st = streak(S.days, today()), lv = levelFor(allMl());
-  return 'Estou no nível ' + lv.n + ' ' + lv.e + ' no Maré' + (st > 1 ? ', com ' + st + ' dias seguidos na meta de hidratação' : '') +
-    '. Já são ' + big(allMl()) + ' bem hidratados! 💧';
+  return 'Estou no nível ' + lv.n + ' ' + lv.e + ' no Maré' + (st > 1 ? ', com ' + st + ' dias seguidos na meta de água' : '') +
+    '. Já são ' + big(allMl()) + ' de água! 💧';
 }
 
 /* ---------- Ajustes ---------- */
@@ -323,6 +347,9 @@ export function settingsView(info) {
     sec('Copos rápidos') + '<div class="group"><div class="cups-edit">' + S.cups.map((ml, i) => '<label><input class="in" type="text" inputmode="numeric" ' +
       'pattern="[0-9]*" autocomplete="off" data-field="cup" data-i="' + i + '" value="' + fromMl(ml) + '" aria-label="Copo ' + (i + 1) + ' em ' + u +
       '"><small>' + u + '</small></label>').join('') + '</div></div>' +
+    sec('Outros líquidos') + '<div class="group">' +
+      row('Registrar outros líquidos', 'Uma segunda gota para café, chá, suco, leite, coco e isotônico. É uma contagem à parte: não entra na meta de água.',
+        sw('toggle', othersOn(), 'Registrar outros líquidos', ' data-k="others"')) + '</div>' +
     sec('Aparência') + '<div class="group">' +
       stack('Tema', '', seg('theme', p.theme, [['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Escuro']], 'Tema')) +
       stack('Unidade', '', seg('unit', p.unit, [['ml', 'Mililitros (ml)'], ['oz', 'Onças (oz)']], 'Unidade')) + '</div>' +
@@ -330,7 +357,7 @@ export function settingsView(info) {
       stack('Backup', 'Guarde uma cópia dos registros ou leve para outro aparelho', sbtn('export', 'Exportar') + ' ' + sbtn('import', 'Importar')) +
       row('Apagar tudo', 'Remove registros e ajustes deste aparelho', sbtn('reset', 'Apagar', 'ghost danger')) + '</div>' +
     '<p class="about">Maré ' + esc(info.version || '') + ' · ' + (info.sync === 'on' ? 'seus dados ficam no aparelho, com cópia na nuvem' : 'seus dados ficam neste aparelho') +
-      '.<br>Metas e fatores de hidratação são estimativas e não substituem orientação médica. Com doença renal ou cardíaca, siga a recomendação do seu médico.' +
+      '.<br>A meta de água é uma estimativa e não substitui orientação médica. Com doença renal ou cardíaca, siga a recomendação do seu médico.' +
       '<br>Previsão do tempo: Open-Meteo.com (CC BY 4.0).</p>';
 }
 

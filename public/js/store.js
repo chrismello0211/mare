@@ -1,6 +1,6 @@
 // Maré — estado e utilidades compartilhadas (Parte 3A).
 // O app.js foi dividido em store.js, ui.js, views.js e app.js (mesma lógica, arquivos menores).
-import { dayKey, keyToDate, addDays, goalToday, dayTotal, defaults, migrate, OZ, fmtVol, fmtNum, fmtL } from './core.js';
+import { dayKey, keyToDate, addDays, goalToday, dayTotal, dayOther, defaults, migrate, OZ, fmtVol, fmtNum, fmtL } from './core.js';
 
 export const KEY = 'mare:v1';
 // Estado vivo. "export let" é live binding: quem importa S sempre enxerga o valor atual.
@@ -45,7 +45,9 @@ export const shiftYm = (ym, n) => {
 
 /* ---------- dia e meta ---------- */
 export const goalNow = () => goalToday(S, today());
-export const totalNow = () => dayTotal(S.days[today()]);
+export const totalNow = () => dayTotal(S.days[today()]); // água: é o que conta na meta
+export const otherNow = () => dayOther(S.days[today()]); // outros líquidos de hoje (contagem à parte)
+export const othersOn = () => S.profile.others !== false; // a pessoa pode esconder a segunda gota em Ajustes
 export function ensureDay(k) {
   if (!S.days[k]) S.days[k] = { goal: goalToday(S, k), entries: [] };
   if (!Array.isArray(S.days[k].entries)) S.days[k].entries = [];

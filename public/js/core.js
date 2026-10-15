@@ -2,19 +2,24 @@
 // Compatibilidade: sem ?. / ?? / structuredClone → roda em iOS 12.2+ e Chrome 70+.
 
 /* ---------- catálogos ---------- */
-// f = fator de hidratação (1 = conta 100%). Padrões conservadores: revisar com nutricionista.
+// g = grupo. 'w': água e água com gás, que contam 100% na meta (a gota principal).
+// 'o': outros líquidos, numa contagem à parte (a segunda gota) e fora da meta. Não há fator de hidratação:
+// a controvérsia sobre quanto cada bebida "vale" fica de fora do app, e cada pessoa decide se quer acompanhar os outros.
+// Refrigerante e bebida alcoólica saíram do app (RETIRED): registros antigos delas são descartados na migração.
 export const DRINKS = [
-  { id: 'water', n: 'Água', l: 'Água', e: '💧', f: 1 },
-  { id: 'sparkling', n: 'Com gás', l: 'Água com gás', e: '✨', f: 1 },
-  { id: 'coconut', n: 'Coco', l: 'Água de coco', e: '🥥', f: 1 },
-  { id: 'tea', n: 'Chá', l: 'Chá', e: '🍵', f: 1 },
-  { id: 'coffee', n: 'Café', l: 'Café', e: '☕', f: 0.9 },
-  { id: 'juice', n: 'Suco', l: 'Suco', e: '🍊', f: 1 },
-  { id: 'milk', n: 'Leite', l: 'Leite', e: '🥛', f: 1 },
-  { id: 'sport', n: 'Isotônico', l: 'Isotônico', e: '⚡', f: 1 },
-  { id: 'soda', n: 'Refri', l: 'Refrigerante', e: '🥤', f: 0.9 },
-  { id: 'alcohol', n: 'Álcool', l: 'Bebida alcoólica', e: '🍺', f: 0 },
+  { id: 'water', n: 'Água', l: 'Água', e: '💧', g: 'w' },
+  { id: 'sparkling', n: 'Com gás', l: 'Água com gás', e: '✨', g: 'w' },
+  { id: 'coconut', n: 'Coco', l: 'Água de coco', e: '🥥', g: 'o' },
+  { id: 'tea', n: 'Chá', l: 'Chá', e: '🍵', g: 'o' },
+  { id: 'coffee', n: 'Café', l: 'Café', e: '☕', g: 'o' },
+  { id: 'juice', n: 'Suco', l: 'Suco', e: '🍊', g: 'o' },
+  { id: 'milk', n: 'Leite', l: 'Leite', e: '🥛', g: 'o' },
+  { id: 'sport', n: 'Isotônico', l: 'Isotônico', e: '⚡', g: 'o' },
 ];
+export const WATERS = DRINKS.filter((d) => d.g === 'w');
+export const OTHERS = DRINKS.filter((d) => d.g === 'o');
+const RETIRED = { soda: 1, alcohol: 1 };
+export const retired = (id) => RETIRED[id] === 1;
 
 export const ACTIVITY = {
   low: { l: 'Sedentário', d: 'Pouco ou nenhum exercício', add: 0, e: '🛋️' },
@@ -40,9 +45,14 @@ export const minOf = (ms) => { const d = new Date(ms); return d.getHours() * 60 
 export const fmtHM = (min) => { const m = Math.round(min); return pad(Math.floor(m / 60) % 24) + ':' + pad(m % 60); };
 
 /* ---------- bebidas e totais ---------- */
-export const drink = (id) => { for (let i = 0; i < DRINKS.length; i++) if (DRINKS[i].id === id) return DRINKS[i]; return DRINKS[0]; };
-export const eff = (e) => Math.round(e.ml * drink(e.d).f);
-export const dayTotal = (day) => (day && day.entries ? day.entries.reduce((s, e) => s + eff(e), 0) : 0);
+const byId = (id) => { for (let i = 0; i < DRINKS.length; i++) if (DRINKS[i].id === id) return DRINKS[i]; return null; };
+export const drink = (id) => byId(id) || DRINKS[0]; // id desconhecido vira água
+// Quem recebe um registro { id, t, ml, d }: isWater entra na meta; isOther fica na contagem à parte
+export const isWater = (e) => drink(e.d).g === 'w';
+export const isOther = (e) => drink(e.d).g === 'o';
+export const eff = (e) => (isWater(e) ? Math.round(e.ml) : 0); // quanto do registro conta na meta
+export const dayTotal = (day) => (day && day.entries ? day.entries.reduce((s, e) => s + eff(e), 0) : 0); // água (meta)
+export const dayOther = (day) => (day && day.entries ? day.entries.reduce((s, e) => s + (isOther(e) ? Math.round(e.ml) : 0), 0) : 0);
 export const isMet = (day) => !!day && !!day.entries && day.entries.length > 0 && dayTotal(day) >= (day.goal || 2000);
 
 /* ---------- meta ---------- */
@@ -116,15 +126,16 @@ export function levelFor(totalMl) {
 }
 
 /* ---------- missões do dia (determinísticas pela data) ---------- */
+// Todas as missões olham só a água (a que conta na meta); outros líquidos não avançam nenhuma.
 const sumBefore = (es, min) => es.reduce((s, e) => s + (minOf(e.t) < min ? eff(e) : 0), 0);
 export const MISSIONS = [
   { id: 'am500', e: '🌅', t: 'Beba 500 ml antes das 10h', p: (es) => sumBefore(es, 600) / 500 },
-  { id: 'six', e: '🔁', t: 'Faça 6 registros hoje', p: (es) => es.length / 6 },
+  { id: 'six', e: '🔁', t: 'Beba água 6 vezes hoje', p: (es) => es.filter(isWater).length / 6 },
   { id: 'by19', e: '⏱️', t: 'Bata a meta antes das 19h', p: (es, g) => sumBefore(es, 1140) / g },
-  { id: 'thirds', e: '🌗', t: 'Beba de manhã, à tarde e à noite', p: (es) => {
-    const s = {}; es.forEach((e) => { const m = minOf(e.t); s[m < 720 ? 'a' : m < 1080 ? 'b' : 'c'] = 1; });
+  { id: 'thirds', e: '🌗', t: 'Beba água de manhã, à tarde e à noite', p: (es) => {
+    const s = {}; es.filter(isWater).forEach((e) => { const m = minOf(e.t); s[m < 720 ? 'a' : m < 1080 ? 'b' : 'c'] = 1; });
     return Object.keys(s).length / 3; } },
-  { id: 'pure', e: '💧', t: 'Beba 1,5 L só de água', p: (es) => es.reduce((s, e) => s + (e.d === 'water' ? e.ml : 0), 0) / 1500 },
+  { id: 'noon', e: '☀️', t: 'Chegue a 1 L antes do meio-dia', p: (es) => sumBefore(es, 720) / 1000 },
 ];
 export const hash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h; };
 export const missionFor = (k) => MISSIONS[hash(k) % MISSIONS.length];
@@ -136,29 +147,31 @@ export const ACHIEVEMENTS = [
   { id: 'goal', e: '🎯', t: 'Na mosca', d: 'Bateu a meta pela 1ª vez', test: (c) => c.daysMet >= 1 },
   { id: 's3', e: '🔥', t: 'Pegando o ritmo', d: '3 dias seguidos na meta', test: (c) => c.best >= 3 },
   { id: 's7', e: '🌊', t: 'Semana fluida', d: '7 dias seguidos na meta', test: (c) => c.best >= 7 },
+  { id: 's14', e: '💎', t: 'Quinzena firme', d: '14 dias seguidos na meta', test: (c) => c.best >= 14 },
   { id: 's30', e: '🏆', t: 'Maré alta', d: '30 dias seguidos na meta', test: (c) => c.best >= 30 },
-  { id: 'early', e: '🌅', t: 'Madrugador', d: '500 ml antes das 9h', test: (c) => c.early },
+  { id: 'early', e: '🌅', t: 'Madrugador', d: '500 ml de água antes das 9h', test: (c) => c.early },
   { id: 'sunset', e: '🌇', t: 'Antes do pôr do sol', d: 'Meta batida antes das 18h', test: (c) => c.sunset },
-  { id: 'variety', e: '🍹', t: 'Paladar curioso', d: '4 tipos de bebida', test: (c) => c.types >= 4 },
   { id: 'mission', e: '🧭', t: 'Missão cumprida', d: 'Completou uma missão do dia', test: (c) => c.missions >= 1 },
   { id: 'm10', e: '🗺️', t: 'Explorador', d: '10 missões completas', test: (c) => c.missions >= 10 },
   { id: 'weekend', e: '🏖️', t: 'Fim de semana em dia', d: 'Meta no sábado e no domingo', test: (c) => c.weekend },
-  { id: 'l100', e: '🐋', t: 'Cem litros', d: '100 L hidratados no total', test: (c) => c.totalMl >= 100000 },
+  { id: 'l100', e: '🐋', t: 'Cem litros', d: '100 L de água no total', test: (c) => c.totalMl >= 100000 },
 ];
 
+// Só a água (a que conta na meta) entra nas medalhas; os outros líquidos ficam de fora.
 export function context(S) {
-  const keys = Object.keys(S.days).sort(), types = {};
+  const keys = Object.keys(S.days).sort();
   let totalMl = 0, entries = 0, daysMet = 0, early = false, sunset = false, weekend = false;
   keys.forEach((k) => {
     const day = S.days[k], es = day.entries || [], g = day.goal || 2000;
     let cum = 0, morning = 0, hit = -1;
     es.forEach((e) => {
       const v = eff(e), m = minOf(e.t);
-      cum += v; types[e.d] = 1;
+      if (!v) return;
+      cum += v; entries++;
       if (m < 540) morning += v;
       if (hit < 0 && cum >= g) hit = m;
     });
-    totalMl += cum; entries += es.length;
+    totalMl += cum;
     if (morning >= 500) early = true;
     if (hit >= 0) {
       daysMet++;
@@ -166,7 +179,7 @@ export function context(S) {
       if (keyToDate(k).getDay() === 6 && isMet(S.days[addDays(k, 1)])) weekend = true;
     }
   });
-  return { totalMl, entries, daysMet, early, sunset, weekend, types: Object.keys(types).length,
+  return { totalMl, entries, daysMet, early, sunset, weekend,
     best: bestStreak(S.days), missions: Object.keys(S.missions || {}).length };
 }
 export function newAchievements(S, ctx) {
@@ -196,7 +209,7 @@ export function insights(S, today, p) {
   let n = 0, am = 0, all = 0;
   for (let i = 1; i <= 28; i++) {
     const k = addDays(today, -i), d = S.days[k];
-    if (!d || !d.entries || !d.entries.length) continue;
+    if (!d || !d.entries || !d.entries.some(isWater)) continue; // dia só com outros líquidos não conta como dia de dados
     n++;
     const wd = keyToDate(k).getDay();
     wdS[wd] += dayTotal(d) / (d.goal || 2000); wdC[wd]++;
@@ -241,12 +254,13 @@ export const fmtL = (ml) => nf(ml / 1000, 1) + ' L';
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 /* ---------- estado ---------- */
+// profile.others: mostra a segunda gota (outros líquidos). last = água dos copos rápidos; lastO = bebida de "outros líquidos".
 export function defaults(createdAt) {
   return {
     v: 1, onboarded: false, createdAt: createdAt || Date.now(),
-    profile: { name: '', weight: 70, activity: 'moderate', wake: '07:00', sleep: '23:00', unit: 'ml', theme: 'auto' },
+    profile: { name: '', weight: 70, activity: 'moderate', wake: '07:00', sleep: '23:00', unit: 'ml', theme: 'auto', others: true },
     goal: { mode: 'auto', manual: 2500, climate: false, bonus: 0, temp: null, day: '' },
-    cups: [150, 250, 350, 500], last: 'water',
+    cups: [150, 250, 350, 500], last: 'water', lastO: 'coffee',
     reminders: { enabled: false, interval: 90, smart: true, nextAt: 0 },
     days: {}, achievements: {}, missions: {}, ui: {},
   };
@@ -257,6 +271,20 @@ export function migrate(s) {
   ['profile', 'goal', 'reminders', 'ui'].forEach((k) => { o[k] = Object.assign({}, d[k], s[k]); });
   ['days', 'achievements', 'missions'].forEach((k) => { if (!o[k] || typeof o[k] !== 'object') o[k] = {}; });
   if (!Array.isArray(o.cups) || o.cups.length !== 4) o.cups = d.cups.slice();
+  o.profile.others = o.profile.others !== false;
+  // Bebida dos copos rápidos: só água ou água com gás. Quem deixou café, chá etc. como padrão passa a tê-lo em "outros líquidos".
+  const l = byId(o.last);
+  if (l && l.g === 'o') { o.lastO = l.id; o.last = 'water'; } else o.last = l ? l.id : 'water';
+  const lo = byId(o.lastO);
+  if (!lo || lo.g !== 'o') o.lastO = d.lastO;
+  // Refrigerante e álcool saíram do app: seus registros antigos são descartados (senão virariam "água" por engano)
+  const days = {};
+  Object.keys(o.days).forEach((k) => {
+    const x = o.days[k];
+    days[k] = x && Array.isArray(x.entries) && x.entries.some((e) => e && retired(e.d))
+      ? Object.assign({}, x, { entries: x.entries.filter((e) => !(e && retired(e.d))) }) : x;
+  });
+  o.days = days;
   o.v = 1;
   return o;
 }

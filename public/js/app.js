@@ -1,22 +1,23 @@
 // Maré — aplicativo (Parte 3C). Liga estado, telas, lembretes, clima, celebrações e a nuvem opcional.
 // Toda alteração segue: muda S → save() → afterChange() (lembrete, conquistas, badge, nuvem) → atualiza só o necessário.
-import { ACTIVITY, drink, uid, dayKey, keyToDate, minOf, fmtHM, expectedBy, nextReminderAt, climateBonus, goalToday, levelFor,
-  missionFor, missionProgress, newAchievements, streak, buildICS, defaults, migrate } from './core.js';
-import { KEY, S, setS, hooks, load, save, clamp, num, plural, byT, shiftYm, today, goalNow, totalNow, ensureDay, syncTodayGoal,
-  allMl, U, vol, toMl, fromMl, big } from './store.js';
+import { ACTIVITY, drink, isWater, retired, uid, dayKey, keyToDate, minOf, fmtHM, expectedBy, nextReminderAt, climateBonus, goalToday,
+  levelFor, missionFor, missionProgress, newAchievements, streak, buildICS, defaults, migrate } from './core.js';
+import { KEY, S, setS, hooks, load, save, clamp, num, plural, byT, shiftYm, today, goalNow, totalNow, otherNow, othersOn, ensureDay,
+  syncTodayGoal, allMl, U, vol, toMl, fromMl, big } from './store.js';
 import { $, $$, tween, animBars, onBack, hPush, hBack, toast, runToastAction, showBanner, sheetBody, sheetIsOpen, openSheet,
   closeSheet, confirmSheet, runConfirm, splash, confetti, pop, levelY, dropTo } from './ui.js';
 import { isNative, reducedMotion, onMedia, haptic, registerSW, applyUpdate, notifStatus, requestNotifPermission, showNotification,
   scheduleNative, setBadge, drainInbox, initInstall, canInstall, promptInstall, getCoords, fetchMaxTemp, saveFile, share,
   persistStorage } from './platform.js';
-import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboardingView, OB_STEPS, tabbarHTML, drinkSheet,
-  entrySheet, daySheet, installSheet, notifHelpSheet, dropOpts, paceInfo, goalSumHTML, remNoteText, shareText, fmtW } from './views.js';
+import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboardingView, OB_STEPS, tabbarHTML, othersSheet, OTHER_NOTE,
+  entrySheet, daySheet, installSheet, notifHelpSheet, dropOpts, dropOpts2, drop2Label, paceInfo, goalSumHTML, remNoteText, shareText,
+  fmtW } from './views.js';
 
-export const APP_VERSION = '1.0.1'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.0.2'; // aumente a cada deploy, junto com VERSION no sw.js
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;
-let tab = 'today', ym = '', ob = null, dr = null, dropSt = null, curDay = '', remT = 0, climBusy = false, fileIn = null;
+let tab = 'today', ym = '', ob = null, dr = null, dropSt = null, dropSt2 = null, curDay = '', remT = 0, climBusy = false, fileIn = null;
 let cloud = null, syncState = 'off', cloudOn = false;
 
 /* ---------- utilidades ---------- */
@@ -27,8 +28,10 @@ const touch = (k) => { if (S.days[k]) S.days[k].u = Date.now(); }; // u = últim
 const snap = () => ({ total: totalNow(), goal: goalNow(), lv: levelFor(allMl()).i });
 const typing = () => { const a = document.activeElement; return !!a && a.tagName === 'INPUT' && view.contains(a); };
 const findEntry = (k, id) => { const d = S.days[k]; return (d && d.entries ? d.entries.filter((e) => e.id === id)[0] : null) || null; };
-const lastToday = () => { const d = S.days[today()], es = d && d.entries; return es && es.length ? es[es.length - 1].t : 0; };
-const cleanEntries = (list) => list.filter((e) => e && isFinite(e.t) && e.ml > 0 && e.ml <= 5000)
+// Hora do último gole de ÁGUA de hoje: o lembrete parte dele. Café, chá etc. não adiam o próximo lembrete de água.
+const lastToday = () => { const d = S.days[today()], es = d && d.entries ? d.entries.filter(isWater) : []; return es.reduce((m, e) => Math.max(m, e.t), 0); };
+// Refrigerante e álcool saíram do app: registros antigos deles (backup, nuvem) são descartados
+const cleanEntries = (list) => list.filter((e) => e && isFinite(e.t) && e.ml > 0 && e.ml <= 5000 && !retired(e.d))
   .map((e) => ({ id: String(e.id || uid()).slice(0, 24), t: +e.t, ml: Math.round(+e.ml), d: drink(e.d).id })).sort(byT);
 function refreshPart(id) { const el = $('#' + id); if (el && TODAY_PARTS[id]) el.innerHTML = TODAY_PARTS[id](); }
 function press(el) { $$('.pill', el.parentNode).forEach((p) => { p.setAttribute('aria-pressed', p === el ? 'true' : 'false'); }); }
@@ -53,6 +56,18 @@ function paintDrop() {
   const goal = goalNow(), total = totalNow();
   dropTo(el, total, goal, Object.assign(dropOpts(total, goal), { ms: dropSt ? 1100 : 1500 }));
   dropSt = el._st;
+  paintDrop2(goal);
+}
+// Segunda gota (outros líquidos): o nível é a proporção em relação à meta de água, só para dar noção de tamanho
+function paintDrop2(goal) {
+  const el = $('#drop2');
+  if (!el) return;
+  if (dropSt2) el._st = dropSt2;
+  const ml = otherNow();
+  dropTo(el, ml, goal, Object.assign(dropOpts2(), { ms: dropSt2 ? 1100 : 1500 }));
+  dropSt2 = el._st;
+  const b = $('#drop2btn');
+  if (b) b.setAttribute('aria-label', drop2Label(ml));
 }
 function render(still) {
   if (!S.onboarded) { if (ob) renderOb(); else startOnboarding(); return; }
@@ -67,7 +82,9 @@ function refreshToday(fx) {
   if (tab !== 'today' || !$('#drop')) return;
   Object.keys(TODAY_PARTS).forEach(refreshPart);
   animBars($('#tMission'));
-  if (fx) splash($('#drop'), levelY(totalNow() / goalNow()));
+  // fx: true = caiu água na gota principal; 'o' = caiu outro líquido na segunda gota
+  if (fx === 'o') { if ($('#drop2')) splash($('#drop2'), levelY(otherNow() / goalNow())); }
+  else if (fx) splash($('#drop'), levelY(totalNow() / goalNow()));
   setTimeout(paintDrop, fx && !reducedMotion() ? 380 : 0); // a água sobe quando a gota toca a superfície
 }
 function refreshUI() {
@@ -155,9 +172,9 @@ function quickAdd(ml, did) {
   const k = today(), d = drink(did || S.last), before = snap(), e = { id: uid(), t: Date.now(), ml: Math.round(ml), d: d.id };
   ensureDay(k).entries.push(e);
   touch(k); save(); haptic('light');
-  afterChange([k], before, true);
-  if (!d.f) toast(d.e + ' Registrado. Álcool não hidrata: que tal um copo de água junto?', { label: '+' + vol(250) + ' de água', fn: () => quickAdd(250, 'water') });
-  else toast('+' + vol(e.ml) + ' de ' + d.l.toLowerCase() + ' 💧', { label: 'Desfazer', fn: () => { if (removeEntry(k, e.id)) toast('Registro desfeito'); } });
+  afterChange([k], before, d.g === 'o' ? 'o' : true);
+  toast('+' + vol(e.ml) + ' de ' + d.l.toLowerCase() + (d.g === 'o' ? ' ' + d.e + ' · à parte' : ' 💧'),
+    { label: 'Desfazer', fn: () => { if (removeEntry(k, e.id)) toast('Registro desfeito'); } });
 }
 function removeEntry(k, id) {
   const d = S.days[k], before = snap();
@@ -177,9 +194,9 @@ function restoreEntry(k, e) {
   afterChange([k], before, false);
   toast('Registro restaurado ✓');
 }
-function openEntry(k, e, fromDay) {
+function openEntry(k, e, fromDay, did) {
   dr = e ? { mode: 'edit', day: k, id: e.id, d: e.d, ml: e.ml, time: fmtHM(minOf(e.t)) }
-    : { mode: 'add', day: k, id: '', d: S.last, ml: S.cups[1] || 250, time: k === today() ? fmtHM(minOf(Date.now())) : '12:00' };
+    : { mode: 'add', day: k, id: '', d: did || S.last, ml: S.cups[1] || 250, time: k === today() ? fmtHM(minOf(Date.now())) : '12:00' };
   dr.from = fromDay ? 'day' : '';
   openSheet(entrySheet(dr));
 }
@@ -192,12 +209,15 @@ function saveEntry() {
   const k = dr.day, b = keyToDate(k), hh = tm.split(':');
   const t = new Date(b.getFullYear(), b.getMonth(), b.getDate(), +hh[0], +hh[1]).getTime();
   if (t > Date.now() + 60000) { fail('Esse horário ainda não chegou.'); return; }
-  const before = snap(), edit = dr.mode === 'edit', from = dr.from, day = ensureDay(k), e = edit ? findEntry(k, dr.id) : null;
-  if (e) { e.ml = ml; e.d = dr.d; e.t = t; } else if (!edit) { day.entries.push({ id: uid(), t: t, ml: ml, d: dr.d }); S.last = dr.d; }
+  const before = snap(), edit = dr.mode === 'edit', from = dr.from, day = ensureDay(k), e = edit ? findEntry(k, dr.id) : null, dd = drink(dr.d);
+  if (e) { e.ml = ml; e.d = dd.id; e.t = t; } else if (!edit) {
+    day.entries.push({ id: uid(), t: t, ml: ml, d: dd.id });
+    if (dd.g === 'o') S.lastO = dd.id; else S.last = dd.id; // cada gota lembra a última bebida usada
+  }
   day.entries.sort(byT);
   touch(k); save();
   dr = null;
-  afterChange([k], before, !edit && k === today() && from !== 'day');
+  afterChange([k], before, !edit && k === today() && from !== 'day' ? (dd.g === 'o' ? 'o' : true) : false);
   if (from === 'day') openDay(k); else closeSheet();
   toast(edit ? 'Registro atualizado ✓' : '+' + vol(ml) + ' às ' + tm.slice(0, 5) + ' ✓');
 }
@@ -426,7 +446,7 @@ function applyBackup(s) {
   s.reminders = S.reminders; s.ui = S.ui; s.onboarded = true; // lembretes e dicas pertencem a este aparelho
   if (tab !== 'today' && !ob) hBack();
   setS(s);
-  ob = null; tab = 'today'; dropSt = null;
+  ob = null; tab = 'today'; dropSt = null; dropSt2 = null;
   syncTodayGoal(); save(); applyTheme();
   render(); planReminder(); updateBadge();
   startCloud();
@@ -441,7 +461,7 @@ function resetAll() {
     try { localStorage.removeItem(KEY); } catch (e) { /* ignora */ }
     if (tab !== 'today') hBack();
     setS(defaults()); save();
-    tab = 'today'; dropSt = null;
+    tab = 'today'; dropSt = null; dropSt2 = null;
     startOnboarding();
   });
 }
@@ -497,12 +517,22 @@ const A = {
   update: () => applyUpdate(),
   tab: (el, d) => go(d.tab),
   add: (el, d) => quickAdd(+d.ml),
-  'pick-drink': () => openSheet(drinkSheet(S.last)),
-  'set-drink': (el, d) => { S.last = drink(d.d).id; save(); closeSheet(); refreshPart('tQuick'); haptic('light'); },
+  // água comum ou com gás nos copos rápidos
+  'set-water': (el, d) => { const w = drink(d.v); if (w.g !== 'w') return; S.last = w.id; save(); refreshPart('tQuick'); haptic('light'); },
+  // segunda gota: painel dos outros líquidos (escolhe a bebida e toca no volume)
+  others: () => openSheet(othersSheet(S.lastO)),
+  'set-other': (el, d) => { const o = drink(d.d); if (o.g !== 'o') return; S.lastO = o.id; save(); openSheet(othersSheet(S.lastO)); haptic('light'); },
+  'add-o': (el, d) => { closeSheet(); quickAdd(+d.ml, S.lastO); },
+  'add-custom-o': () => openEntry(today(), null, false, S.lastO),
   'add-custom': () => openEntry(today()),
   'new-entry': (el, d) => openEntry(d.day, null, true),
   'edit-entry': (el, d) => { const e = findEntry(d.day, d.id); if (e) openEntry(d.day, e, sheetIsOpen()); },
-  'draft-drink': (el, d) => { if (dr) { dr.d = d.d; press(el); } },
+  'draft-drink': (el, d) => {
+    if (!dr) return;
+    dr.d = d.d; press(el);
+    const n = $('#eNote');
+    if (n) n.textContent = drink(d.d).g === 'o' ? OTHER_NOTE : '';
+  },
   'draft-ml': (el, d) => { if (dr) { dr.ml = +d.ml; $('#eMl').value = fromMl(dr.ml); press(el); } },
   'entry-save': () => saveEntry(),
   'entry-del': () => deleteEntry(),
@@ -523,6 +553,7 @@ const A = {
   'climate-on': () => setClimate(true),
   toggle: (el, d) => {
     if (d.k === 'climate') { setClimate(!S.goal.climate); return; }
+    if (d.k === 'others') { S.profile.others = !othersOn(); save(); render(true); return; } // a segunda gota só aparece em Hoje
     S.reminders.smart = !S.reminders.smart;
     planReminder(); render(true);
   },

@@ -1,6 +1,6 @@
 # Maré — PWA de hidratação · Handoff para o Claude Code
 
-Leia este arquivo inteiro antes de alterar o código. Ele explica o que está pronto, as decisões tomadas e o que falta. O código foi entregue em 5 partes numa conversa. **O estado real hoje (Firebase criado, GitHub Pages, correções feitas e o que falta) está no "Adendo — Parte 6", no final.** Onde as seções antigas dizem "ainda não foi executado" ou "criar o projeto", vale o adendo.
+Leia este arquivo inteiro antes de alterar o código. Ele explica o que está pronto, as decisões tomadas e o que falta. O código foi entregue em 5 partes numa conversa. **O estado real hoje (Firebase criado, GitHub Pages, correções feitas e o que falta) está no "Adendo — Parte 6", e as bebidas da versão 1.0.2 (água na meta, outros líquidos à parte) estão no "Adendo — Parte 7", ambos no final.** Onde as seções antigas dizem "ainda não foi executado", "criar o projeto" ou falam de fatores de hidratação, vale o adendo.
 
 ## O que é
 
@@ -12,7 +12,7 @@ PWA de hidratação em pt-BR, pensado para ir às lojas depois (via Capacitor). 
 - Lembretes inteligentes: só dentro da janela acordada, pausam ao bater a meta, ficam mais frequentes quando a pessoa está atrás do ritmo (modo adaptativo). Cada gole reagenda o próximo lembrete.
 - Ação na notificação (Android): botão "+250 ml" registra sem abrir o app (SW → IndexedDB → o app drena ao abrir).
 - Meta: peso × 35 ml + atividade + clima do dia (opcional, Open-Meteo, 1 consulta/dia, coordenadas arredondadas).
-- 10 bebidas com fator de hidratação; álcool conta 0 e sugere um copo de água.
+- Só água e água com gás contam na meta. Café, chá, suco, leite, coco e isotônico ficam numa segunda gota (âmbar), em contagem à parte e opcional; refrigerante e álcool não existem mais no app (ver Parte 7).
 - Registro retroativo, missões diárias, 12 medalhas, 8 níveis temáticos, sequência de dias.
 - Insights locais: período mais seco do dia, melhor dia da semana, % da água antes do meio-dia, semana vs. semana anterior.
 - Visual: gota SVG com ondas, texto "líquido", gota caindo + respingo a cada registro, confete na meta, tema claro/escuro, respeita "reduzir movimento".
@@ -108,7 +108,7 @@ users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
 - Safari pode apagar dados de sites não instalados após ~7 dias sem uso. Instalado na Tela de Início, isso não acontece; por isso o app incentiva a instalação.
 - Open-Meteo é grátis só para uso não comercial. No lançamento comercial, assine o plano ou troque o provedor.
 - Atalhos do ícone e a ação "+250 ml" são apenas Android. O badge depende do sistema.
-- Fatores de hidratação e a fórmula de meta são heurísticas, não orientação médica (há aviso nos Ajustes).
+- A fórmula de meta é uma heurística, não orientação médica (há aviso nos Ajustes). Desde a 1.0.2 não há mais fatores de hidratação: a meta é de água, e os outros líquidos têm contagem própria.
 
 ## Roadmap sugerido
 - Endpoint `quickLog` (HTTPS + token HMAC curto no payload do push) para a ação da notificação sincronizar na hora.
@@ -214,7 +214,7 @@ users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
 ### O que os testes cobrem
 - Lógica:
   - datas, incluindo virada de mês e de ano e ano bissexto;
-  - fatores das bebidas;
+  - grupos de bebidas (água × outros líquidos) e retirada de refrigerante e álcool;
   - meta (limites e arredondamento) e bônus de clima;
   - janela do dia e curva do ritmo;
   - 7 cenários de lembrete;
@@ -228,6 +228,7 @@ users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
   - comemoração da meta;
   - onças e tema escuro;
   - botão voltar do Android e atalho ?add=;
+  - segunda gota: registrar café/chá à parte sem mexer na meta, água com gás na meta, editor de registro, interruptor em Ajustes e limpeza de dados antigos (refrigerante/álcool);
   - movimento reduzido;
   - layout sem rolagem lateral e alvos de toque de pelo menos 44 px;
   - abrir offline com o SW (só no Chromium).
@@ -285,3 +286,40 @@ users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
 3. **Orçamento:** criar um alerta de orçamento no Google Cloud (Faturamento → Orçamentos e alertas). O uso esperado é mínimo (um job a cada 15 min e poucas leituras), mas o Blaze cobra por uso.
 4. **Opcional:** Firebase Hosting (`firebase deploy --only hosting` → https://mare-hidratacao.web.app, com os cabeçalhos de `firebase.json`), Firebase App Check, Lighthouse mobile e as pendências de "Antes das lojas".
 5. **Para as lojas (TWA/Bubblewrap):** o Digital Asset Links exige `/.well-known/assetlinks.json` na **raiz da origem**. Em `chrismello0211.github.io/mare/` isso não é possível (a raiz pertence ao repositório `chrismello0211.github.io`). Quando chegar a hora, use o Firebase Hosting (`mare-hidratacao.web.app`) ou um domínio próprio e ajuste o `"id"` do manifest se a origem mudar.
+
+## Adendo — Parte 7 (versão 1.0.2: só água conta na meta, outros líquidos numa segunda gota)
+
+### O que o dono pediu e por quê
+- Tirar **álcool e refrigerante** do app (não combinam com um app de saúde).
+- A gota principal passa a contar **só água e água com gás**. Café, chá, suco, leite, coco e isotônico vão para uma **segunda gota**, com contagem separada ("água × outros líquidos"). Motivo: não há consenso entre nutricionistas em contar essas bebidas como água, então o app não mistura as duas coisas, e a pessoa decide se quer acompanhar os outros líquidos.
+- O dono observou que, em teoria, a meta deveria ser de "hidratação" e não de "água". Isso **não foi feito de propósito** (ver "Ideia guardada" abaixo). Hoje o texto do app diz "meta de água" em todo lugar.
+
+### Modelo de dados e lógica (`core.js`)
+- `DRINKS` tem 8 bebidas, cada uma com um grupo `g`: `'w'` (`water`, `sparkling`) ou `'o'` (`coconut`, `tea`, `coffee`, `juice`, `milk`, `sport`). `WATERS` e `OTHERS` são os dois filtros. **Não existem mais fatores de hidratação.**
+- `eff(e)` devolve os ml se a bebida é do grupo água e 0 se é outro líquido. `dayTotal(day)` é, portanto, o total de **água** do dia: é o que vale para meta (`isMet`), sequência, níveis, missões, medalhas, insights, badge de copos restantes, lembretes e os campos `today.ml` e `total` que vão para a nuvem. `dayOther(day)` é o total de outros líquidos (só exibição). `isMet` continua exigindo pelo menos um registro e `dayTotal >= meta`: um dia só de café nunca "bate a meta".
+- **`soda` e `alcohol` foram aposentados** (`RETIRED`, `retired(id)`): `migrate()` descarta esses registros ao carregar (sem alterar o objeto recebido) e `cleanEntries()` (app.js) faz o mesmo ao importar backup e ao puxar dias da nuvem. Os dias antigos são **recalculados**: como só a água conta agora, quem tinha registrado café, chá etc. vê o total desses dias cair; esses registros continuam no histórico, agora como "outros líquidos". O dado limpo só é regravado no aparelho quando algo muda (o `boot()` não faz `save()`); como `migrate()` roda a cada abertura, isso é seguro.
+- Estado novo: `S.profile.others` (bool, padrão `true`; `migrate()` trata ausente como `true`) liga/desliga a segunda gota; `S.last` é a água do registro rápido (`water` ou `sparkling`); `S.lastO` é o último "outro líquido" (padrão `coffee`). Se um `last` antigo apontava para um outro líquido, `migrate()` o move para `lastO` e volta `last` para `water`.
+- Missões: `pure` ("Beba 1,5 L só de água") saiu, porque agora a meta inteira já é só de água, e `noon` ("Chegue a 1 L antes do meio-dia") entrou no lugar. `six` e `thirds` passaram a contar só registros de água ("Beba água 6 vezes hoje", "Beba água de manhã, à tarde e à noite"). Medalhas: `variety` (variedade de bebidas) saiu e entrou `s14` ("Quinzena firme", 14 dias seguidos na meta, emoji 💎 porque 🧊 é Unicode 12 e não aparece no iOS 12). Continuam 12 medalhas, 5 missões e 8 níveis. `context(S)` e `insights` ignoram outros líquidos (um dia só com café não conta como dia com dados).
+
+### Telas (`views.js`, `app.js`, `app.css`)
+- **Hoje:** a gota principal (água) ganhou ao lado, na base, uma gota pequena **âmbar** ("Outros líquidos") com o total de hoje e a legenda embaixo. O nível dela é relativo à meta de água, só para dar noção visual. Tocar nela abre o painel **Outros líquidos** (`othersSheet`): escolhe a bebida (coco, chá, café, suco, leite, isotônico) e toca no volume para registrar; o botão "Outro volume ou horário" abre o editor já nessa bebida. O aviso após registrar diz "à parte" e tem "Desfazer".
+- O **registro rápido** passou a ser só de água: seletor "Água / Com gás" (`data-action="set-water"`) + "Outro" (volume/horário) + os 4 copos. Em telas com menos de 300 px o emoji do seletor é escondido (`.sg-e`) para "Com gás" caber numa linha.
+- **Editor de registro** (`entrySheet`): as bebidas aparecem em grupos (água, separador, outros líquidos) e uma nota ("Outros líquidos contam à parte e não entram na meta de água.") aparece quando se escolhe um outro líquido.
+- **Ajustes:** novo grupo "Outros líquidos" com o interruptor "Registrar outros líquidos" (`S.profile.others`). Desligado, a segunda gota, o painel e as bebidas "outros" do editor somem e os registros desse tipo ficam escondidos das listas (**não são apagados**; ao religar, voltam).
+- **Histórico:** o painel de um dia mostra "+ X de outros líquidos, contados à parte" quando houver. Gráficos, calendário e médias usam só água. **Jornada** e o texto de compartilhar falam em "de água".
+- Layout da segunda gota: posicionamento absoluto à direita do ponto mais largo da gota principal, com tamanhos por media query (72 px por padrão, 62 px em telas baixas ou estreitas, 76 px em telas grandes e 50 px abaixo de 300 px). Cores novas: `--oth1 --oth2 --othb --othink --odropbg --odropline`, claro e escuro. O teste de layout confere que ela não passa da borda, não encosta na gota principal e tem pelo menos 44 px de área de toque.
+
+### Nuvem
+- **Nenhuma mudança** em `firestore.rules`, `firestore.indexes.json` nem `functions/index.js`: os campos gravados são os mesmos, e `today.ml`/`total` agora são só de água (a Cloud Function compara com a meta de água, como esperado). Não é preciso reimplantar nada no Firebase; basta publicar o site.
+- Um aparelho que ainda esteja na 1.0.1 e grave refrigerante/álcool na nuvem não quebra nada: a 1.0.2 descarta esses registros ao puxar.
+
+### Como foi validado
+- `npm test`: 34 testes de lógica (novos: grupos água × outros, catálogo, missões, medalhas, `migrate` com refrigerante/álcool e `last` → `lastO`).
+- `npm run test:e2e`: 149 execuções nos mesmos 13 perfis da Parte 6 (144 passam, 5 puladas de propósito pelo mesmo motivo de antes). Testes novos: outros líquidos à parte (sem mexer na água, com "Desfazer"), água com gás na meta, editor com nota, interruptor em Ajustes, dados antigos com refrigerante/álcool, e o teste de layout agora confere a segunda gota. Os perfis de iPhone/iPad continuam **emulados no Chromium**; Safari real exige aparelho.
+- Revisão visual da gota principal + segunda gota (claro e escuro, de 280 a 768 px, com 0, 350 ml e 12.000 ml em outros líquidos), do painel Outros líquidos, do editor, de Ajustes, do painel do dia e da Jornada.
+
+### Ideia guardada: "Somar outros líquidos na meta" (não construída)
+Se o dono quiser a meta de **hidratação**, a forma mais barata é um interruptor em Ajustes (por exemplo `S.profile.mix`) que soma `dayOther` ao total. Pontos a mexer: `dayTotal` (ou uma variante `dayHydration`) em `core.js` e todos os que dependem dele (`isMet`, sequência, missões, medalhas, insights, ritmo, badge, lembretes e `today.ml` na nuvem); textos "meta de água" → "meta de hidratação"; testes de lógica duplicados nos dois modos. A forma mais simples de passar o modo é uma flag de módulo em `core.js` (`setMix(bool)`) chamada no `boot()` e ao mudar o interruptor, para não precisar alterar todas as assinaturas. O padrão deve continuar **desligado**.
+
+### Para publicar
+`VERSION` (sw.js) e `APP_VERSION` (app.js) estão em `1.0.2`. Extrair o ZIP por cima do repositório, commit e push na `main`; o Actions publica em cerca de 1 minuto e quem já tem o app vê "Nova versão disponível". Os itens de "O que falta" da Parte 6 (principalmente o push real em aparelho) continuam valendo.

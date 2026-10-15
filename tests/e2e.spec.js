@@ -17,11 +17,12 @@ async function seed(page, o) {
     const p2 = (n) => (n < 10 ? '0' : '') + n, now = new Date(), days = {};
     const k = now.getFullYear() + '-' + p2(now.getMonth() + 1) + '-' + p2(now.getDate());
     if (opt.todayMl) days[k] = { goal: 2800, entries: [{ id: 'seed', t: now.getTime() - 60000, ml: opt.todayMl, d: 'water' }] };
+    if (opt.entries) days[k] = { goal: 2800, entries: opt.entries.map((e, i) => ({ id: 'seed' + i, t: now.getTime() - (opt.entries.length - i) * 60000, ml: e[0], d: e[1] })) };
     localStorage.setItem('mare:v1', JSON.stringify({
       v: 1, onboarded: true, createdAt: now.getTime() - 10 * 864e5,
       profile: { name: 'Ana', weight: 70, activity: 'moderate', wake: '07:00', sleep: '23:00', unit: 'ml', theme: 'light' },
       goal: { mode: 'manual', manual: 2800, climate: false, bonus: 0, temp: null, day: '' },
-      cups: [150, 250, 350, 500], last: 'water', reminders: { enabled: false, interval: 90, smart: true, nextAt: 0 },
+      cups: [150, 250, 350, 500], last: opt.last || 'water', reminders: { enabled: false, interval: 90, smart: true, nextAt: 0 },
       days: days, achievements: {}, missions: {}, ui: { tip_install: 1, tip_climate: 1 },
     }));
   }, o || {});
@@ -100,7 +101,7 @@ test('ajustes: onças e tema escuro', async ({ page }) => {
 test('voltar do Android fecha o painel e depois volta para Hoje', async ({ page }) => {
   await seed(page);
   await page.goto('/');
-  await page.getByRole('button', { name: /^Bebida atual/ }).click();
+  await page.getByRole('button', { name: /^Outros líquidos/ }).click();
   await expect(page.locator('#sheet')).toBeVisible();
   await page.evaluate(() => { history.back(); });
   await expect(page.locator('#sheet')).toBeHidden();
@@ -130,6 +131,119 @@ test('layout: sem rolagem lateral, alvos de toque confortáveis e screenshots', 
   expect(await page.$$eval('#tabbar .tab', (els) => els.filter((e) => e.getBoundingClientRect().height < 44).length)).toBe(0);
   await tab(page, 'Hoje').click();
   expect(await page.$$eval('.cup', (els) => els.filter((e) => e.getBoundingClientRect().height < 44).length)).toBe(0);
+  // segunda gota: dentro da tela, à direita da parte mais larga da gota principal e com área de toque confortável
+  const g = await page.evaluate(() => {
+    const b = document.querySelector('#drop2btn').getBoundingClientRect(), m = document.querySelector('#drop').getBoundingClientRect();
+    return { left: b.left, right: b.right, w: b.width, h: b.height, iw: window.innerWidth, edge: m.left + m.width / 2 + m.width * 0.41 };
+  });
+  expect(g.right, 'segunda gota passa da borda da tela').toBeLessThanOrEqual(g.iw - 2);
+  expect(g.left, 'segunda gota encosta na gota principal').toBeGreaterThanOrEqual(g.edge + 2);
+  expect(g.w).toBeGreaterThanOrEqual(44);
+  expect(g.h).toBeGreaterThanOrEqual(44);
+});
+
+// Segunda gota: café, chá, suco etc. ficam numa contagem à parte e não entram na meta de água
+const mainLabel = (page) => page.locator('#drop svg');
+const other = (page) => page.locator('#drop2 .t-num').first();
+
+test('outros líquidos: registro à parte, sem mexer na meta de água', async ({ page }) => {
+  await seed(page);
+  await page.goto('/');
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^0 ml de 2\.800 ml/);
+  await page.getByRole('button', { name: /^Outros líquidos/ }).click();
+  const sheet = page.locator('#sheetBody');
+  await expect(sheet.locator('#sheetTitle')).toHaveText('Outros líquidos');
+  await expect(sheet.getByRole('radio')).toHaveCount(6); // coco, chá, café, suco, leite, isotônico
+  await sheet.getByRole('radio', { name: /Chá/ }).click();
+  await expect(sheet.getByRole('radio', { name: /Chá/ })).toHaveAttribute('aria-checked', 'true');
+  await sheet.getByRole('button', { name: 'Adicionar 150 ml de chá' }).click();
+  await expect(page.locator('#sheet')).toBeHidden();
+  await expect(page.locator('#toast')).toContainText('+150 ml de chá');
+  await expect(page.locator('#toast')).toContainText('à parte');
+  await expect(other(page)).toHaveText('150', { timeout: 6000 });
+  await expect(page.getByRole('button', { name: /^Outros líquidos: 150 ml hoje/ })).toBeVisible();
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^0 ml de 2\.800 ml/); // a água não mexeu
+  await expect(page.locator('#tLog')).toContainText('Chá');
+  await expect(page.locator('#tLog')).toContainText('outros líquidos');
+  await page.locator('#toast').getByRole('button', { name: 'Desfazer' }).click();
+  await expect(page.locator('#tLog')).toContainText('Nada por aqui ainda');
+  await expect(other(page)).toHaveText('0', { timeout: 6000 });
+});
+
+test('água com gás conta na meta, como a água comum', async ({ page }) => {
+  await seed(page);
+  await page.goto('/');
+  await page.getByRole('radio', { name: /Com gás/ }).click();
+  await expect(page.getByRole('radio', { name: /Com gás/ })).toHaveAttribute('aria-checked', 'true');
+  await cup(page, '250 ml').click();
+  await expect(page.locator('#toast')).toContainText('+250 ml de água com gás');
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^250 ml de 2\.800 ml/);
+  await expect(other(page)).toHaveText('0');
+});
+
+test('registro com data e hora: o editor separa água de outros líquidos', async ({ page }) => {
+  await seed(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Outro volume ou horário' }).click();
+  const sheet = page.locator('#sheetBody');
+  await expect(sheet.getByRole('button', { name: /Água$/ })).toBeVisible();
+  await expect(sheet.locator('#eNote')).toHaveText('');
+  await sheet.getByRole('button', { name: /Café/ }).click();
+  await expect(sheet.locator('#eNote')).toContainText('não entram na meta de água');
+  await page.locator('#eMl').fill('120');
+  await sheet.getByRole('button', { name: 'Adicionar', exact: true }).click();
+  await expect(page.locator('#tLog')).toContainText('Café');
+  await expect(other(page)).toHaveText('120', { timeout: 6000 });
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^0 ml de 2\.800 ml/);
+});
+
+test('ajustes: esconder e mostrar a segunda gota', async ({ page }) => {
+  await seed(page, { entries: [[500, 'water'], [200, 'coffee']] });
+  await page.goto('/');
+  await expect(page.locator('#drop2')).toBeVisible();
+  await expect(page.locator('#tLog')).toContainText('2 registros');
+  await tab(page, 'Ajustes').click();
+  const sw = page.getByRole('switch', { name: 'Registrar outros líquidos' });
+  await expect(sw).toHaveAttribute('aria-checked', 'true');
+  await sw.click();
+  await expect(sw).toHaveAttribute('aria-checked', 'false');
+  await tab(page, 'Hoje').click();
+  await expect(page.locator('#drop2')).toHaveCount(0);
+  await expect(page.locator('#tLog')).toContainText('1 registro'); // o café fica guardado, mas escondido
+  await expect(page.locator('#tLog')).not.toContainText('Café');
+  await page.getByRole('button', { name: 'Outro volume ou horário' }).click();
+  await expect(page.locator('#sheetBody').getByRole('button', { name: /Café/ })).toHaveCount(0);
+  await page.locator('#sheetBody').getByRole('button', { name: 'Cancelar' }).click();
+  await tab(page, 'Ajustes').click();
+  await page.getByRole('switch', { name: 'Registrar outros líquidos' }).click();
+  await tab(page, 'Hoje').click();
+  await expect(page.locator('#drop2')).toBeVisible();
+  await expect(page.locator('#tLog')).toContainText('2 registros');
+  await expect(other(page)).toHaveText('200', { timeout: 6000 });
+});
+
+test('dados antigos: refrigerante e álcool saem; café vira "outros líquidos"', async ({ page }) => {
+  await seed(page, { entries: [[500, 'water'], [350, 'soda'], [300, 'alcohol'], [100, 'coffee']], last: 'coffee' });
+  await page.goto('/');
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^500 ml de 2\.800 ml/); // nem o refri nem o álcool viram "água"
+  await expect(other(page)).toHaveText('100', { timeout: 6000 });
+  await expect(page.locator('#tLog')).toContainText('2 registros');
+  await expect(page.locator('#tLog')).not.toContainText('Refrigerante');
+  await expect(page.locator('#tLog')).not.toContainText('alcoólica');
+  await expect(page.getByRole('radio', { name: /^💧/ })).toHaveAttribute('aria-checked', 'true'); // copos rápidos voltam para a água
+  await page.getByRole('button', { name: /^Outros líquidos/ }).click();
+  await expect(page.locator('#sheetBody').getByRole('radio', { name: /Café/ })).toHaveAttribute('aria-checked', 'true');
+  await page.evaluate(() => { history.back(); });
+  await expect(page.locator('#sheet')).toBeHidden();
+  // o app só regrava o aparelho quando algo muda: ao registrar um copo, o que ficou salvo já vem limpo
+  await cup(page, '250 ml').click();
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^750 ml de 2\.800 ml/);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('mare:v1')));
+  expect(saved.last).toBe('water');
+  expect(saved.lastO).toBe('coffee');
+  const tipos = [];
+  Object.keys(saved.days).forEach((k) => { saved.days[k].entries.forEach((e) => { tipos.push(e.d); }); });
+  expect(tipos.sort()).toEqual(['coffee', 'water', 'water']);
 });
 
 test.describe('movimento reduzido', () => {

@@ -16,6 +16,9 @@
   --water1: #6CCBFF; --water2: #1A6FE0; --waterb: rgba(108,203,255,.42);
   --dropbg: #E2EFFB; --dropline: rgba(26,127,232,.25);
   --numink: #0E4C92; --numw: #FFFFFF;
+  /* segunda gota (outros líquidos): tom âmbar, para não ser confundida com a água */
+  --oth1: #F2B04A; --oth2: #C7701A; --othb: rgba(242,176,74,.45); --othink: #8A4A0B;
+  --odropbg: #FBEFD9; --odropline: rgba(199,112,26,.34);
   --toast: #0B2545;
   --shadow: 0 1px 2px rgba(11,37,69,.05), 0 6px 20px rgba(11,37,69,.07);
   --shadow2: 0 16px 48px rgba(11,37,69,.2);
@@ -34,6 +37,8 @@
   --water1: #4FC3FF; --water2: #155FD0; --waterb: rgba(79,195,255,.28);
   --dropbg: #0F2740; --dropline: rgba(79,195,255,.28);
   --numink: #D5EBFF; --numw: #052340;
+  --oth1: #F5B556; --oth2: #C26B14; --othb: rgba(245,181,86,.30); --othink: #FBE3BC;
+  --odropbg: #2A2113; --odropline: rgba(245,181,86,.34);
   --toast: #1D3D60;
   --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.28);
   --shadow2: 0 16px 48px rgba(0,0,0,.55);
@@ -154,6 +159,23 @@ body.no-tabs .wrap { padding-bottom: 20px; padding-bottom: calc(20px + env(safe-
 .t-sub { font-size: 13px; font-weight: 700; fill: var(--muted); }
 .t-pct.w, .t-num.w, .t-sub.w { fill: var(--numw); }
 .hero-meta { margin-top: 16px; text-align: center; }
+/* A segunda gota (outros líquidos) fica no canto inferior direito da principal, que continua centralizada */
+.drops { position: relative; display: flex; justify-content: center; width: 100%; }
+.drop2 { position: absolute; bottom: 0; left: 50%; width: 72px; margin-left: 92px; padding: 0; text-align: center; }
+.drop2 .drop-wrap { display: block; width: 72px; height: 86px; margin: 0 auto; transform-origin: 50% 90%; }
+.drop2:active .drop-wrap { transform: scale(.94); }
+.d2-cap { display: block; margin-top: 9px; font-size: 11px; font-weight: 800; line-height: 1.15; color: var(--muted); }
+.drop-wrap.alt::after { bottom: -6px; height: 10px; background: radial-gradient(closest-side, rgba(199,112,26,.3), rgba(199,112,26,0)); }
+.alt .d-bg { fill: var(--odropbg); }
+.alt .d-line { stroke: var(--odropline); }
+.alt .st1 { stop-color: var(--oth1); }
+.alt .st2 { stop-color: var(--oth2); }
+.alt .w-back { fill: var(--othb); }
+.alt .t-pct { display: none; }
+.alt .t-num { font-size: 50px; fill: var(--othink); transform: translateY(-14px); }
+.alt .t-sub { font-size: 32px; transform: translateY(-14px); }
+.alt .t-num.w { fill: var(--numw); }
+.alt .t-sub.w { fill: var(--numw); }
 .pace {
   display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 99px;
   background: var(--okbg); color: var(--ok); font-size: 14px; font-weight: 700;
@@ -169,16 +191,8 @@ body.no-tabs .wrap { padding-bottom: 20px; padding-bottom: calc(20px + env(safe-
 
 /* registro rápido */
 .quick-top { display: flex; align-items: stretch; margin-bottom: 12px; }
-.drink-pick {
-  flex: 1; display: flex; align-items: center; min-width: 0; min-height: 56px; padding: 8px 12px;
-  border-radius: 16px; background: var(--surface2); text-align: left;
-}
-.drink-pick .em { margin-right: 10px; font-size: 26px; line-height: 1; }
-.dp-t { flex: 1; min-width: 0; }
-.dp-t b, .dp-t small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dp-t b { font-size: 15px; }
-.dp-t small { font-size: 12px; color: var(--muted); }
-.caret { padding-left: 8px; color: var(--muted); }
+.quick-top .seg { flex: 1; min-width: 0; min-height: 56px; padding: 4px; border-radius: 16px; }
+.quick-top .seg button { min-height: 48px; padding: 4px 6px; border-radius: 12px; font-size: 15px; }
 .btn-icon {
   display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0;
   width: 60px; margin-left: 10px; border-radius: 16px; background: var(--surface2); color: var(--primary);
@@ -197,6 +211,8 @@ body.no-tabs .wrap { padding-bottom: 20px; padding-bottom: calc(20px + env(safe-
 .g-o { fill: none; stroke: var(--primary); stroke-width: 1.6; stroke-linejoin: round; }
 .g-w { fill: var(--water1); }
 .cup span { font-size: 14px; font-weight: 800; white-space: nowrap; }
+.cups.alt .g-w { fill: var(--oth1); }
+.cups.alt .g-o { stroke: var(--oth2); }
 
 /* dicas (instalar, clima) */
 .tip { display: flex; align-items: flex-start; }
@@ -285,6 +301,8 @@ body.no-tabs .wrap { padding-bottom: 20px; padding-bottom: calc(20px + env(safe-
 .drinks { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-gap: 8px; gap: 8px; }
 .drink { padding: 12px 4px; border: 2px solid transparent; border-radius: 16px; background: var(--surface2); text-align: center; }
 .drink[aria-checked="true"] { border-color: var(--primary); background: var(--surface); }
+.drinks.o .drink[aria-checked="true"] { border-color: var(--oth2); }
+.lbl-cups { margin-top: 16px; }
 .drink .em { display: block; font-size: 28px; line-height: 1.1; }
 .drink b { display: block; margin-top: 6px; font-size: 13px; }
 .drink small { display: block; font-size: 11px; color: var(--muted); }
@@ -303,6 +321,11 @@ body.no-tabs .wrap { padding-bottom: 20px; padding-bottom: calc(20px + env(safe-
   font-size: 14px; font-weight: 700; white-space: nowrap;
 }
 .pill[aria-pressed="true"] { border-color: var(--primary); background: var(--surface); }
+.pill.o[aria-pressed="true"] { border-color: var(--oth2); }
+.dsep { flex-shrink: 0; width: 2px; height: 24px; margin: 7px 14px 0 6px; border-radius: 2px; background: var(--faint); opacity: .5; }
+.e-note { min-height: 20px; margin: -2px 2px 8px; font-size: 13px; color: var(--muted); }
+.day-oth { margin: 10px 2px 4px; font-size: 13px; color: var(--muted); }
+.day-oth b { color: var(--othink); }
 .lbl { display: block; margin: 6px 2px 8px; font-size: 13px; font-weight: 700; color: var(--muted); }
 .es-row { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 12px; }
 .es-row .lbl { margin: 0; }
@@ -558,6 +581,7 @@ body.no-tabs .toast { bottom: 20px; bottom: calc(20px + env(safe-area-inset-bott
   .cup { min-height: 82px; }
   .cup svg { width: 22px; height: 28px; }
   .cup span { font-size: 13px; }
+  .quick-top .seg button { padding: 4px 2px; font-size: 13px; }
   .medals { grid-template-columns: 1fr 1fr; }
   .cal { grid-gap: 4px; gap: 4px; }
   .cal-d { height: 34px; font-size: 12px; }
@@ -568,12 +592,24 @@ body.no-tabs .toast { bottom: 20px; bottom: calc(20px + env(safe-area-inset-bott
 }
 @media (max-height: 680px), (max-width: 350px) {
   .drop-wrap { width: 170px; height: 204px; }
+  .drop2 { width: 62px; margin-left: 78px; }
+  .drop2 .drop-wrap { width: 62px; height: 74px; }
   .ob-hero { margin-bottom: 14px; }
   .ob-hero .drop-wrap { width: 140px; height: 168px; }
   .big-num { font-size: 46px; }
 }
 @media (min-height: 800px) and (min-width: 390px) {
   .drop-wrap { width: 224px; height: 269px; }
+  .drop2 { width: 76px; margin-left: 100px; }
+  .drop2 .drop-wrap { width: 76px; height: 91px; }
+}
+@media (max-width: 300px) {
+  .drop2 { width: 50px; margin-left: 74px; }
+  .drop2 .drop-wrap { width: 50px; height: 60px; }
+  .d2-cap { font-size: 10px; }
+}
+@media (max-width: 299px) {
+  .quick-top .sg-e { display: none; } /* tela de 280 px: sem o emoji, "Com gás" cabe numa linha só */
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

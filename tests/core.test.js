@@ -25,10 +25,21 @@ describe('datas', () => {
 });
 
 describe('bebidas e totais', () => {
-  it('aplica o fator de hidratação', () => {
-    const d = day(2000, [[at(1, 9), 250], [at(1, 10), 250, 'coffee'], [at(1, 11), 350, 'alcohol']]);
-    expect(C.dayTotal(d)).toBe(475); // 250 + 225 + 0
+  it('só água e água com gás contam na meta; os outros líquidos ficam numa contagem à parte', () => {
+    const d = day(2000, [[at(1, 9), 250], [at(1, 10), 300, 'sparkling'], [at(1, 11), 150, 'coffee'], [at(1, 12), 200, 'juice']]);
+    expect(C.dayTotal(d)).toBe(550); // 250 + 300
+    expect(C.dayOther(d)).toBe(350); // 150 + 200
+    expect(C.dayOther(undefined)).toBe(0);
+    expect(C.isMet(day(2000, [[at(1, 9), 1000], [at(1, 10), 2000, 'milk']]))).toBe(false); // leite não completa a meta
+    expect(C.isMet(day(2000, [[at(1, 9), 2000, 'sparkling']]))).toBe(true); // água com gás conta igual
+  });
+  it('catálogo: 2 águas e 6 outros líquidos, sem refrigerante nem álcool', () => {
+    expect(C.WATERS.map((d) => d.id)).toEqual(['water', 'sparkling']);
+    expect(C.OTHERS.map((d) => d.id)).toEqual(['coconut', 'tea', 'coffee', 'juice', 'milk', 'sport']);
+    expect(C.DRINKS.some((d) => d.id === 'soda' || d.id === 'alcohol')).toBe(false);
+    expect(C.retired('soda') && C.retired('alcohol') && !C.retired('coffee')).toBe(true);
     expect(C.drink('xyz').id).toBe('water'); // id desconhecido vira água
+    expect(C.isOther({ d: 'tea' }) && C.isWater({ d: 'water' }) && !C.isOther({ d: 'sparkling' })).toBe(true);
   });
   it('isMet exige registro e meta', () => {
     expect(C.isMet(undefined)).toBe(false);
@@ -124,18 +135,23 @@ describe('missões', () => {
     C.MISSIONS.forEach((m) => { M[m.id] = m; });
     const es = day(2000, [[at(10, 8), 300], [at(10, 9, 30), 300], [at(10, 13), 500], [at(10, 20), 900, 'tea']]).entries;
     expect(M.am500.p(es, 2000)).toBeCloseTo(1.2);
-    expect(M.six.p(es, 2000)).toBeCloseTo(4 / 6);
+    expect(M.six.p(es, 2000)).toBeCloseTo(3 / 6); // o chá não é um "gole de água"
     expect(M.by19.p(es, 2000)).toBeCloseTo(0.55);
-    expect(M.thirds.p(es, 2000)).toBe(1);
-    expect(M.pure.p(es, 2000)).toBeCloseTo(1100 / 1500);
+    expect(M.thirds.p(es, 2000)).toBeCloseTo(2 / 3); // manhã e tarde; o chá da noite não conta
+    expect(M.noon.p(es, 2000)).toBeCloseTo(0.6); // 600 ml até o meio-dia
+    expect(M.pure).toBeUndefined(); // "só de água" perdeu o sentido: a meta já é só de água
+  });
+  it('outros líquidos não avançam nenhuma missão', () => {
+    const es = day(2000, [[at(10, 8), 800, 'coffee'], [at(10, 9), 800, 'juice'], [at(10, 11), 800, 'milk']]).entries;
+    C.MISSIONS.forEach((m) => { expect(m.p(es, 2000), m.id).toBe(0); });
   });
 });
 
 describe('conquistas', () => {
   it('libera medalhas uma vez só, inclusive a do fim de semana', () => {
     const S = C.defaults();
-    S.days['2026-06-06'] = day(2000, [[at(6, 8), 600], [at(6, 12), 1400, 'tea']]); // sábado
-    S.days['2026-06-07'] = day(2000, [[at(7, 10), 2000, 'coffee']]); // domingo: café conta 90% = 1.800
+    S.days['2026-06-06'] = day(2000, [[at(6, 8), 600], [at(6, 12), 1400, 'sparkling']]); // sábado: meta às 12h
+    S.days['2026-06-07'] = day(2000, [[at(7, 10), 1800]]); // domingo: ainda faltam 200 ml
     let ids = C.newAchievements(S).map((a) => a.id);
     expect(ids).toEqual(expect.arrayContaining(['first', 'goal', 'early', 'sunset']));
     expect(ids).not.toContain('weekend');
@@ -144,6 +160,21 @@ describe('conquistas', () => {
     ids = C.newAchievements(S).map((a) => a.id);
     expect(ids).toContain('weekend');
     expect(ids).not.toContain('first');
+  });
+  it('outros líquidos não rendem medalha (nem a primeira gota)', () => {
+    const S = C.defaults();
+    S.days['2026-06-07'] = day(2000, [[at(7, 8), 3000, 'coffee'], [at(7, 9), 3000, 'juice']]);
+    expect(C.newAchievements(S).map((a) => a.id)).toEqual([]);
+    expect(C.ACHIEVEMENTS.some((a) => a.id === 'variety')).toBe(false);
+  });
+  it('quinzena firme: 14 dias seguidos na meta', () => {
+    const S = C.defaults();
+    for (let i = 0; i < 13; i++) S.days[C.addDays('2026-06-01', i)] = met();
+    expect(C.newAchievements(S).map((a) => a.id)).toEqual(expect.arrayContaining(['s7']));
+    expect(C.newAchievements(S).map((a) => a.id)).not.toContain('s14');
+    S.days[C.addDays('2026-06-01', 13)] = met();
+    expect(C.newAchievements(S).map((a) => a.id)).toContain('s14');
+    expect(C.newAchievements(S).map((a) => a.id)).not.toContain('s30');
   });
 });
 
@@ -181,6 +212,22 @@ describe('formatação, estado e calendário', () => {
     expect(s.profile.wake).toBe('07:00');
     expect(s.cups).toEqual([150, 250, 350, 500]);
     expect(Object.keys(s.days)).toEqual(['2026-06-10']);
+  });
+  it('migrate: refrigerante e álcool saem; café e chá viram "outros líquidos"', () => {
+    const entries = [
+      { id: 'a', t: at(10, 8), ml: 250, d: 'water' }, { id: 'b', t: at(10, 9), ml: 350, d: 'soda' },
+      { id: 'c', t: at(10, 10), ml: 300, d: 'alcohol' }, { id: 'd', t: at(10, 11), ml: 100, d: 'coffee' }];
+    const s = C.migrate({ last: 'coffee', days: { '2026-06-10': { goal: 2000, entries: entries } } });
+    expect(s.days['2026-06-10'].entries.map((e) => e.id)).toEqual(['a', 'd']);
+    expect(entries.length).toBe(4); // a entrada original não é alterada
+    expect(s.last).toBe('water'); // copos rápidos: só água
+    expect(s.lastO).toBe('coffee'); // quem tinha café como padrão o leva para "outros líquidos"
+    expect(s.profile.others).toBe(true);
+    expect(C.migrate({ last: 'soda' }).last).toBe('water');
+    expect(C.migrate({ last: 'sparkling', lastO: 'tea' })).toMatchObject({ last: 'sparkling', lastO: 'tea' });
+    expect(C.migrate({ lastO: 'water' }).lastO).toBe('coffee'); // lastO só aceita "outros líquidos"
+    expect(C.migrate({ profile: { others: false } }).profile.others).toBe(false);
+    expect(C.defaults()).toMatchObject({ last: 'water', lastO: 'coffee' });
   });
   it('.ics: um alarme diário por intervalo dentro da janela', () => {
     const ics = C.buildICS({ wake: '07:00', sleep: '23:00' }, 90, new Date(2026, 5, 10, 12));
