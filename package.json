@@ -1,0 +1,23 @@
+{
+  "name": "mare",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Maré — PWA de hidratação (pt-BR)",
+  "scripts": {
+    "dev": "serve public -l 5173 --no-clipboard --no-port-switching",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "icons": "node scripts/icons.mjs",
+    "deploy": "npm run icons && firebase deploy --only firestore,functions,hosting"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "serve": "^14.2.4",
+    "sharp": "^0.33.5",
+    "vitest": "^2.1.8"
+  },
+  "engines": { "node": ">=20" }
+}

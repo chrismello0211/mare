@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3AA4FF"/>
+      <stop offset="1" stop-color="#1265D6"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7FD4FF"/>
+      <stop offset="1" stop-color="#2F8BF0"/>
+    </linearGradient>
+    <clipPath id="clip"><path d="M256 88C222 140 146 222 146 300a110 110 0 0 0 220 0C366 222 290 140 256 88Z"/></clipPath>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <g id="art">
+    <path id="drop" d="M256 88C222 140 146 222 146 300a110 110 0 0 0 220 0C366 222 290 140 256 88Z" fill="#fff"/>
+    <g clip-path="url(#clip)">
+      <path d="M120 300q34-22 68 0t68 0 68 0 68 0 68 0V430H120Z" fill="url(#water)"/>
+    </g>
+    <path d="M190 322a66 66 0 0 0 30 58" fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="14" stroke-linecap="round"/>
+  </g>
+</svg>
