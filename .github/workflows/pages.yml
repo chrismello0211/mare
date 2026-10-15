@@ -1,0 +1,49 @@
+# Publica o app (a pasta public/) no GitHub Pages sempre que algo novo chega na branch main.
+# Pré-requisito, uma vez só: Settings → Pages → Build and deployment → Source = "GitHub Actions".
+# Endereço final: https://<usuario>.github.io/<repositorio>/  (o app já funciona nesse subcaminho)
+name: Publicar no GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # também dá para rodar na mão: aba Actions → este fluxo → Run workflow
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v7
+
+      # Evita publicar um app quebrado se o envio dos arquivos ficou pela metade
+      - name: Conferir se todos os arquivos do app estão na pasta public/
+        run: |
+          faltando=0
+          for f in index.html manifest.webmanifest sw.js css/app.css \
+                   js/app.js js/core.js js/store.js js/ui.js js/views.js js/platform.js js/firebase.js js/firebase-config.js \
+                   icons/icon.svg icons/icon-192.png icons/icon-512.png icons/maskable-512.png icons/apple-touch-icon.png icons/badge-72.png; do
+            if [ ! -f "public/$f" ]; then echo "::error::Falta public/$f: envie todos os arquivos do projeto e tente de novo."; faltando=1; fi
+          done
+          exit $faltando
+
+      - name: Empacotar a pasta public/
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: public
+          include-hidden-files: true # para pastas como public/.well-known/ também irem ao ar
+
+      - name: Publicar
+        id: deployment
+        uses: actions/deploy-pages@v5

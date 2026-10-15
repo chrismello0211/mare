@@ -419,7 +419,7 @@ body.no-tabs .wrap { padding-bottom: 20px; padding-bottom: calc(20px + env(safe-
 .in::placeholder { color: var(--faint); }
 .in.wide { width: 100%; }
 .in.num { width: 92px; text-align: right; font-weight: 700; }
-input[type="time"].in { width: 116px; text-align: center; }
+input[type="time"].in { width: 136px; padding: 0 8px; text-align: center; } /* cabe "07:00 AM" em aparelhos com relógio de 12 h */
 input[type="time"].in::-webkit-date-and-time-value { text-align: center; }
 .unit { margin-left: 8px; font-weight: 600; color: var(--muted); }
 .stepper { display: flex; align-items: center; }
@@ -485,7 +485,7 @@ input[type="time"].in::-webkit-date-and-time-value { text-align: center; }
 .times { display: flex; }
 .times .field { flex: 1; }
 .times .field + .field { margin-left: 12px; }
-.times .in { width: 100%; height: 58px; font-size: 22px; font-weight: 700; }
+.times .in { width: 100%; height: 58px; padding: 0 6px; font-size: 20px; font-weight: 700; }
 .feat li { padding: 12px 0; border-top: 1px solid var(--line); color: var(--muted); }
 .feat li:first-child { border-top: 0; }
 .feat b { display: block; color: var(--ink); }

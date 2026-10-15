@@ -1,6 +1,6 @@
 # Maré — PWA de hidratação · Handoff para o Claude Code
 
-Leia este arquivo inteiro antes de alterar o código. Ele explica o que está pronto, as decisões tomadas e o que falta. O código foi entregue em 5 partes numa conversa; se algum arquivo da estrutura abaixo estiver faltando, peça ao usuário.
+Leia este arquivo inteiro antes de alterar o código. Ele explica o que está pronto, as decisões tomadas e o que falta. O código foi entregue em 5 partes numa conversa. **O estado real hoje (Firebase criado, GitHub Pages, correções feitas e o que falta) está no "Adendo — Parte 6", no final.** Onde as seções antigas dizem "ainda não foi executado" ou "criar o projeto", vale o adendo.
 
 ## O que é
 
@@ -35,16 +35,17 @@ Atualizações: o SW é versionado e a página mostra o aviso "Nova versão disp
 
 ```text
 mare/
-├── HANDOFF.md
+├── HANDOFF.md  README.md
 ├── package.json              # dev: serve, vitest, playwright, sharp
-├── playwright.config.js
+├── playwright.config.js  vitest.config.js
 ├── firebase.json  .firebaserc  firestore.rules  firestore.indexes.json
+├── .github/workflows/pages.yml   # publica public/ no GitHub Pages a cada push na main
 ├── scripts/icons.mjs         # gera PNGs a partir do SVG
-├── public/                   # ← raiz publicada no Hosting
+├── public/                   # ← raiz publicada (GitHub Pages e, se quiser, Firebase Hosting)
 │   ├── index.html  manifest.webmanifest  sw.js
 │   ├── css/app.css
-│   ├── icons/icon.svg        # PNGs gerados por scripts/icons.mjs
-│   └── js/ app.js  core.js  platform.js  firebase.js  firebase-config.js
+│   ├── icons/                # icon.svg + PNGs gerados por scripts/icons.mjs (já versionados)
+│   └── js/ app.js  core.js  store.js  ui.js  views.js  platform.js  firebase.js  firebase-config.js
 ├── functions/  package.json  index.js
 └── tests/  core.test.js  e2e.spec.js
 ```
@@ -71,24 +72,23 @@ users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
 ## Checklist
 
 ### 1. Montar e validar (fazer primeiro)
-- [ ] Criar todos os arquivos nos caminhos exatos.
-- [ ] `npm install` → `npx playwright install` → `npm test` → `npm run test:e2e`.
-      ATENÇÃO: o código ainda não foi executado nenhuma vez. Corrija o que falhar antes de qualquer outra coisa.
-- [ ] Revisar os screenshots em `test-results/shots/` (aparelhos pequenos e grandes, antigos e novos).
-- [ ] `npm run icons` para gerar icon-192, icon-512, maskable-512, apple-touch-icon (180) e badge-72.
+- [x] Criar todos os arquivos nos caminhos exatos.
+- [x] `npm install` → `npm test` → `npm run test:e2e` (29 testes de lógica e 77 de interface, todos passando; ver Parte 6).
+- [x] Revisar os screenshots em `test-results/shots/` (aparelhos pequenos e grandes, antigos e novos).
+- [x] `npm run icons` para gerar icon-192, icon-512, maskable-512, apple-touch-icon (180) e badge-72 (os PNGs já estão no repositório).
 - [ ] Lighthouse mobile (PWA, Performance, Acessibilidade) e corrigir apontamentos.
 - [ ] Teste em aparelho real: SW exige HTTPS. Use um preview channel do Firebase Hosting
       (`firebase hosting:channel:deploy teste`) ou um túnel (`npx cloudflared tunnel --url http://localhost:5173`).
       Para iOS 12–15, BrowserStack ou aparelhos reais.
 
 ### 2. Firebase
-- [ ] Criar o projeto no plano Blaze (Functions e Cloud Scheduler exigem).
-- [ ] Authentication → habilitar o provedor Anônimo.
-- [ ] Firestore em `southamerica-east1` (ou outra região, que deve ser a mesma de `functions/index.js`).
-- [ ] Cloud Messaging → Web Push certificates → gerar a chave VAPID.
-- [ ] Preencher `public/js/firebase-config.js`, mudar `FIREBASE_ENABLED` para `true` e ajustar `.firebaserc`.
-- [ ] Confirmar a versão atual do Firebase JS SDK e atualizar a constante `V` em `public/js/firebase.js`.
-- [ ] `firebase deploy --only firestore,functions,hosting`.
+- [x] Criar o projeto (`mare-hidratacao`, hoje no plano Spark). **Pendente: migrar para Blaze** (Functions e Cloud Scheduler exigem).
+- [x] Authentication → habilitar o provedor Anônimo.
+- [x] Firestore em `southamerica-east1` (mesma região de `functions/index.js`), regras de `firestore.rules` já publicadas.
+- [x] Cloud Messaging → Web Push certificates → chave VAPID gerada e colada em `firebase-config.js`.
+- [x] Preencher `public/js/firebase-config.js`, `FIREBASE_ENABLED` ligado e `.firebaserc` ajustado.
+- [x] Firebase JS SDK 10.14.1 (constante `V` em `firebase.js`) carrega e faz login anônimo a partir do endereço real do GitHub Pages.
+- [ ] Depois do Blaze: `firebase deploy --only firestore,functions` (e `hosting`, se quiser o endereço `web.app`). Ver Parte 6.
 - [ ] Testar push no Android Chrome (com a ação "+250 ml") e no iPhone iOS 16.4+ com o app instalado.
 
 ### 3. Antes das lojas
@@ -114,6 +114,53 @@ users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
 - Endpoint `quickLog` (HTTPS + token HMAC curto no payload do push) para a ação da notificação sincronizar na hora.
 - Resumo semanal por push (domingo 19h); i18n (en/es) extraindo as strings para um dicionário.
 - Widgets nativos (WidgetKit/Glance) com o nível da maré; Apple Watch/Wear OS; Siri/App Intents.
+
+
+## Adendo — Parte 3 (o app.js virou 4 módulos)
+
+### Estrutura atualizada de public/js/
+- core.js: lógica pura, coberta por testes.
+- store.js: estado S, save/load, datas e unidades.
+- ui.js: avisos, painel inferior, botão voltar, efeitos e gota líquida.
+- views.js: HTML de todas as telas e painéis, sem efeitos colaterais.
+- app.js: ponto de entrada. Ações, lembretes, clima, celebrações, onboarding e nuvem.
+- platform.js: tudo que depende do navegador ou do sistema. É o ponto de troca para o Capacitor.
+- firebase.js e firebase-config.js (Parte 4): carregados com import() dinâmico. Se faltarem, o app segue local.
+
+### Contratos que a Parte 4 precisa cumprir
+- firebase.js exporta initCloud(hooks), que retorna uma Promise<cloud>.
+  - hooks.state() devolve o S atual.
+  - hooks.onRemote(days) recebe { 'AAAA-MM-DD': { goal, entries, u } }.
+  - hooks.onStatus recebe 'on', 'error' ou 'off'.
+- O objeto cloud precisa ter:
+  - syncDays(keys) e syncMeta(): chamados sem await, com debounce interno.
+  - enablePush(): devolve Promise, é idempotente e renova o token FCM.
+  - wipe(): devolve Promise.
+  - push: booleano.
+- sw.js:
+  - Ação "add250": grava { id, t, ml, d } no IndexedDB "mare" v1, store "inbox" (keyPath id), e envia { type: 'inbox' } às janelas abertas.
+  - Clique na notificação: foca uma janela aberta ou abre './?source=notif'.
+  - Mensagem { type: 'SKIP_WAITING' }: chama self.skipWaiting().
+
+### Decisões e detalhes
+- Cada dia tem o campo u (ms da última alteração). A sincronização é "última gravação vence", por dia.
+- As ações close-sheet, confirm-ok e toast-act são despachadas pelo app.js para as funções do ui.js. Isso corrige o comentário do topo do views.js.
+- O próximo lembrete parte do último gole de hoje, então abrir o app não adia nada.
+  - Sem push do servidor, um timer avisa na tela com o app aberto.
+  - Com o app recém-minimizado, o timer usa a notificação do sistema.
+- Clima: as coordenadas arredondadas ficam em S.ui.geo por 7 dias, para não pedir o GPS todo dia.
+- Importar backup preserva os lembretes e as dicas deste aparelho. Todo o conteúdo passa por sanitize().
+- iPhone: o app instalado na Tela de Início tem armazenamento separado do Safari. Por isso o app incentiva a instalação no início e orienta exportar/importar o backup.
+
+### Testes extras
+- Fluxos principais:
+  - onboarding completo, com o "voltar" do Android em cada passo;
+  - registrar, desfazer, editar e excluir;
+  - registro retroativo pelo calendário;
+  - virada do dia com o app aberto (mockar Date).
+- Meta batida mostra confete e cartão. Missão e medalha aparecem uma vez só.
+- Em Chrome antigo, conferir se os botões com display:flex (copos, abas, calendário) aparecem corretamente. Se não, envolver o conteúdo num span com display:flex.
+- .ics no iPhone: conferir se a folha de compartilhar oferece o Calendário. Se não oferecer, abrir o arquivo por link direto quando estiver no Safari.
 
 
 ## Adendo — Parte 4 (Service Worker e Firebase)
@@ -193,6 +240,41 @@ users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
 - O Playwright usa o WebKit atual. Para iOS 12–15, Android antigo e iPhone físico (iOS 16.4+ instalado), use BrowserStack ou aparelhos reais.
 
 
-## Adendo — Parte 3 (PENDENTE)
+## Adendo — Parte 6 (estado real em 15/10/2026: Firebase criado e publicação no GitHub Pages)
 
-Os arquivos `public/js/app.js`, `public/js/store.js`, `public/js/ui.js` e `public/js/views.js` (Parte 3 da conversa original) **não estavam no texto usado para montar esta pasta**. Sem eles o app não abre, e `tests/core.test.js` falha ao importar `store.js` (`esc`, `num`, `plural`, `shiftYm`). O adendo original da Parte 3 (contrato `initCloud(hooks)` com `state`, `onRemote`, `onStatus`) também está faltando. Recuperar esses arquivos antes de rodar qualquer teste.
+### Onde está cada coisa
+- **Repositório:** https://github.com/chrismello0211/mare (público, branch `main`).
+- **App no ar:** https://chrismello0211.github.io/mare/. Quem publica é o GitHub Actions (`.github/workflows/pages.yml`), que envia a pasta `public/`. Em *Settings → Pages* a fonte é **GitHub Actions**, e não "Deploy from a branch": a raiz do repositório não tem `index.html` (o app mora em `public/`), então o modo antigo só mostrava a página em branco do Jekyll. Antes de publicar, o fluxo confere se todos os arquivos do app existem e, se faltar algum, falha dizendo qual.
+- **Vários PWAs na mesma origem:** o dono publica outros apps em `chrismello0211.github.io/<app>/`. Mesma origem significa que `localStorage`, IndexedDB e Cache Storage são compartilhados. Por isso tudo do Maré tem prefixo `mare` (`mare:v1`, `mare:cloud`, cache `mare-<versão>`, banco IndexedDB `mare`), e o manifest tem `"id": "/mare/"` (com `"/"` o Chrome trataria os apps como o mesmo app). Não retire esses prefixos.
+- **Subcaminho:** SW, manifest e links são relativos, então o app funciona em qualquer pasta. Testado servindo em `/mare/`: SW ativo e controlando a página, abre offline (inclusive com `?source=pwa` e `?add=250`), ícones e atalhos do manifest respondem 200, sem erros no console.
+- **Atualizar o app no ar:** enviar os arquivos para a `main` (site do GitHub → *Add file → Upload files*, ou `git push`). A aba *Actions* publica sozinha em cerca de 1 minuto. A cada versão nova, aumente `VERSION` em `public/sw.js` e `APP_VERSION` em `public/js/app.js` (iguais).
+
+### Firebase (projeto `mare-hidratacao`, número 331167358767)
+- App web "Mare PWA" (os valores estão em `public/js/firebase-config.js`). A chave de API do Firebase é pública por natureza: quem protege os dados são as regras do Firestore (cada pessoa só lê e grava `users/{uid}` e `users/{uid}/days/*`, e os campos aceitos são validados). Opcional: restringir a chave por referenciador HTTP no Google Cloud (liberar `https://chrismello0211.github.io/*`, `https://mare-hidratacao.web.app/*`, `https://mare-hidratacao.firebaseapp.com/*` e `http://localhost:*`, e as APIs citadas em "Chave de API" na Parte 4).
+- **Authentication:** provedor Anônimo ligado. A "limpeza automática de contas anônimas" ficou **desligada de propósito**: ligada, o Firebase apaga contas anônimas com mais de 30 dias e os dados da nuvem ficariam sem dono (e os lembretes parariam).
+- **Firestore:** banco `(default)`, edição Standard, `southamerica-east1`, modo de produção. As regras de `firestore.rules` já estão publicadas (colar o arquivo em *Firestore → Regras*; o conteúdo publicado é idêntico ao arquivo, sem a quebra de linha final, SHA-256 `661a4813687556a70257de484a53ebe9d88dc3fcb31eaed056d1ce40e968b442`).
+- **Cloud Messaging:** API V1 ativa e chave VAPID gerada (a chave pública está em `firebase-config.js`).
+- **Índices:** `firestore.indexes.json` desliga os índices automáticos de `days.entries` e `users.fcm` (lista e mapa que nunca são consultados). Ainda não foi aplicado: sai junto com `firebase deploy --only firestore`.
+- **`FIREBASE_ENABLED = !navigator.webdriver`:** navegadores automatizados (Playwright, Selenium) ficam 100% locais, para os testes não criarem usuários nem documentos no projeto real.
+- Testado no endereço real do GitHub Pages: login anônimo funciona e as regras permitem o dono e negam acesso a dados de outro usuário.
+
+### Correções feitas depois das 5 partes
+- `sw.js`: errata da Parte 5 aplicada (`SHELL` e `ROOT` calculados a partir de `self.location`; `CORE` usa `'./'`).
+- `ui.js` (`dropSVG`): o texto branco "dentro da água" nunca aparecia, porque `<clipPath>` só aceita formas e o `<g>` que sobe e desce com a água o invalidava. Trocado por `<mask>`.
+- `app.css`: `input[type="time"]` mais largo e fonte menor nos horários do onboarding, para caber "07:00 AM" em aparelhos com relógio de 12 h.
+- `manifest.webmanifest`: `"id": "/mare/"`.
+- `firebase-config.js`: valores reais do projeto e a regra do `navigator.webdriver` (acima). `.firebaserc` aponta para `mare-hidratacao`.
+
+### Como foi validado
+- `npm test`: 29 testes de lógica, todos passando.
+- `npm run test:e2e`: 77 testes de interface, todos passando, em 13 perfis (iPhone SE, 8, 12, 14 Pro Max, iPad Mini e Pro 11, Pixel 5, Galaxy S9+, Moto G4, Galaxy Tab S4, tela de 280 px, iPhone SE e Pixel 5 na horizontal).
+- Atenção: na máquina onde isso foi rodado só havia Chromium. Os perfis de iPhone e iPad foram **emulados no Chromium** (tamanho de tela, toque e user agent), e não no WebKit de verdade. No seu computador, `npx playwright install` e `npm run test:e2e` usam o WebKit real. Safari/iPhone continua exigindo teste em aparelho.
+- Revisão visual dos screenshots de Hoje, Histórico, Jornada e Ajustes em todos os perfis.
+
+### O que falta (em ordem)
+1. **Plano Blaze** (a pessoa faz no console). Defina um alerta de orçamento. O uso esperado é mínimo, mas Functions e Scheduler exigem o plano.
+2. **Deploy da nuvem:** `firebase deploy --only firestore,functions --project mare-hidratacao`. O job do Cloud Scheduler é criado sozinho pela function `sendReminders` (a cada 15 min, `southamerica-east1`, Node 22). Sem ferramentas locais, dá para fazer no Cloud Shell: `git clone https://github.com/chrismello0211/mare`, `cd mare/functions && npm install`, depois `npx firebase-tools deploy --only firestore,functions --project mare-hidratacao`. Confirme antes as versões de `firebase-functions` e `firebase-admin` (Parte 4). Ainda não executado.
+3. **Push de verdade:** testar no Android Chrome (com o botão "+250 ml") e no iPhone com iOS 16.4+ e o app instalado na Tela de Início (no iOS não há botões de ação). Para forçar um envio: editar `users/{uid}.reminder.nextAt` para um horário passado e usar "Forçar execução" no Cloud Scheduler.
+4. **Aparelhos reais**, principalmente iPhone/Safari: instalar na Tela de Início, abrir offline, clima/geolocalização, `.ics`, backup e restauração.
+5. **Opcional:** Firebase Hosting (`firebase deploy --only hosting` → https://mare-hidratacao.web.app, com os cabeçalhos de `firebase.json`), Firebase App Check, Lighthouse mobile e as pendências de "Antes das lojas".
+6. **Para as lojas (TWA/Bubblewrap):** o Digital Asset Links exige `/.well-known/assetlinks.json` na **raiz da origem**. Em `chrismello0211.github.io/mare/` isso não é possível (a raiz pertence ao repositório `chrismello0211.github.io`). Quando chegar a hora, use o Firebase Hosting (`mare-hidratacao.web.app`) ou um domínio próprio e ajuste o `"id"` do manifest se a origem mudar.
