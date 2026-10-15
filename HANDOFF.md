@@ -1,6 +1,6 @@
 # Maré — PWA de hidratação · Handoff para o Claude Code
 
-Leia este arquivo inteiro antes de alterar o código. Ele explica o que está pronto, as decisões tomadas e o que falta. O código foi entregue em 5 partes numa conversa. **O estado real hoje (Firebase criado, GitHub Pages, correções feitas e o que falta) está no "Adendo — Parte 6", e as bebidas da versão 1.0.2 (água na meta, outros líquidos à parte) estão no "Adendo — Parte 7", ambos no final.** Onde as seções antigas dizem "ainda não foi executado", "criar o projeto" ou falam de fatores de hidratação, vale o adendo.
+Leia este arquivo inteiro antes de alterar o código. Ele explica o que está pronto, as decisões tomadas e o que falta. O código foi entregue em 5 partes numa conversa. **O estado real hoje (Firebase criado, GitHub Pages, correções feitas e o que falta) está no "Adendo — Parte 6", as bebidas da versão 1.0.2 (água na meta, outros líquidos à parte) estão no "Adendo — Parte 7" e o interruptor opcional "Somar outros líquidos na meta" da versão 1.0.3 está no "Adendo — Parte 8", todos no final.** Onde as seções antigas dizem "ainda não foi executado", "criar o projeto" ou falam de fatores de hidratação, vale o adendo.
 
 ## O que é
 
@@ -12,7 +12,7 @@ PWA de hidratação em pt-BR, pensado para ir às lojas depois (via Capacitor). 
 - Lembretes inteligentes: só dentro da janela acordada, pausam ao bater a meta, ficam mais frequentes quando a pessoa está atrás do ritmo (modo adaptativo). Cada gole reagenda o próximo lembrete.
 - Ação na notificação (Android): botão "+250 ml" registra sem abrir o app (SW → IndexedDB → o app drena ao abrir).
 - Meta: peso × 35 ml + atividade + clima do dia (opcional, Open-Meteo, 1 consulta/dia, coordenadas arredondadas).
-- Só água e água com gás contam na meta. Café, chá, suco, leite, coco e isotônico ficam numa segunda gota (âmbar), em contagem à parte e opcional; refrigerante e álcool não existem mais no app (ver Parte 7).
+- Só água e água com gás contam na meta. Café, chá, suco, leite, coco e isotônico ficam numa segunda gota (âmbar), em contagem à parte e opcional; refrigerante e álcool não existem mais no app (ver Parte 7). Quem preferir a meta de hidratação liga, só em Ajustes, "Somar outros líquidos na meta" (desligado de fábrica; os outros líquidos contam até metade da meta, ver Parte 8).
 - Registro retroativo, missões diárias, 12 medalhas, 8 níveis temáticos, sequência de dias.
 - Insights locais: período mais seco do dia, melhor dia da semana, % da água antes do meio-dia, semana vs. semana anterior.
 - Visual: gota SVG com ondas, texto "líquido", gota caindo + respingo a cada registro, confete na meta, tema claro/escuro, respeita "reduzir movimento".
@@ -55,9 +55,10 @@ mare/
 ```text
 localStorage "mare:v1"
 { v, onboarded, createdAt,
-  profile:{ name, weight, activity, wake:"07:00", sleep:"23:00", unit:"ml|oz", theme:"auto|light|dark" },
+  profile:{ name, weight, activity, wake:"07:00", sleep:"23:00", unit:"ml|oz", theme:"auto|light|dark",
+            others(bool, 2ª gota; padrão true), mix(bool, "somar outros líquidos na meta"; padrão false, só vale com others) },
   goal:{ mode:"auto|manual", manual, climate, bonus, temp, day },
-  cups:[150,250,350,500], last,
+  cups:[150,250,350,500], last("water|sparkling"), lastO(último "outro líquido"),
   reminders:{ enabled, interval, smart, nextAt },
   days:{ "AAAA-MM-DD": { goal, entries:[{ id, t(ms), ml, d(drinkId) }] } },
   achievements:{ id: ts }, missions:{ "AAAA-MM-DD": 1 }, ui:{} }
@@ -108,7 +109,7 @@ users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
 - Safari pode apagar dados de sites não instalados após ~7 dias sem uso. Instalado na Tela de Início, isso não acontece; por isso o app incentiva a instalação.
 - Open-Meteo é grátis só para uso não comercial. No lançamento comercial, assine o plano ou troque o provedor.
 - Atalhos do ícone e a ação "+250 ml" são apenas Android. O badge depende do sistema.
-- A fórmula de meta é uma heurística, não orientação médica (há aviso nos Ajustes). Desde a 1.0.2 não há mais fatores de hidratação: a meta é de água, e os outros líquidos têm contagem própria.
+- A fórmula de meta é uma heurística, não orientação médica (há aviso nos Ajustes). Desde a 1.0.2 não há mais fatores de hidratação: a meta é de água, e os outros líquidos têm contagem própria. Na 1.0.3 há o interruptor opcional que soma os outros líquidos 1:1 até metade da meta; continua não havendo fator por bebida (ver Parte 8).
 
 ## Roadmap sugerido
 - Endpoint `quickLog` (HTTPS + token HMAC curto no payload do push) para a ação da notificação sincronizar na hora.
@@ -289,10 +290,12 @@ users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
 
 ## Adendo — Parte 7 (versão 1.0.2: só água conta na meta, outros líquidos numa segunda gota)
 
+> A Parte 8 (1.0.3) acrescentou um interruptor opcional que muda onde esta parte diz "só água": com ele ligado, `dayTotal` passa a incluir os outros líquidos (até metade da meta) e `dayWater` é que continua sendo só de água. Com o interruptor desligado, que é o padrão, tudo abaixo vale como está escrito.
+
 ### O que o dono pediu e por quê
 - Tirar **álcool e refrigerante** do app (não combinam com um app de saúde).
 - A gota principal passa a contar **só água e água com gás**. Café, chá, suco, leite, coco e isotônico vão para uma **segunda gota**, com contagem separada ("água × outros líquidos"). Motivo: não há consenso entre nutricionistas em contar essas bebidas como água, então o app não mistura as duas coisas, e a pessoa decide se quer acompanhar os outros líquidos.
-- O dono observou que, em teoria, a meta deveria ser de "hidratação" e não de "água". Isso **não foi feito de propósito** (ver "Ideia guardada" abaixo). Hoje o texto do app diz "meta de água" em todo lugar.
+- O dono observou que, em teoria, a meta deveria ser de "hidratação" e não de "água". Na 1.0.2 isso **não foi feito de propósito** (ver "Ideia guardada" abaixo); o texto do app diz "meta de água". A 1.0.3 entregou a ideia como opção (Parte 8).
 
 ### Modelo de dados e lógica (`core.js`)
 - `DRINKS` tem 8 bebidas, cada uma com um grupo `g`: `'w'` (`water`, `sparkling`) ou `'o'` (`coconut`, `tea`, `coffee`, `juice`, `milk`, `sport`). `WATERS` e `OTHERS` são os dois filtros. **Não existem mais fatores de hidratação.**
@@ -318,8 +321,50 @@ users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
 - `npm run test:e2e`: 149 execuções nos mesmos 13 perfis da Parte 6 (144 passam, 5 puladas de propósito pelo mesmo motivo de antes). Testes novos: outros líquidos à parte (sem mexer na água, com "Desfazer"), água com gás na meta, editor com nota, interruptor em Ajustes, dados antigos com refrigerante/álcool, e o teste de layout agora confere a segunda gota. Os perfis de iPhone/iPad continuam **emulados no Chromium**; Safari real exige aparelho.
 - Revisão visual da gota principal + segunda gota (claro e escuro, de 280 a 768 px, com 0, 350 ml e 12.000 ml em outros líquidos), do painel Outros líquidos, do editor, de Ajustes, do painel do dia e da Jornada.
 
-### Ideia guardada: "Somar outros líquidos na meta" (não construída)
-Se o dono quiser a meta de **hidratação**, a forma mais barata é um interruptor em Ajustes (por exemplo `S.profile.mix`) que soma `dayOther` ao total. Pontos a mexer: `dayTotal` (ou uma variante `dayHydration`) em `core.js` e todos os que dependem dele (`isMet`, sequência, missões, medalhas, insights, ritmo, badge, lembretes e `today.ml` na nuvem); textos "meta de água" → "meta de hidratação"; testes de lógica duplicados nos dois modos. A forma mais simples de passar o modo é uma flag de módulo em `core.js` (`setMix(bool)`) chamada no `boot()` e ao mudar o interruptor, para não precisar alterar todas as assinaturas. O padrão deve continuar **desligado**.
+### Ideia guardada: "Somar outros líquidos na meta" (construída na 1.0.3, ver Parte 8)
+Na 1.0.2 ela ficou só anotada: um interruptor em Ajustes que soma os outros líquidos ao total, com a forma mais simples de passar o modo sendo uma flag de módulo em `core.js` (`setMix(bool)`), para não alterar as assinaturas, e o padrão **desligado**. A 1.0.3 fez exatamente assim; os detalhes e o que mudou em relação a esta parte estão na Parte 8.
+
+### Para publicar (1.0.2)
+Na 1.0.2, `VERSION` (sw.js) e `APP_VERSION` (app.js) estavam em `1.0.2`. O passo a passo de publicação não muda de versão para versão (extrair o ZIP por cima do repositório, commit e push na `main`; ver o fim da Parte 8).
+
+## Adendo — Parte 8 (versão 1.0.3: "Somar outros líquidos na meta", opcional)
+
+### O que o dono pediu e por quê
+- O dono topou a ideia guardada na Parte 7, com uma condição de desenho: o interruptor existe **só em Ajustes**, de forma discreta, para quem preferir a meta de hidratação ("talvez tenha gente que prefira dessa forma"). Ele também repassou material da esposa (artigo do CFN "Sucos, água de coco ou bebidas gaseificadas não substituem a água pura"; tabelas de um "Beverage Hydration Index" (BHI) geradas por IA, com "fatores" por bebida; os motivos pelos quais nutricionistas não contam outros líquidos; e uma "dica de ouro": volume computado = volume × fator, com uma trava exigindo que 50–60% da meta venha do botão "Água" para o dia valer como concluído) e deixou o Claude **avaliar e decidir**.
+- Decisões: (1) interruptor opcional, **desligado de fábrica**, só em Ajustes e só visível com "Registrar outros líquidos" ligado; (2) a trava virou um **limite**: os outros líquidos contam 1:1 até **metade da meta do dia**, então no mínimo metade da meta sempre vem de água; (3) **sem fatores por bebida**.
+- Por que sem fatores: o BHI vem de Maughan et al., Am J Clin Nutr, 2016 (72 homens euidratados e em jejum, 1 L em 30 min). Só a solução de reidratação oral (1,54), o leite integral (1,50) e o desnatado (1,58) retiveram significativamente mais líquido que a água; refrigerante comum e diet, chá quente e gelado, café, cerveja leve, suco de laranja, água com gás e isotônico não diferiram significativamente dela. Os fatores abaixo de 1,0 das tabelas coladas (0,7; 0,6; negativos) não são do estudo, e o próprio texto manda travar em 1,0. Com esse teto, todo "outro líquido" vale 1:1, e um fator por bebida só acrescentaria falsa precisão. Se um dia quiserem fatores, o ponto de entrada é `counted()` em `core.js`.
+- Observação **não aplicada**: o artigo do CFN fala em cerca de 250 ml para cada 10 kg (25 ml/kg), e a fórmula do app é peso × 35 ml + atividade + clima. A meta não foi mexida; fica como decisão do dono.
+
+### Lógica (`core.js`, `store.js`, `app.js`)
+- Estado: `S.profile.mix` (bool, padrão `false`; `migrate()` só aceita `=== true`). Ele vai no backup JSON e **não** vai para a nuvem.
+- Flag de módulo em `core.js`: `MIX_MAX = 0.5`, `setMix(bool)`, `mixOn()`. `store.applyMix()` liga o flag só se `S.profile.others !== false && S.profile.mix === true`: com a segunda gota desligada os registros "outros" ficam escondidos e não podem entrar na conta. `applyMix()` roda em `setS()` (abrir o app, importar backup, apagar tudo) e em `rulesChanged()` (`app.js`), que é chamado ao mexer em "Registrar outros líquidos" ou em "Somar outros líquidos na meta" e também refaz lembretes, badge e a tela.
+- Totais: `counted(entries, goal) = Σ água + (mix ? min(Σ outros, round(meta × MIX_MAX)) : 0)`.
+  - `dayTotal(day)` = `counted`: é o total **da meta** (gota principal, `isMet`, sequência, ritmo, histórico, calendário, missões de volume, lembretes, badge e, na nuvem, `today.ml` e `total`).
+  - `dayWater(day)` = **sempre só água**: níveis e "L de água" da Jornada (`allMl()`), medalha `l100`, `stats.totalMl`/`stats.level` na nuvem e o texto de compartilhar.
+  - `dayOther(day)` = outros líquidos registrados, brutos (a segunda gota mostra tudo o que foi registrado); `otherCounted(day)` = a parte deles que entrou na meta (0 com o interruptor desligado).
+  - Isso muda a Parte 7: lá `dayTotal` era sempre só água; agora só é assim com o interruptor desligado.
+- O limite usa a meta **gravada no dia** (`day.goal`, ou 2000 se faltar), e não a de hoje, então o histórico não muda quando a meta é editada. Ele não oscila com o que já foi bebido.
+- Vale para **todos os dias**, inclusive os anteriores: ligar ou desligar recalcula histórico, calendário, sequência e médias; nenhum registro é alterado. Medalhas e missões já conquistadas nunca são retiradas. `rulesChanged()` não comemora nada: o que ficar devido só sai no **próximo registro** (se o histórico passar a ter vários dias batidos, as medalhas de meta saem em fila, uma após a outra).
+- Missões e medalhas: `am500`, `by19` e `noon` (de volume) usam `counted`; `six` e `thirds` continuam só com registros de água. Em `context(S)`, "bater a meta" (`daysMet`, `sunset`, `weekend`) usa o total da meta (percorre os registros em ordem de horário, aplicando o limite ao acumulado de outros líquidos, para achar a hora em que a meta foi batida), enquanto `totalMl`, `entries` (primeira gota) e `early` (500 ml de água antes das 9h) são só de água. Em `insights()`, horários e "% da água antes do meio-dia" são só de água; "melhor dia" e "semana vs. anterior" usam `dayTotal`.
+- Lembretes: `lastToday()` (`app.js`), de onde parte o próximo lembrete, só ignora outros líquidos quando o interruptor está desligado.
+
+### Telas (`views.js`, `app.js`)
+- **Ajustes, grupo "Outros líquidos":** abaixo de "Registrar outros líquidos" aparece, só se ele estiver ligado, a linha "Somar outros líquidos na meta" (`data-k="mix"`), com uma frase: "Café, chá, suco e companhia contam na meta, até metade dela; o resto precisa ser água. Vale também para o histórico." Uma versão mais longa (com "muitos nutricionistas preferem a meta só com água") foi cortada na revisão visual: virava 6 linhas em 375 px, o contrário de discreto. Com o interruptor ligado, a nota da linha de cima perde o trecho "É uma contagem à parte…".
+- **Hoje:** o aviso ao registrar um outro líquido diz "· à parte" (desligado) ou, ligado, "· soma na meta", "· soma só X (limite de metade da meta)" ou "· já no limite de metade da meta" (conta pela diferença do total). A segunda gota **continua mostrando tudo o que foi registrado**, inclusive o que passou do limite. O painel Outros líquidos e a nota do editor de registro (`otherNote()`) trocam o texto conforme o modo.
+- **Histórico:** o painel do dia mostra "Inclui X de outros líquidos (o limite é metade da meta; você registrou Y)" (ligado) ou "+ X de outros líquidos, contados à parte" (desligado); a dica da tela e o texto de compartilhar ("na meta" × "na meta de água") também mudam.
+
+### Nuvem
+- Nenhuma mudança em `firestore.rules`, `firestore.indexes.json` nem `functions/index.js`: não é preciso reimplantar nada no Firebase, basta publicar o site.
+- `today.ml` e o `total` de cada dia passam a seguir o total da meta (com o interruptor ligado inclui outros líquidos), que é o que a Cloud Function compara com `goal`. `stats.totalMl` e `stats.level` (em `pushMeta`, `firebase.js`) seguem só de água, como o nível no app. Ao ligar ou desligar, `planReminder()` → `syncMeta()` atualiza `today.ml`; os dias anteriores só são regravados quando alterados, e nada lê o `total` deles.
+
+### Como foi validado
+- `npm test`: 42 testes de lógica (8 novos: desligado de fábrica, ligado com limite, a trava, limite por dia, sequência/recorde, missões, medalhas e `context`, e `migrate`; um `afterEach` volta a flag para desligado).
+- `npm run test:e2e`: 189 execuções nos mesmos 13 perfis (184 passam, 5 puladas de propósito, o mesmo teste de push no iOS de antes). Testes novos, em 8 perfis cada: interruptor em Ajustes (desligado de fábrica; ligar e desligar mudam a gota e não mexem nos registros), limite de metade da meta com os três avisos e o painel do dia, completar a meta com café comemora, interruptor some e a soma não vale sem a segunda gota (e volta junto ao religar), e a nota do editor de registro. A `seed()` dos testes passou a aceitar `profile` para sobrescrever campos do perfil. Os perfis de iPhone/iPad continuam **emulados no Chromium**.
+- Revisão visual (claro e escuro, de 280 a 430 px): Hoje, painel Outros líquidos, aviso no limite, Ajustes com o interruptor ligado, desligado e sem a segunda gota, Histórico e painel do dia.
+
+### Ideias para depois
+- O limite de metade está em `MIX_MAX` (`core.js`); a esposa do dono falou em 50% a 60%, então basta trocar o número se quiserem.
+- Hoje só avisa do limite no momento do registro (aviso) e no painel do dia. Se virar dúvida frequente, dá para mostrar uma nota discreta perto da segunda gota quando `dayOther > limite`.
 
 ### Para publicar
-`VERSION` (sw.js) e `APP_VERSION` (app.js) estão em `1.0.2`. Extrair o ZIP por cima do repositório, commit e push na `main`; o Actions publica em cerca de 1 minuto e quem já tem o app vê "Nova versão disponível". Os itens de "O que falta" da Parte 6 (principalmente o push real em aparelho) continuam valendo.
+`VERSION` (sw.js) e `APP_VERSION` (app.js) estão em `1.0.3`. Extrair o ZIP por cima do repositório, commit e push na `main`; o Actions publica em cerca de 1 minuto e quem já tem o app vê "Nova versão disponível". Não precisa reimplantar o Firebase. Os itens de "O que falta" da Parte 6 (principalmente o push real em aparelho) continuam valendo.

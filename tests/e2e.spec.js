@@ -20,7 +20,7 @@ async function seed(page, o) {
     if (opt.entries) days[k] = { goal: 2800, entries: opt.entries.map((e, i) => ({ id: 'seed' + i, t: now.getTime() - (opt.entries.length - i) * 60000, ml: e[0], d: e[1] })) };
     localStorage.setItem('mare:v1', JSON.stringify({
       v: 1, onboarded: true, createdAt: now.getTime() - 10 * 864e5,
-      profile: { name: 'Ana', weight: 70, activity: 'moderate', wake: '07:00', sleep: '23:00', unit: 'ml', theme: 'light' },
+      profile: Object.assign({ name: 'Ana', weight: 70, activity: 'moderate', wake: '07:00', sleep: '23:00', unit: 'ml', theme: 'light' }, opt.profile || {}),
       goal: { mode: 'manual', manual: 2800, climate: false, bonus: 0, temp: null, day: '' },
       cups: [150, 250, 350, 500], last: opt.last || 'water', reminders: { enabled: false, interval: 90, smart: true, nextAt: 0 },
       days: days, achievements: {}, missions: {}, ui: { tip_install: 1, tip_climate: 1 },
@@ -244,6 +244,101 @@ test('dados antigos: refrigerante e álcool saem; café vira "outros líquidos"'
   const tipos = [];
   Object.keys(saved.days).forEach((k) => { saved.days[k].entries.forEach((e) => { tipos.push(e.d); }); });
   expect(tipos.sort()).toEqual(['coffee', 'water', 'water']);
+});
+
+// "Somar outros líquidos na meta": opcional, discreto (só em Ajustes) e desligado de fábrica. Ligado, café, chá etc. contam na
+// meta até metade dela (a trava: pelo menos metade da meta tem de vir da água). A seed usa meta de 2.800 ml: limite = 1.400 ml.
+test('somar outros líquidos na meta: opcional, só em Ajustes e desligado de fábrica', async ({ page }) => {
+  await seed(page, { entries: [[1000, 'water'], [500, 'coffee']] });
+  await page.goto('/');
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^1\.000 ml de 2\.800 ml/);
+  await expect(page.getByRole('button', { name: /^Outros líquidos: 500 ml hoje/ })).toBeVisible();
+  await tab(page, 'Ajustes').click();
+  const mix = page.getByRole('switch', { name: 'Somar outros líquidos na meta' });
+  await expect(mix).toHaveAttribute('aria-checked', 'false');
+  await mix.click();
+  await expect(mix).toHaveAttribute('aria-checked', 'true');
+  await tab(page, 'Hoje').click();
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^1\.500 ml de 2\.800 ml/); // o café entrou na meta
+  await expect(page.getByRole('button', { name: /^Outros líquidos: 500 ml hoje/ })).toBeVisible(); // a segunda gota continua mostrando tudo
+  await tab(page, 'Ajustes').click();
+  await mix.click();
+  await expect(mix).toHaveAttribute('aria-checked', 'false');
+  await tab(page, 'Hoje').click();
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^1\.000 ml de 2\.800 ml/); // desligar devolve a conta só de água
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('mare:v1')));
+  expect(saved.profile.mix).toBe(false);
+  expect(Object.keys(saved.days).map((k) => saved.days[k].entries.length)).toEqual([2]); // os registros nunca são mexidos
+});
+
+test('somar outros líquidos na meta: conta até metade da meta e avisa a cada registro', async ({ page }) => {
+  await seed(page, { entries: [[1000, 'water'], [1000, 'coffee']], profile: { mix: true } });
+  await page.goto('/');
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^2\.000 ml de 2\.800 ml/);
+  const add = async (ml) => {
+    await page.getByRole('button', { name: /^Outros líquidos/ }).click();
+    const sheet = page.locator('#sheetBody');
+    await sheet.getByRole('radio', { name: /Café/ }).click();
+    await sheet.getByRole('button', { name: 'Adicionar ' + ml + ' ml de café' }).click();
+    await expect(page.locator('#sheet')).toBeHidden();
+  };
+  await page.getByRole('button', { name: /^Outros líquidos/ }).click();
+  await expect(page.locator('#sheetBody')).toContainText('somam na meta, até metade dela');
+  await page.evaluate(() => { history.back(); });
+  await expect(page.locator('#sheet')).toBeHidden();
+  await add(250); // 1.000 → 1.250 de café: ainda cabe nos 1.400
+  await expect(page.locator('#toast')).toContainText('soma na meta');
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^2\.250 ml de 2\.800 ml/);
+  await add(500); // 1.750 de café: só 150 ml cabem
+  await expect(page.locator('#toast')).toContainText('soma só 150 ml (limite de metade da meta)');
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^2\.400 ml de 2\.800 ml/);
+  await add(250); // já no limite
+  await expect(page.locator('#toast')).toContainText('já no limite de metade da meta');
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^2\.400 ml de 2\.800 ml/);
+  await expect(page.getByRole('button', { name: /^Outros líquidos: 2\.000 ml hoje/ })).toBeVisible(); // tudo o que foi registrado
+  await tab(page, 'Histórico').click();
+  await page.locator('.cal-d.today').click();
+  const oth = page.locator('#sheetBody .day-oth');
+  await expect(oth).toContainText('Inclui 1.400 ml de outros líquidos');
+  await expect(oth).toContainText('o limite é metade da meta; você registrou 2.000 ml');
+  await expect(page.locator('#sheetBody .day-sum b')).toHaveText('2.400 ml');
+});
+
+test('somar outros líquidos na meta: completar a meta com café comemora, sem passar de metade', async ({ page }) => {
+  await seed(page, { entries: [[1400, 'water'], [1300, 'coffee']], profile: { mix: true } }); // 1.400 + 1.300 = 2.700
+  await page.goto('/');
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^2\.700 ml de 2\.800 ml/);
+  await page.getByRole('button', { name: /^Outros líquidos/ }).click();
+  const sheet = page.locator('#sheetBody');
+  await sheet.getByRole('radio', { name: /Café/ }).click();
+  await sheet.getByRole('button', { name: 'Adicionar 150 ml de café' }).click(); // 1.450 → só 100 ml cabem: 2.800 = meta
+  await expect(page.locator('.medal-pop')).toContainText('Você bateu a meta!');
+  await expect(page.locator('#toast')).toContainText('soma só 100 ml (limite de metade da meta)');
+});
+
+test('somar outros líquidos na meta: sem a segunda gota, o interruptor some e a soma não vale', async ({ page }) => {
+  await seed(page, { entries: [[1000, 'water'], [500, 'coffee']], profile: { others: false, mix: true } });
+  await page.goto('/');
+  await expect(page.locator('#drop2')).toHaveCount(0);
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^1\.000 ml de 2\.800 ml/);
+  await tab(page, 'Ajustes').click();
+  await expect(page.getByRole('switch', { name: 'Somar outros líquidos na meta' })).toHaveCount(0);
+  await page.getByRole('switch', { name: 'Registrar outros líquidos' }).click();
+  await expect(page.getByRole('switch', { name: 'Somar outros líquidos na meta' })).toHaveAttribute('aria-checked', 'true');
+  await tab(page, 'Hoje').click();
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^1\.500 ml de 2\.800 ml/); // a preferência voltou junto
+});
+
+test('somar outros líquidos na meta: o editor de registro explica a regra em vigor', async ({ page }) => {
+  await seed(page, { profile: { mix: true } });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Outro volume ou horário' }).click();
+  const sheet = page.locator('#sheetBody');
+  await sheet.getByRole('button', { name: /Café/ }).click();
+  await expect(sheet.locator('#eNote')).toHaveText('Outros líquidos somam na meta, até metade dela.');
+  await page.locator('#eMl').fill('300');
+  await sheet.getByRole('button', { name: 'Adicionar', exact: true }).click();
+  await expect(mainLabel(page)).toHaveAttribute('aria-label', /^300 ml de 2\.800 ml/);
 });
 
 test.describe('movimento reduzido', () => {

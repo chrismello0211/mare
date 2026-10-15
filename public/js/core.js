@@ -50,9 +50,25 @@ export const drink = (id) => byId(id) || DRINKS[0]; // id desconhecido vira águ
 // Quem recebe um registro { id, t, ml, d }: isWater entra na meta; isOther fica na contagem à parte
 export const isWater = (e) => drink(e.d).g === 'w';
 export const isOther = (e) => drink(e.d).g === 'o';
-export const eff = (e) => (isWater(e) ? Math.round(e.ml) : 0); // quanto do registro conta na meta
-export const dayTotal = (day) => (day && day.entries ? day.entries.reduce((s, e) => s + eff(e), 0) : 0); // água (meta)
-export const dayOther = (day) => (day && day.entries ? day.entries.reduce((s, e) => s + (isOther(e) ? Math.round(e.ml) : 0), 0) : 0);
+export const eff = (e) => (isWater(e) ? Math.round(e.ml) : 0); // quanto do registro conta na meta (só água)
+const otherMl = (e) => (isOther(e) ? Math.round(e.ml) : 0);
+const sumOf = (es, f) => es.reduce((s, e) => s + f(e), 0);
+
+// "Somar outros líquidos na meta" (Ajustes; vem DESLIGADO). Ligado, café, chá, suco etc. entram na meta, mas só até MIX_MAX dela:
+// pelo menos metade da meta sempre precisa vir de água. Sem fator por bebida: os 6 outros líquidos valem 1:1, dentro do limite.
+// É um interruptor global (vale para todos os dias, inclusive os anteriores); o store o liga e desliga com setMix,
+// e só quando a segunda gota está ativa (senão registros escondidos entrariam na conta).
+export const MIX_MAX = 0.5;
+let MIX = false;
+export const setMix = (on) => { MIX = !!on; };
+export const mixOn = () => MIX;
+const mixCap = (goal) => Math.round((goal || 2000) * MIX_MAX);
+// O que conta na meta numa lista de registros: a água, mais (se ligado) os outros líquidos até o limite
+export const counted = (es, goal) => (es && es.length ? sumOf(es, eff) + (MIX ? Math.min(sumOf(es, otherMl), mixCap(goal)) : 0) : 0);
+export const dayTotal = (day) => (day ? counted(day.entries, day.goal) : 0); // total da meta: água (+ outros, se ligado)
+export const dayWater = (day) => (day && day.entries ? sumOf(day.entries, eff) : 0); // sempre só água (níveis, "L de água")
+export const dayOther = (day) => (day && day.entries ? sumOf(day.entries, otherMl) : 0); // outros líquidos registrados (2ª gota)
+export const otherCounted = (day) => (MIX && day ? Math.min(dayOther(day), mixCap(day.goal)) : 0); // parte deles que entrou na meta
 export const isMet = (day) => !!day && !!day.entries && day.entries.length > 0 && dayTotal(day) >= (day.goal || 2000);
 
 /* ---------- meta ---------- */
@@ -126,16 +142,17 @@ export function levelFor(totalMl) {
 }
 
 /* ---------- missões do dia (determinísticas pela data) ---------- */
-// Todas as missões olham só a água (a que conta na meta); outros líquidos não avançam nenhuma.
-const sumBefore = (es, min) => es.reduce((s, e) => s + (minOf(e.t) < min ? eff(e) : 0), 0);
+// As missões de volume (500 ml, 1 L, a meta) seguem o total da meta: só água, ou também os outros líquidos (até o limite)
+// se a pessoa ligou "Somar na meta". As de "beber água" (6 vezes; manhã, tarde e noite) contam só registros de água.
+const sumBefore = (es, min, g) => counted(es.filter((e) => minOf(e.t) < min), g);
 export const MISSIONS = [
-  { id: 'am500', e: '🌅', t: 'Beba 500 ml antes das 10h', p: (es) => sumBefore(es, 600) / 500 },
+  { id: 'am500', e: '🌅', t: 'Beba 500 ml antes das 10h', p: (es, g) => sumBefore(es, 600, g) / 500 },
   { id: 'six', e: '🔁', t: 'Beba água 6 vezes hoje', p: (es) => es.filter(isWater).length / 6 },
-  { id: 'by19', e: '⏱️', t: 'Bata a meta antes das 19h', p: (es, g) => sumBefore(es, 1140) / g },
+  { id: 'by19', e: '⏱️', t: 'Bata a meta antes das 19h', p: (es, g) => sumBefore(es, 1140, g) / g },
   { id: 'thirds', e: '🌗', t: 'Beba água de manhã, à tarde e à noite', p: (es) => {
     const s = {}; es.filter(isWater).forEach((e) => { const m = minOf(e.t); s[m < 720 ? 'a' : m < 1080 ? 'b' : 'c'] = 1; });
     return Object.keys(s).length / 3; } },
-  { id: 'noon', e: '☀️', t: 'Chegue a 1 L antes do meio-dia', p: (es) => sumBefore(es, 720) / 1000 },
+  { id: 'noon', e: '☀️', t: 'Chegue a 1 L antes do meio-dia', p: (es, g) => sumBefore(es, 720, g) / 1000 },
 ];
 export const hash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h; };
 export const missionFor = (k) => MISSIONS[hash(k) % MISSIONS.length];
@@ -157,19 +174,18 @@ export const ACHIEVEMENTS = [
   { id: 'l100', e: '🐋', t: 'Cem litros', d: '100 L de água no total', test: (c) => c.totalMl >= 100000 },
 ];
 
-// Só a água (a que conta na meta) entra nas medalhas; os outros líquidos ficam de fora.
+// Medalhas de volume e de "primeiros registros" olham só a água (litros de água, 500 ml de água antes das 9h, primeira gota).
+// Já "bater a meta" (e a hora em que isso aconteceu) segue o total da meta, que inclui os outros líquidos se "Somar na meta" estiver ligado.
 export function context(S) {
   const keys = Object.keys(S.days).sort();
   let totalMl = 0, entries = 0, daysMet = 0, early = false, sunset = false, weekend = false;
   keys.forEach((k) => {
-    const day = S.days[k], es = day.entries || [], g = day.goal || 2000;
-    let cum = 0, morning = 0, hit = -1;
+    const day = S.days[k], g = day.goal || 2000, cap = mixCap(g), es = (day.entries || []).slice().sort((a, b) => a.t - b.t);
+    let cum = 0, oth = 0, morning = 0, hit = -1;
     es.forEach((e) => {
       const v = eff(e), m = minOf(e.t);
-      if (!v) return;
-      cum += v; entries++;
-      if (m < 540) morning += v;
-      if (hit < 0 && cum >= g) hit = m;
+      if (v) { cum += v; entries++; if (m < 540) morning += v; } else oth += otherMl(e);
+      if (hit < 0 && cum + (MIX ? Math.min(oth, cap) : 0) >= g) hit = m;
     });
     totalMl += cum;
     if (morning >= 500) early = true;
@@ -254,11 +270,12 @@ export const fmtL = (ml) => nf(ml / 1000, 1) + ' L';
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 /* ---------- estado ---------- */
-// profile.others: mostra a segunda gota (outros líquidos). last = água dos copos rápidos; lastO = bebida de "outros líquidos".
+// profile.others: mostra a segunda gota (outros líquidos). profile.mix: soma os outros líquidos na meta (até metade dela; só vale
+// com others ligado). last = água dos copos rápidos; lastO = bebida de "outros líquidos".
 export function defaults(createdAt) {
   return {
     v: 1, onboarded: false, createdAt: createdAt || Date.now(),
-    profile: { name: '', weight: 70, activity: 'moderate', wake: '07:00', sleep: '23:00', unit: 'ml', theme: 'auto', others: true },
+    profile: { name: '', weight: 70, activity: 'moderate', wake: '07:00', sleep: '23:00', unit: 'ml', theme: 'auto', others: true, mix: false },
     goal: { mode: 'auto', manual: 2500, climate: false, bonus: 0, temp: null, day: '' },
     cups: [150, 250, 350, 500], last: 'water', lastO: 'coffee',
     reminders: { enabled: false, interval: 90, smart: true, nextAt: 0 },
@@ -272,6 +289,7 @@ export function migrate(s) {
   ['days', 'achievements', 'missions'].forEach((k) => { if (!o[k] || typeof o[k] !== 'object') o[k] = {}; });
   if (!Array.isArray(o.cups) || o.cups.length !== 4) o.cups = d.cups.slice();
   o.profile.others = o.profile.others !== false;
+  o.profile.mix = o.profile.mix === true; // "Somar outros líquidos na meta": só liga quando a pessoa pede
   // Bebida dos copos rápidos: só água ou água com gás. Quem deixou café, chá etc. como padrão passa a tê-lo em "outros líquidos".
   const l = byId(o.last);
   if (l && l.g === 'o') { o.lastO = l.id; o.last = 'water'; } else o.last = l ? l.id : 'water';

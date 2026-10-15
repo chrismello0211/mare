@@ -1,19 +1,19 @@
 // Maré — aplicativo (Parte 3C). Liga estado, telas, lembretes, clima, celebrações e a nuvem opcional.
 // Toda alteração segue: muda S → save() → afterChange() (lembrete, conquistas, badge, nuvem) → atualiza só o necessário.
-import { ACTIVITY, drink, isWater, retired, uid, dayKey, keyToDate, minOf, fmtHM, expectedBy, nextReminderAt, climateBonus, goalToday,
+import { ACTIVITY, drink, isWater, mixOn, retired, uid, dayKey, keyToDate, minOf, fmtHM, expectedBy, nextReminderAt, climateBonus, goalToday,
   levelFor, missionFor, missionProgress, newAchievements, streak, buildICS, defaults, migrate } from './core.js';
-import { KEY, S, setS, hooks, load, save, clamp, num, plural, byT, shiftYm, today, goalNow, totalNow, otherNow, othersOn, ensureDay,
+import { KEY, S, setS, applyMix, hooks, load, save, clamp, num, plural, byT, shiftYm, today, goalNow, totalNow, otherNow, othersOn, ensureDay,
   syncTodayGoal, allMl, U, vol, toMl, fromMl, big } from './store.js';
 import { $, $$, tween, animBars, onBack, hPush, hBack, toast, runToastAction, showBanner, sheetBody, sheetIsOpen, openSheet,
   closeSheet, confirmSheet, runConfirm, splash, confetti, pop, levelY, dropTo } from './ui.js';
 import { isNative, reducedMotion, onMedia, haptic, registerSW, applyUpdate, notifStatus, requestNotifPermission, showNotification,
   scheduleNative, setBadge, drainInbox, initInstall, canInstall, promptInstall, getCoords, fetchMaxTemp, saveFile, share,
   persistStorage } from './platform.js';
-import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboardingView, OB_STEPS, tabbarHTML, othersSheet, OTHER_NOTE,
+import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboardingView, OB_STEPS, tabbarHTML, othersSheet, otherNote,
   entrySheet, daySheet, installSheet, notifHelpSheet, dropOpts, dropOpts2, drop2Label, paceInfo, goalSumHTML, remNoteText, shareText,
   fmtW } from './views.js';
 
-export const APP_VERSION = '1.0.2'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.0.3'; // aumente a cada deploy, junto com VERSION no sw.js
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -28,8 +28,9 @@ const touch = (k) => { if (S.days[k]) S.days[k].u = Date.now(); }; // u = últim
 const snap = () => ({ total: totalNow(), goal: goalNow(), lv: levelFor(allMl()).i });
 const typing = () => { const a = document.activeElement; return !!a && a.tagName === 'INPUT' && view.contains(a); };
 const findEntry = (k, id) => { const d = S.days[k]; return (d && d.entries ? d.entries.filter((e) => e.id === id)[0] : null) || null; };
-// Hora do último gole de ÁGUA de hoje: o lembrete parte dele. Café, chá etc. não adiam o próximo lembrete de água.
-const lastToday = () => { const d = S.days[today()], es = d && d.entries ? d.entries.filter(isWater) : []; return es.reduce((m, e) => Math.max(m, e.t), 0); };
+// Hora do último gole de ÁGUA de hoje: o lembrete parte dele. Café, chá etc. não adiam o próximo lembrete de água,
+// a não ser que a pessoa tenha ligado "Somar outros líquidos na meta" (aí eles contam como qualquer gole).
+const lastToday = () => { const d = S.days[today()], es = d && d.entries ? d.entries.filter((e) => mixOn() || isWater(e)) : []; return es.reduce((m, e) => Math.max(m, e.t), 0); };
 // Refrigerante e álcool saíram do app: registros antigos deles (backup, nuvem) são descartados
 const cleanEntries = (list) => list.filter((e) => e && isFinite(e.t) && e.ml > 0 && e.ml <= 5000 && !retired(e.d))
   .map((e) => ({ id: String(e.id || uid()).slice(0, 24), t: +e.t, ml: Math.round(+e.ml), d: drink(e.d).id })).sort(byT);
@@ -173,7 +174,11 @@ function quickAdd(ml, did) {
   ensureDay(k).entries.push(e);
   touch(k); save(); haptic('light');
   afterChange([k], before, d.g === 'o' ? 'o' : true);
-  toast('+' + vol(e.ml) + ' de ' + d.l.toLowerCase() + (d.g === 'o' ? ' ' + d.e + ' · à parte' : ' 💧'),
+  // Outros líquidos: "à parte" por padrão. Com "Somar na meta" ligado, avisa quanto entrou (o limite é metade da meta).
+  const gain = totalNow() - before.total;
+  const note = !mixOn() ? ' · à parte' : gain >= e.ml ? ' · soma na meta'
+    : gain > 0 ? ' · soma só ' + vol(gain) + ' (limite de metade da meta)' : ' · já no limite de metade da meta';
+  toast('+' + vol(e.ml) + ' de ' + d.l.toLowerCase() + (d.g === 'o' ? ' ' + d.e + note : ' 💧'),
     { label: 'Desfazer', fn: () => { if (removeEntry(k, e.id)) toast('Registro desfeito'); } });
 }
 function removeEntry(k, id) {
@@ -322,6 +327,13 @@ function testNotif() {
 }
 
 /* ---------- meta e clima ---------- */
+// Ligar/desligar a segunda gota ou o "somar na meta" muda o total do dia (e o dos anteriores): refaz ritmo, lembretes, badge e telas.
+// Sem festa nem medalhas aqui: as medalhas novas só saem no próximo registro, e as já conquistadas nunca são retiradas.
+function rulesChanged() {
+  applyMix();
+  planReminder(); updateBadge(); // planReminder também salva e sincroniza
+  render(true);
+}
 function goalChanged() {
   syncTodayGoal(); planReminder(); updateBadge(); // planReminder também salva e sincroniza
   const gs = $('#goalSum');
@@ -531,7 +543,7 @@ const A = {
     if (!dr) return;
     dr.d = d.d; press(el);
     const n = $('#eNote');
-    if (n) n.textContent = drink(d.d).g === 'o' ? OTHER_NOTE : '';
+    if (n) n.textContent = drink(d.d).g === 'o' ? otherNote() : '';
   },
   'draft-ml': (el, d) => { if (dr) { dr.ml = +d.ml; $('#eMl').value = fromMl(dr.ml); press(el); } },
   'entry-save': () => saveEntry(),
@@ -553,7 +565,8 @@ const A = {
   'climate-on': () => setClimate(true),
   toggle: (el, d) => {
     if (d.k === 'climate') { setClimate(!S.goal.climate); return; }
-    if (d.k === 'others') { S.profile.others = !othersOn(); save(); render(true); return; } // a segunda gota só aparece em Hoje
+    if (d.k === 'others') { S.profile.others = !othersOn(); rulesChanged(); return; } // a segunda gota só aparece em Hoje
+    if (d.k === 'mix') { S.profile.mix = S.profile.mix !== true; rulesChanged(); return; } // "Somar outros líquidos na meta"
     S.reminders.smart = !S.reminders.smart;
     planReminder(); render(true);
   },

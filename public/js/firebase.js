@@ -2,7 +2,7 @@
 // O app.js só carrega este arquivo se FIREBASE_ENABLED = true. Qualquer falha aqui deixa o app 100% local.
 // Contrato: initCloud(hooks) → Promise<cloud>; hooks = { state, onRemote, onStatus } (ver adendo da Parte 3 no HANDOFF).
 import { firebaseConfig, VAPID_KEY, USE_EMULATORS } from './firebase-config.js';
-import { dayKey, dayTotal, goalToday, streak, bestStreak, levelFor, hash } from './core.js';
+import { dayKey, dayTotal, dayWater, goalToday, streak, bestStreak, levelFor, hash } from './core.js';
 
 // Confirme a versão mais recente nas notas de versão do Firebase JS SDK e teste antes de trocar. Versões novas podem
 // exigir navegadores mais recentes: se o import falhar num aparelho antigo, a nuvem só fica desligada nele.
@@ -62,7 +62,7 @@ export async function initCloud(hooks) {
     const S = hooks.state(), k = dayKey(), p = S.profile, r = S.reminders;
     let tz = 'America/Sao_Paulo', totalMl = 0;
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || tz; } catch (e) { /* mantém o padrão */ }
-    Object.keys(S.days).forEach((d) => { totalMl += dayTotal(S.days[d]); });
+    Object.keys(S.days).forEach((d) => { totalMl += dayWater(S.days[d]); }); // litros de água: é o que define o nível (como no app)
     // Sem nome e sem localização: a nuvem recebe só o necessário para lembretes e estatísticas
     FS.setDoc(uref, {
       tz: tz, wake: p.wake, sleep: p.sleep, unit: p.unit, goal: goalToday(S, k), today: { day: k, ml: dayTotal(S.days[k]) },

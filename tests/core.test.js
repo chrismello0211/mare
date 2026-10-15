@@ -1,8 +1,10 @@
 // Maré — testes da lógica pura (Parte 5). Rodar: npm test
 // Datas em junho/2026 (sem horário de verão nos fusos comuns): os testes valem em qualquer fuso.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import * as C from '../public/js/core.js';
 import { esc, num, plural, shiftYm } from '../public/js/store.js';
+
+afterEach(() => { C.setMix(false); }); // "somar na meta" é um interruptor global: todo teste começa com ele desligado
 
 const at = (d, h, m) => new Date(2026, 5, d, h, m || 0).getTime(); // 2026-06-d h:m, horário local
 const day = (goal, list) => ({ goal: goal, entries: list.map((x, i) => ({ id: 'e' + i, t: x[0], ml: x[1], d: x[2] || 'water' })) });
@@ -46,6 +48,83 @@ describe('bebidas e totais', () => {
     expect(C.isMet({ goal: 2000, entries: [] })).toBe(false);
     expect(C.isMet(day(2000, [[at(1, 9), 2000]]))).toBe(true);
     expect(C.isMet(day(2000, [[at(1, 9), 1999]]))).toBe(false);
+  });
+});
+
+describe('somar outros líquidos na meta (opcional)', () => {
+  const mixDay = () => day(2000, [[at(1, 8), 600], [at(1, 9), 300, 'coffee']]);
+  it('vem desligado: os outros líquidos ficam fora da meta', () => {
+    expect(C.mixOn()).toBe(false);
+    expect(C.dayTotal(mixDay())).toBe(600);
+    expect(C.otherCounted(mixDay())).toBe(0);
+    expect(C.counted(mixDay().entries, 2000)).toBe(600);
+  });
+  it('ligado: os outros líquidos somam, mas só até metade da meta', () => {
+    C.setMix(true);
+    expect(C.mixOn()).toBe(true);
+    expect(C.dayTotal(mixDay())).toBe(900); // 600 de água + 300 de café
+    const cheio = day(2000, [[at(1, 8), 600], [at(1, 9), 1500, 'juice']]);
+    expect(C.dayTotal(cheio)).toBe(1600); // o suco entra só até 1.000 ml (metade de 2.000)
+    expect(C.otherCounted(cheio)).toBe(1000);
+    expect(C.dayOther(cheio)).toBe(1500); // a contagem da 2ª gota continua mostrando tudo
+    expect(C.dayWater(cheio)).toBe(600); // e a água é sempre só água
+    expect(C.dayTotal(undefined)).toBe(0);
+    expect(C.counted([], 2000)).toBe(0);
+    expect(C.counted(undefined, 2000)).toBe(0);
+  });
+  it('trava: pelo menos metade da meta precisa vir de água para o dia valer', () => {
+    C.setMix(true);
+    expect(C.isMet(day(2000, [[at(1, 9), 1000], [at(1, 10), 1000, 'tea']]))).toBe(true); // 1.000 + 1.000
+    expect(C.isMet(day(2000, [[at(1, 9), 999], [at(1, 10), 5000, 'milk']]))).toBe(false); // falta 1 ml de água
+    expect(C.isMet(day(2000, [[at(1, 9), 1500, 'coffee']]))).toBe(false); // só café nunca basta
+    expect(C.isMet(day(2000, [[at(1, 9), 1200], [at(1, 10), 800, 'coconut']]))).toBe(true);
+    expect(C.isMet({ entries: [{ id: 'a', t: at(1, 9), ml: 1000, d: 'water' }, { id: 'b', t: at(1, 10), ml: 1000, d: 'tea' }] })).toBe(true); // sem meta gravada: 2.000
+  });
+  it('o limite acompanha a meta do próprio dia', () => {
+    C.setMix(true);
+    expect(C.dayTotal(day(3000, [[at(1, 9), 100], [at(1, 10), 4000, 'juice']]))).toBe(1600); // 100 + 1.500
+    expect(C.dayTotal(day(1200, [[at(1, 9), 100], [at(1, 10), 4000, 'juice']]))).toBe(700); // 100 + 600
+  });
+  it('sequência e recorde seguem a meta somada', () => {
+    const j = (d) => day(2000, [[at(d, 9), 1000], [at(d, 12), 1000, 'juice']]);
+    const days = { '2026-06-07': j(7), '2026-06-08': j(8), '2026-06-09': j(9) };
+    expect(C.streak(days, '2026-06-10')).toBe(0);
+    C.setMix(true);
+    expect(C.streak(days, '2026-06-10')).toBe(3);
+    expect(C.bestStreak(days)).toBe(3);
+  });
+  it('missões de volume somam os outros líquidos; as de "beber água" não', () => {
+    const M = {};
+    C.MISSIONS.forEach((m) => { M[m.id] = m; });
+    const es = day(2000, [[at(10, 8), 300], [at(10, 9), 300, 'coffee'], [at(10, 11), 200, 'juice']]).entries;
+    expect(M.am500.p(es, 2000)).toBeCloseTo(0.6); // desligado: 300 ml de água
+    expect(M.noon.p(es, 2000)).toBeCloseTo(0.3);
+    C.setMix(true);
+    expect(M.am500.p(es, 2000)).toBeCloseTo(1.2); // 300 + 300 antes das 10h
+    expect(M.noon.p(es, 2000)).toBeCloseTo(0.8); // 300 + 300 + 200
+    expect(M.by19.p(es, 2000)).toBeCloseTo(0.4);
+    expect(M.six.p(es, 2000)).toBeCloseTo(1 / 6); // só 1 gole de água
+    expect(M.thirds.p(es, 2000)).toBeCloseTo(1 / 3);
+  });
+  it('medalhas: a meta usa o total somado; volume e primeira gota continuam só de água', () => {
+    const S = C.defaults();
+    S.days['2026-06-07'] = day(2000, [[at(7, 8), 1000], [at(7, 9), 1000, 'juice']]);
+    let ids = C.newAchievements(S).map((a) => a.id);
+    expect(ids).toContain('first');
+    expect(ids).not.toContain('goal');
+    C.setMix(true);
+    ids = C.newAchievements(S).map((a) => a.id);
+    expect(ids).toEqual(expect.arrayContaining(['first', 'goal', 'sunset'])); // meta batida às 9h, antes das 18h
+    expect(C.context(S).totalMl).toBe(1000); // "L de água": só a água
+    const so = C.defaults();
+    so.days['2026-06-07'] = day(2000, [[at(7, 8), 3000, 'coffee']]);
+    expect(C.newAchievements(so).map((a) => a.id)).toEqual([]); // só café nunca rende medalha
+  });
+  it('migrate: o interruptor vem desligado e só aceita verdadeiro de verdade', () => {
+    expect(C.defaults().profile.mix).toBe(false);
+    expect(C.migrate({ profile: { name: 'Ana' } }).profile.mix).toBe(false);
+    expect(C.migrate({ profile: { mix: true } }).profile.mix).toBe(true);
+    expect(C.migrate({ profile: { mix: 'sim' } }).profile.mix).toBe(false);
   });
 });
 

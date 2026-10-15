@@ -6,7 +6,7 @@
 //  • Painel de registro: #eMl, #eTime, #eErr. Onboarding: #obName, #obWeight, #obWake, #obSleep, #obGoal (data-total), #obDrop.
 //  • "Hoje" é montado em partes com id (TODAY_PARTS) para atualizar sem redesenhar a gota (#drop).
 //  • Barras com data-w crescem via ui.animBars; a gota enche via ui.dropTo(el, total, meta, dropOpts(total, meta)).
-import { WATERS, OTHERS, ACTIVITY, LEVELS, ACHIEVEMENTS, drink, isOther, dayTotal, dayOther, isMet, calcGoal, goalToday, expectedBy,
+import { WATERS, OTHERS, ACTIVITY, LEVELS, ACHIEVEMENTS, drink, isOther, dayTotal, dayOther, otherCounted, mixOn, isMet, calcGoal, goalToday, expectedBy,
   dayWindow, streak, bestStreak, levelFor, missionFor, missionProgress, stats, insights, dayKey, keyToDate, addDays, minOf, fmtHM,
   fmtNum } from './core.js';
 import { S, esc, clamp, plural, byT, p2, cap, MONTHS, today, longDate, shortDate, relDay, goalNow, totalNow, otherNow, othersOn, allMl,
@@ -37,7 +37,8 @@ const tip = (id, e, title, text, b) => '<section class="card tip"><span class="e
   id + '" aria-label="Dispensar dica">×</button></section>';
 const steps = (list) => '<ol class="steps">' + list.map((s) => '<li>' + s + '</li>').join('') + '</ol>';
 const shareIco = () => svgI('share', 'ico-share');
-export const OTHER_NOTE = 'Outros líquidos contam à parte e não entram na meta de água.';
+// Texto curto sobre como os outros líquidos entram na conta (depende do interruptor "Somar na meta" em Ajustes)
+export const otherNote = () => (mixOn() ? 'Outros líquidos somam na meta, até metade dela.' : 'Outros líquidos contam à parte e não entram na meta de água.');
 export const fmtW = (w) => String(Math.round((+w || 0) * 10) / 10).replace('.', ',');
 
 function greet() {
@@ -158,7 +159,8 @@ export const dropOpts2 = () => ({ fmt: (n) => fmtNum(n, U()), sub: unitL() });
 export function othersSheet(sel) {
   const cur = drink(sel);
   return sheetHead('Outros líquidos') +
-    '<p class="sheet-text">Café, chá, suco e companhia ficam numa contagem à parte e não entram na meta de água.</p>' +
+    '<p class="sheet-text">' + (mixOn() ? 'Café, chá, suco e companhia somam na meta, até metade dela. O resto precisa ser água.'
+      : 'Café, chá, suco e companhia ficam numa contagem à parte e não entram na meta de água.') + '</p>' +
     '<div class="drinks o" role="radiogroup" aria-label="Bebida">' + OTHERS.map((d) =>
       '<button class="drink" type="button" role="radio" aria-checked="' + att(d.id === cur.id) + '" data-action="set-other" data-d="' + d.id +
       '"><span class="em" aria-hidden="true">' + d.e + '</span><b>' + d.n + '</b></button>').join('') + '</div>' +
@@ -176,7 +178,7 @@ export function entrySheet(dr) {
     (dr.day !== today() ? '<p class="sheet-text">Registro de ' + relDay(dr.day) + '</p>' : '') +
     '<span class="lbl">Bebida</span><div class="dchips">' + WATERS.map(chip).join('') +
       (othersOn() || other ? '<i class="dsep" aria-hidden="true"></i>' + OTHERS.map(chip).join('') : '') + '</div>' +
-    '<p class="e-note" id="eNote">' + (other ? OTHER_NOTE : '') + '</p>' +
+    '<p class="e-note" id="eNote">' + (other ? otherNote() : '') + '</p>' +
     '<label class="lbl" for="eMl">Quantidade</label><div class="amt"><input class="in" id="eMl" type="text" inputmode="numeric" pattern="[0-9]*" ' +
       'autocomplete="off" maxlength="5" value="' + fromMl(dr.ml) + '"><span class="unit">' + unitL() + '</span></div>' +
     '<div class="presets">' + presets().map((ml) => '<button class="pill" type="button" data-action="draft-ml" data-ml="' + ml + '" aria-pressed="' +
@@ -187,11 +189,13 @@ export function entrySheet(dr) {
 }
 export function daySheet(k) {
   const d = S.days[k], total = dayTotal(d), goal = (d && d.goal) || goalToday(S, k), pc = Math.round((total / goal) * 100);
-  const oth = othersOn() ? dayOther(d) : 0;
+  const oth = othersOn() ? dayOther(d) : 0, cnt = otherCounted(d); // cnt: parte dos outros líquidos que entrou na meta (0 se desligado)
   return sheetHead(cap(relDay(k))) + '<div class="day-sum"><div><b>' + vol(total) + '</b><small>de ' + vol(goal) + ' · ' + pc + '% da meta</small></div>' +
     (isMet(d) ? '<span class="pace done"><span class="dot" aria-hidden="true"></span>Meta batida</span>' : '') + '</div>' +
     '<div class="bar"><i data-w="' + Math.min(100, pc) + '"></i></div>' +
-    (oth ? '<p class="day-oth">+ <b>' + vol(oth) + '</b> de outros líquidos, contados à parte</p>' : '') +
+    (oth ? '<p class="day-oth">' + (mixOn()
+      ? 'Inclui <b>' + vol(cnt) + '</b> de outros líquidos' + (oth > cnt ? ' (o limite é metade da meta; você registrou ' + vol(oth) + ')' : '')
+      : '+ <b>' + vol(oth) + '</b> de outros líquidos, contados à parte') + '</p>' : '') +
     (entryList(k) || empty('🫙', 'Nenhum registro neste dia.')) +
     btn('new-entry', '+ Adicionar registro', 'block ghost mt', ' data-day="' + k + '"');
 }
@@ -243,7 +247,8 @@ export function historyView(ym) {
     stat('📊', 'Média 7 dias', sx.avg7 == null ? '—' : vol(sx.avg7)) +
     stat('🎯', 'Constância 30d', sx.cons30 == null ? '—' : Math.round(sx.cons30 * 100) + '%') + '</div>' +
     '<section class="card">' + calHTML(ym || k.slice(0, 7)) + '</section>' +
-    '<p class="hint">Toque em qualquer dia para ver, corrigir ou adicionar registros esquecidos. A meta e os gráficos contam só água, com ou sem gás.</p>';
+    '<p class="hint">Toque em qualquer dia para ver, corrigir ou adicionar registros esquecidos. ' +
+    (mixOn() ? 'A meta e os gráficos somam a água e, até metade da meta, os outros líquidos.' : 'A meta e os gráficos contam só água, com ou sem gás.') + '</p>';
 }
 function calHTML(ym) {
   const k = today(), y = +ym.slice(0, 4), m = +ym.slice(5, 7) - 1, first = new Date(y, m, 1).getDay(), n = new Date(y, m + 1, 0).getDate();
@@ -288,7 +293,7 @@ export function journeyView() {
 }
 export function shareText() {
   const st = streak(S.days, today()), lv = levelFor(allMl());
-  return 'Estou no nível ' + lv.n + ' ' + lv.e + ' no Maré' + (st > 1 ? ', com ' + st + ' dias seguidos na meta de água' : '') +
+  return 'Estou no nível ' + lv.n + ' ' + lv.e + ' no Maré' + (st > 1 ? ', com ' + st + ' dias seguidos ' + (mixOn() ? 'na meta' : 'na meta de água') : '') +
     '. Já são ' + big(allMl()) + ' de água! 💧';
 }
 
@@ -348,8 +353,11 @@ export function settingsView(info) {
       'pattern="[0-9]*" autocomplete="off" data-field="cup" data-i="' + i + '" value="' + fromMl(ml) + '" aria-label="Copo ' + (i + 1) + ' em ' + u +
       '"><small>' + u + '</small></label>').join('') + '</div></div>' +
     sec('Outros líquidos') + '<div class="group">' +
-      row('Registrar outros líquidos', 'Uma segunda gota para café, chá, suco, leite, coco e isotônico. É uma contagem à parte: não entra na meta de água.',
-        sw('toggle', othersOn(), 'Registrar outros líquidos', ' data-k="others"')) + '</div>' +
+      row('Registrar outros líquidos', 'Uma segunda gota para café, chá, suco, leite, coco e isotônico.' +
+        (mixOn() ? '' : ' É uma contagem à parte: não entra na meta de água.'), sw('toggle', othersOn(), 'Registrar outros líquidos', ' data-k="others"')) +
+      // opcional e discreto: só aparece com a segunda gota ligada. Vem desligado (muitos nutricionistas preferem a meta só com água)
+      (othersOn() ? row('Somar outros líquidos na meta', 'Café, chá, suco e companhia contam na meta, até metade dela; o resto precisa ser água. ' +
+        'Vale também para o histórico.', sw('toggle', p.mix === true, 'Somar outros líquidos na meta', ' data-k="mix"')) : '') + '</div>' +
     sec('Aparência') + '<div class="group">' +
       stack('Tema', '', seg('theme', p.theme, [['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Escuro']], 'Tema')) +
       stack('Unidade', '', seg('unit', p.unit, [['ml', 'Mililitros (ml)'], ['oz', 'Onças (oz)']], 'Unidade')) + '</div>' +
@@ -357,7 +365,7 @@ export function settingsView(info) {
       stack('Backup', 'Guarde uma cópia dos registros ou leve para outro aparelho', sbtn('export', 'Exportar') + ' ' + sbtn('import', 'Importar')) +
       row('Apagar tudo', 'Remove registros e ajustes deste aparelho', sbtn('reset', 'Apagar', 'ghost danger')) + '</div>' +
     '<p class="about">Maré ' + esc(info.version || '') + ' · ' + (info.sync === 'on' ? 'seus dados ficam no aparelho, com cópia na nuvem' : 'seus dados ficam neste aparelho') +
-      '.<br>A meta de água é uma estimativa e não substitui orientação médica. Com doença renal ou cardíaca, siga a recomendação do seu médico.' +
+      '.<br>A meta diária é uma estimativa e não substitui orientação médica. Com doença renal ou cardíaca, siga a recomendação do seu médico.' +
       '<br>Previsão do tempo: Open-Meteo.com (CC BY 4.0).</p>';
 }
 

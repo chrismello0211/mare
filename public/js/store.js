@@ -1,11 +1,14 @@
 // Maré — estado e utilidades compartilhadas (Parte 3A).
 // O app.js foi dividido em store.js, ui.js, views.js e app.js (mesma lógica, arquivos menores).
-import { dayKey, keyToDate, addDays, goalToday, dayTotal, dayOther, defaults, migrate, OZ, fmtVol, fmtNum, fmtL } from './core.js';
+import { dayKey, keyToDate, addDays, goalToday, dayTotal, dayWater, dayOther, setMix, defaults, migrate, OZ, fmtVol, fmtNum, fmtL } from './core.js';
 
 export const KEY = 'mare:v1';
 // Estado vivo. "export let" é live binding: quem importa S sempre enxerga o valor atual.
 export let S = defaults();
-export function setS(v) { S = v; }
+export function setS(v) { S = v; applyMix(); }
+// "Somar outros líquidos na meta" só vale com a segunda gota ligada: com ela desligada, os registros desse tipo ficam escondidos
+// e não podem entrar na conta. Chame depois de mudar S.profile.mix ou S.profile.others.
+export function applyMix() { setMix(S.profile.others !== false && S.profile.mix === true); }
 export const hooks = { saveError: null };
 
 export function load() {
@@ -45,8 +48,8 @@ export const shiftYm = (ym, n) => {
 
 /* ---------- dia e meta ---------- */
 export const goalNow = () => goalToday(S, today());
-export const totalNow = () => dayTotal(S.days[today()]); // água: é o que conta na meta
-export const otherNow = () => dayOther(S.days[today()]); // outros líquidos de hoje (contagem à parte)
+export const totalNow = () => dayTotal(S.days[today()]); // o que conta na meta: água (+ outros líquidos, se "somar na meta")
+export const otherNow = () => dayOther(S.days[today()]); // outros líquidos de hoje (a 2ª gota mostra tudo o que foi registrado)
 export const othersOn = () => S.profile.others !== false; // a pessoa pode esconder a segunda gota em Ajustes
 export function ensureDay(k) {
   if (!S.days[k]) S.days[k] = { goal: goalToday(S, k), entries: [] };
@@ -55,7 +58,8 @@ export function ensureDay(k) {
 }
 // A meta fica gravada em cada dia; só o dia de hoje acompanha mudanças nos ajustes.
 export function syncTodayGoal() { const k = today(); if (S.days[k]) S.days[k].goal = goalToday(S, k); }
-export function allMl() { let s = 0; Object.keys(S.days).forEach((k) => { s += dayTotal(S.days[k]); }); return s; }
+// Litros de ÁGUA de todos os dias (níveis e "L de água"): não mudam com "somar na meta"
+export function allMl() { let s = 0; Object.keys(S.days).forEach((k) => { s += dayWater(S.days[k]); }); return s; }
 export const firstName = () => esc(String(S.profile.name || '').trim().split(/\s+/)[0]);
 
 /* ---------- unidades (dados sempre em ml; só a exibição muda) ---------- */
