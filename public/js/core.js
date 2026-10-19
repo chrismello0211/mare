@@ -28,11 +28,30 @@ export const ACTIVITY = {
   athlete: { l: 'Atleta', d: 'Treino intenso diário', add: 1000, e: '🏋️' },
 };
 
-// at = litros efetivos acumulados para alcançar o nível
-export const LEVELS = [
-  { n: 'Gota', e: '💧', at: 0 }, { n: 'Poça', e: '☔', at: 10 }, { n: 'Riacho', e: '🏞️', at: 50 },
-  { n: 'Rio', e: '🛶', at: 150 }, { n: 'Lago', e: '🦢', at: 300 }, { n: 'Mar', e: '⛵', at: 600 },
-  { n: 'Oceano', e: '🐋', at: 1000 }, { n: 'Maré cheia', e: '🌊', at: 2000 },
+// Insígnias: um bichinho do mar para cada marco de ÁGUA acumulada (a soma de água e água com gás de todos os dias; os outros líquidos
+// não entram). at = litros para desbloquear. A arte de cada uma está em art.js (mesmo id). e = emoji só para textos de compartilhar.
+// O ritmo foi pensado para quem bebe cerca de 2,5 L por dia: a 2ª sai em ~4 dias, o cavalo-marinho (100 L) em ~6 semanas e o narval em ~13 meses.
+export const INSIGNIAS = [
+  { id: 'concha', n: 'Concha', e: '🐚', at: 0, cheer: 'Todo grande recife começa com uma conchinha.',
+    fact: 'Toda concha cresce uma camadinha de cada vez, igualzinho à sua constância.' },
+  { id: 'estrela', n: 'Estrela-do-mar', e: '⭐', at: 10, cheer: 'Primeiro marco! Sua rotina já está ganhando forma.',
+    fact: 'A estrela-do-mar não tem sangue: ela faz a água do mar circular pelo corpo para se mexer.' },
+  { id: 'baiacu', n: 'Baiacu', e: '🐡', at: 30, cheer: 'Constância é isso: um golinho de cada vez.',
+    fact: 'Para se defender, o baiacu engole água e fica redondo como um balão.' },
+  { id: 'tartaruga', n: 'Tartaruga-marinha', e: '🐢', at: 60, cheer: 'Devagar e sempre! Você já tem uma bela rotina.',
+    fact: 'Muitas tartarugas-marinhas voltam, anos depois, à mesma praia onde nasceram.' },
+  { id: 'cavalo', n: 'Cavalo-marinho', e: '🌊', at: 100, cheer: 'Cem litros de cuidado com você. Que orgulho!',
+    fact: 'No cavalo-marinho, é o papai quem carrega os filhotes na barriga. E eles nadam em pé!' },
+  { id: 'polvo', n: 'Polvo', e: '🐙', at: 175, cheer: 'Três corações batendo por você, e uma rotina cada vez mais firme.',
+    fact: 'O polvo tem três corações e sangue azul.' },
+  { id: 'agua-viva', n: 'Água-viva', e: '💦', at: 275, cheer: 'Fluindo com leveza. Continue assim!',
+    fact: 'Uma água-viva é feita de cerca de 95% de água. Quase como a gente!' },
+  { id: 'golfinho', n: 'Golfinho', e: '🐬', at: 400, cheer: 'Que salto! Você virou referência de constância.',
+    fact: 'Golfinhos dormem com metade do cérebro de cada vez, para continuar nadando e respirando.' },
+  { id: 'baleia', n: 'Baleia', e: '🐋', at: 700, cheer: 'Gigante! É muita água e muita dedicação.',
+    fact: 'A baleia-azul é o maior animal que já existiu, maior até que qualquer dinossauro.' },
+  { id: 'narval', n: 'Narval', e: '🦄', at: 1000, cheer: 'Recife completo! Você é lenda da hidratação.',
+    fact: 'O "chifre" do narval é um dente que cresce em espiral e pode passar de 2 metros.' },
 ];
 
 /* ---------- datas (fuso local do aparelho) ---------- */
@@ -132,13 +151,56 @@ export function bestStreak(days) {
   return best;
 }
 
-/* ---------- níveis ---------- */
+/* ---------- insígnias ---------- */
+export const insigniaById = (id) => { for (let i = 0; i < INSIGNIAS.length; i++) if (INSIGNIAS[i].id === id) return INSIGNIAS[i]; return null; };
+export const insigniaIndex = (id) => { for (let i = 0; i < INSIGNIAS.length; i++) if (INSIGNIAS[i].id === id) return i; return -1; };
+// Insígnia atual (a mais alta já alcançada) e o caminho até a próxima. p vai de 0 a 1 entre as duas.
 export function levelFor(totalMl) {
-  const L = totalMl / 1000;
+  const L = Math.max(0, totalMl) / 1000;
   let i = 0;
-  while (i < LEVELS.length - 1 && L >= LEVELS[i + 1].at) i++;
-  const cur = LEVELS[i], next = LEVELS[i + 1] || null;
-  return { i, n: cur.n, e: cur.e, at: cur.at, next, liters: L, p: next ? (L - cur.at) / (next.at - cur.at) : 1 };
+  while (i < INSIGNIAS.length - 1 && L >= INSIGNIAS[i + 1].at) i++;
+  const cur = INSIGNIAS[i], next = INSIGNIAS[i + 1] || null;
+  return { i, id: cur.id, n: cur.n, e: cur.e, at: cur.at, next, liters: L, p: next ? Math.min(1, Math.max(0, (L - cur.at) / (next.at - cur.at))) : 1 };
+}
+// Quando cada insígnia foi alcançada, pela história de registros (momento do gole em que a soma de água passou do marco).
+// Serve para datar insígnias de quem já usava o app, de um backup ou de outro aparelho. { id: ms }
+export function insigniaDates(S) {
+  const es = [];
+  Object.keys(S.days || {}).forEach((k) => {
+    const d = S.days[k];
+    ((d && d.entries) || []).forEach((e) => { const v = eff(e); if (v > 0 && isFinite(e.t)) es.push([e.t, v]); });
+  });
+  es.sort((a, b) => a[0] - b[0]);
+  const out = {};
+  let cum = 0, i = 0;
+  es.forEach((x) => {
+    cum += x[1];
+    while (i < INSIGNIAS.length && cum >= INSIGNIAS[i].at * 1000) { out[INSIGNIAS[i].id] = x[0]; i++; }
+  });
+  return out;
+}
+// Situação do recife para a tela da Jornada: a insígnia mais alta JÁ conquistada (ela nunca sai, mesmo que registros sejam apagados),
+// a próxima, quanto falta (em ml) e o progresso 0..1 até ela, pela água acumulada.
+export function reefFor(S, totalMl) {
+  const mine = unlockedInsignias(S), cur = mine[mine.length - 1] || INSIGNIAS[0], i = insigniaIndex(cur.id), next = INSIGNIAS[i + 1] || null;
+  const L = Math.max(0, totalMl) / 1000;
+  return { cur, i, next, have: mine.length, liters: L,
+    p: next ? Math.min(1, Math.max(0, (L - cur.at) / (next.at - cur.at))) : 1,
+    leftMl: next ? Math.max(0, Math.round(next.at * 1000 - Math.max(0, totalMl))) : 0 };
+}
+// Insígnias que a água acumulada já alcançou e que ainda não foram guardadas em S.insignias (como as medalhas: depois de
+// conquistada, nunca é retirada, nem se a pessoa apagar registros). A primeira (0 L) já nasce com a pessoa.
+export function newInsignias(S, totalMl) {
+  const got = S.insignias || {}, L = Math.max(0, totalMl) / 1000;
+  return INSIGNIAS.filter((x) => !got[x.id] && L >= x.at);
+}
+// As conquistadas, na ordem do recife (da mais antiga para a mais nova)
+export const unlockedInsignias = (S) => INSIGNIAS.filter((x) => !!(S.insignias || {})[x.id]);
+// Mascote do perfil: a escolhida, se já foi conquistada; senão, a mais alta conquistada
+export function mascotOf(S) {
+  const mine = unlockedInsignias(S), want = S.profile && S.profile.mascot;
+  const pick = want ? mine.filter((x) => x.id === want)[0] : null;
+  return pick || mine[mine.length - 1] || INSIGNIAS[0];
 }
 
 /* ---------- missões do dia (determinísticas pela data) ---------- */
@@ -171,11 +233,12 @@ export const ACHIEVEMENTS = [
   { id: 'mission', e: '🧭', t: 'Missão cumprida', d: 'Completou uma missão do dia', test: (c) => c.missions >= 1 },
   { id: 'm10', e: '🗺️', t: 'Explorador', d: '10 missões completas', test: (c) => c.missions >= 10 },
   { id: 'weekend', e: '🏖️', t: 'Fim de semana em dia', d: 'Meta no sábado e no domingo', test: (c) => c.weekend },
-  { id: 'l100', e: '🐋', t: 'Cem litros', d: '100 L de água no total', test: (c) => c.totalMl >= 100000 },
+  { id: 'd10', e: '🎖️', t: 'Dez na meta', d: 'Meta batida em 10 dias, seguidos ou não', test: (c) => c.daysMet >= 10 },
 ];
 
-// Medalhas de volume e de "primeiros registros" olham só a água (litros de água, 500 ml de água antes das 9h, primeira gota).
-// Já "bater a meta" (e a hora em que isso aconteceu) segue o total da meta, que inclui os outros líquidos se "Somar na meta" estiver ligado.
+// As medalhas de "primeiros registros" olham só a água (500 ml de água antes das 9h, primeira gota); o volume total de água
+// agora vira insígnia (ver INSIGNIAS), não medalha. Já "bater a meta" (e a hora em que isso aconteceu) segue o total da meta,
+// que inclui os outros líquidos se "Somar na meta" estiver ligado.
 export function context(S) {
   const keys = Object.keys(S.days).sort();
   let totalMl = 0, entries = 0, daysMet = 0, early = false, sunset = false, weekend = false;
@@ -271,25 +334,33 @@ export const uid = () => Date.now().toString(36) + Math.random().toString(36).sl
 
 /* ---------- estado ---------- */
 // profile.others: mostra a segunda gota (outros líquidos). profile.mix: soma os outros líquidos na meta (até metade dela; só vale
-// com others ligado). last = água dos copos rápidos; lastO = bebida de "outros líquidos".
+// com others ligado). profile.mascot: insígnia do perfil ('' = a mais alta). last = água dos copos rápidos; lastO = bebida de "outros líquidos".
+// insignias: { id: ms } das conquistadas. social: amigos, DESTE aparelho (o login é por aparelho, então não vai para o backup):
+// on = ativou os amigos; nick = nome que os amigos veem; share = mostra o progresso do dia; code = código de convite atual.
 export function defaults(createdAt) {
   return {
     v: 1, onboarded: false, createdAt: createdAt || Date.now(),
-    profile: { name: '', weight: 70, activity: 'moderate', wake: '07:00', sleep: '23:00', unit: 'ml', theme: 'auto', others: true, mix: false },
+    profile: { name: '', weight: 70, activity: 'moderate', wake: '07:00', sleep: '23:00', unit: 'ml', theme: 'auto', others: true, mix: false, mascot: '' },
     goal: { mode: 'auto', manual: 2500, climate: false, bonus: 0, temp: null, day: '' },
     cups: [150, 250, 350, 500], last: 'water', lastO: 'coffee',
     reminders: { enabled: false, interval: 90, smart: true, nextAt: 0 },
-    days: {}, achievements: {}, missions: {}, ui: {},
+    days: {}, achievements: {}, missions: {}, insignias: {}, social: { on: false, nick: '', share: true, code: '' }, ui: {},
   };
 }
 export function migrate(s) {
   if (!s || typeof s !== 'object') return defaults();
   const d = defaults(s.createdAt), o = Object.assign({}, d, s);
-  ['profile', 'goal', 'reminders', 'ui'].forEach((k) => { o[k] = Object.assign({}, d[k], s[k]); });
-  ['days', 'achievements', 'missions'].forEach((k) => { if (!o[k] || typeof o[k] !== 'object') o[k] = {}; });
+  ['profile', 'goal', 'reminders', 'ui', 'social'].forEach((k) => { o[k] = Object.assign({}, d[k], s[k]); });
+  ['days', 'achievements', 'missions', 'insignias'].forEach((k) => { if (!o[k] || typeof o[k] !== 'object' || Array.isArray(o[k])) o[k] = {}; });
   if (!Array.isArray(o.cups) || o.cups.length !== 4) o.cups = d.cups.slice();
   o.profile.others = o.profile.others !== false;
   o.profile.mix = o.profile.mix === true; // "Somar outros líquidos na meta": só liga quando a pessoa pede
+  o.profile.mascot = insigniaById(o.profile.mascot) ? o.profile.mascot : '';
+  const sc = o.social;
+  sc.on = sc.on === true;
+  sc.nick = typeof sc.nick === 'string' ? sc.nick.slice(0, 20) : '';
+  sc.share = sc.share !== false;
+  sc.code = typeof sc.code === 'string' && /^[A-Z0-9]{8}$/.test(sc.code) ? sc.code : '';
   // Bebida dos copos rápidos: só água ou água com gás. Quem deixou café, chá etc. como padrão passa a tê-lo em "outros líquidos".
   const l = byId(o.last);
   if (l && l.g === 'o') { o.lastO = l.id; o.last = 'water'; } else o.last = l ? l.id : 'water';

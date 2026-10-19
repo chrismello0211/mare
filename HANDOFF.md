@@ -1,6 +1,6 @@
 # Maré — PWA de hidratação · Handoff para o Claude Code
 
-Leia este arquivo inteiro antes de alterar o código. Ele explica o que está pronto, as decisões tomadas e o que falta. O código foi entregue em 5 partes numa conversa. **O estado real hoje (Firebase criado, GitHub Pages, correções feitas e o que falta) está no "Adendo — Parte 6", as bebidas da versão 1.0.2 (água na meta, outros líquidos à parte) estão no "Adendo — Parte 7" e o interruptor opcional "Somar outros líquidos na meta" da versão 1.0.3 está no "Adendo — Parte 8", todos no final.** Onde as seções antigas dizem "ainda não foi executado", "criar o projeto" ou falam de fatores de hidratação, vale o adendo.
+Leia este arquivo inteiro antes de alterar o código. Ele explica o que está pronto, as decisões tomadas e o que falta. O código foi entregue em 5 partes numa conversa. **O estado real hoje (Firebase criado, GitHub Pages, correções feitas e o que falta) está no "Adendo — Parte 6", as bebidas da versão 1.0.2 (água na meta, outros líquidos à parte) estão no "Adendo — Parte 7" o interruptor opcional "Somar outros líquidos na meta" da versão 1.0.3 está no "Adendo — Parte 8", e as insígnias do mar e o sistema de amigos da versão 1.1.0 estão no "Adendo — Parte 9", todos no final.** Onde as seções antigas dizem "ainda não foi executado", "criar o projeto" ou falam de fatores de hidratação, vale o adendo.
 
 ## O que é
 
@@ -13,7 +13,8 @@ PWA de hidratação em pt-BR, pensado para ir às lojas depois (via Capacitor). 
 - Ação na notificação (Android): botão "+250 ml" registra sem abrir o app (SW → IndexedDB → o app drena ao abrir).
 - Meta: peso × 35 ml + atividade + clima do dia (opcional, Open-Meteo, 1 consulta/dia, coordenadas arredondadas).
 - Só água e água com gás contam na meta. Café, chá, suco, leite, coco e isotônico ficam numa segunda gota (âmbar), em contagem à parte e opcional; refrigerante e álcool não existem mais no app (ver Parte 7). Quem preferir a meta de hidratação liga, só em Ajustes, "Somar outros líquidos na meta" (desligado de fábrica; os outros líquidos contam até metade da meta, ver Parte 8).
-- Registro retroativo, missões diárias, 12 medalhas, 8 níveis temáticos, sequência de dias.
+- Registro retroativo, missões diárias, 12 medalhas, 10 insígnias de bichinhos do mar (da concha ao narval, por litros de água acumulados; ver Parte 9), sequência de dias.
+- Amigos (1.1.0, opcional): convite por código, perfil público mínimo (apelido, mascote, insígnias, % da meta de hoje e sequência) visto só por amigos aprovados, acenos de "oi" e "parabéns". **Sem ranking e sem volumes**: é para motivar, não para competir (ver Parte 9).
 - Insights locais: período mais seco do dia, melhor dia da semana, % da água antes do meio-dia, semana vs. semana anterior.
 - Visual: gota SVG com ondas, texto "líquido", gota caindo + respingo a cada registro, confete na meta, tema claro/escuro, respeita "reduzir movimento".
 - Plano B sem push: exporta lembretes recorrentes para o calendário (.ics).
@@ -36,18 +37,24 @@ Atualizações: o SW é versionado e a página mostra o aviso "Nova versão disp
 ```text
 mare/
 ├── HANDOFF.md  README.md
-├── package.json              # dev: serve, vitest, playwright, sharp
-├── playwright.config.js  vitest.config.js
+├── package.json              # dev: serve, vitest, playwright, sharp, esbuild, firebase (só nos testes), hidane
+├── playwright.config.js  vitest.config.js  vitest.rules.config.js
 ├── firebase.json  .firebaserc  firestore.rules  firestore.indexes.json
 ├── .github/workflows/pages.yml   # publica public/ no GitHub Pages a cada push na main
-├── scripts/icons.mjs         # gera PNGs a partir do SVG
+├── scripts/
+│   ├── icons.mjs             # gera PNGs a partir do SVG
+│   ├── art/  build.mjs  creatures.mjs  tube.mjs   # geram public/js/art.js (npm run art)
+│   └── rules-test.mjs        # sobe um emulador do Firestore e roda tests/rules (npm run test:rules)
 ├── public/                   # ← raiz publicada (GitHub Pages e, se quiser, Firebase Hosting)
 │   ├── index.html  manifest.webmanifest  sw.js
 │   ├── css/app.css
 │   ├── icons/                # icon.svg + PNGs gerados por scripts/icons.mjs (já versionados)
 │   └── js/ app.js  core.js  store.js  ui.js  views.js  platform.js  firebase.js  firebase-config.js
+│           art.js (GERADO)  kit.js  social.js  friends-view.js  social-cloud.js   # 1.1.0 (Parte 9)
 ├── functions/  package.json  index.js
-└── tests/  core.test.js  e2e.spec.js
+└── tests/  core.test.js  art.test.js  social.test.js  compat.test.js  e2e.spec.js  e2e-friends.spec.js
+    ├── helpers/  seed.js  friends.js  fake-cloud.browser.js
+    └── rules/  firestore.rules.test.js  social-cloud.test.js     # contra o emulador do Firestore (npm run test:rules)
 ```
 
 ## Modelo de dados
@@ -61,13 +68,22 @@ localStorage "mare:v1"
   cups:[150,250,350,500], last("water|sparkling"), lastO(último "outro líquido"),
   reminders:{ enabled, interval, smart, nextAt },
   days:{ "AAAA-MM-DD": { goal, entries:[{ id, t(ms), ml, d(drinkId) }] } },
-  achievements:{ id: ts }, missions:{ "AAAA-MM-DD": 1 }, ui:{} }
+  achievements:{ id: ts }, missions:{ "AAAA-MM-DD": 1 }, ui:{},
+  insignias:{ id: ts },                                  // 1.1.0: insígnias do mar conquistadas (Parte 9)
+  social:{ on, nick, share, code }                       // 1.1.0: amigos; fica FORA do backup
+  profile.mascot: id da insígnia que os amigos veem ('' = a mais alta conquistada) }
+localStorage "mare:social"   // cópia da lista de amigos { uid, code, at, friends, reqIn, reqOut }; só vale para o mesmo uid
 
 Firestore
 users/{uid}: name, tz, wake, sleep, unit, goal, today:{day, ml},
              reminder:{enabled, interval, smart, nextAt(Timestamp), lastSentAt},
              fcm:{ <hash>: {token, ua, at} }, stats:{streak, best, totalMl, level}, updatedAt
 users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
+
+Firestore, amigos (1.1.0, Parte 9; nenhum documento público leva carimbo de hora do dono)
+profiles/{uid}:            v, nm, mc, ins[], pct?, met, st, day, sh
+codes/{CÓDIGO8}:           uid, nm, mc, rv?                    (nunca é apagado; rv = revogado)
+friendships/{menor_maior}: m[2], by, st, nm, mc, tn, tc, cd, at, ok?, w?   (w[uid] = { k, d, at })
 ```
 
 ## Checklist
@@ -104,6 +120,7 @@ users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
 - [ ] Screenshots no manifest (instalação rica no Android) e nas lojas; podem sair do Playwright.
 
 ## Limitações conhecidas
+- Amigos (1.1.0): as limitações próprias (identidade anônima por aparelho, link de convite no iOS, sem push, sem bloqueio, o que foi aceito de propósito nas revisões) estão no fim da Parte 9.
 - iOS: push só com o app instalado na Tela de Início e iOS 16.4+. Ações na notificação não existem no iOS (tocar abre o app).
 - Sem Firebase, lembretes só disparam com o app aberto ou recém-minimizado. Para isso existe o .ics.
 - Safari pode apagar dados de sites não instalados após ~7 dias sem uso. Instalado na Tela de Início, isso não acontece; por isso o app incentiva a instalação.
@@ -368,3 +385,148 @@ Na 1.0.2, `VERSION` (sw.js) e `APP_VERSION` (app.js) estavam em `1.0.2`. O passo
 
 ### Para publicar
 `VERSION` (sw.js) e `APP_VERSION` (app.js) estão em `1.0.3`. Extrair o ZIP por cima do repositório, commit e push na `main`; o Actions publica em cerca de 1 minuto e quem já tem o app vê "Nova versão disponível". Não precisa reimplantar o Firebase. Os itens de "O que falta" da Parte 6 (principalmente o push real em aparelho) continuam valendo.
+
+
+## Adendo — Parte 9 (versão 1.1.0: insígnias do mar e amigos)
+
+### O que o dono pediu e por quê
+- Duas ideias vindas do grupo do dono, entregues juntas porque se alimentam: (1) um **sistema de amizade** para acompanhar o progresso diário dos amigos, **só se eles permitirem**, **sem competição** (é um app de saúde: a ideia é motivar, não ranquear); (2) um **joguinho de insígnias**: ao passar de certas quantidades de água (ele deu o exemplo de 100 L e de um cavalo-marinho), a pessoa desbloqueia uma insígnia que fica no **perfil público**. Ele deixou o Claude decidir onde encaixar e como: "bem testado, bem bacana, bem construído e de forma motivacional".
+- Decisões de desenho (todas do Claude, dentro da autorização do dono):
+  - As insígnias são **bichinhos do mar** (10, da concha ao narval) e são o "joguinho": colecionar, escolher o **mascote** do perfil e ver o recife. Marcos por **litros de água acumulados**, que é uma conta que só cresce, então ninguém "perde" insígnia e ninguém precisa de streak perfeito para progredir. Ficam num "recife" na aba Jornada.
+  - Amigos são uma **5ª aba ("Amigos")**, e **opcionais em dois níveis**: a pessoa precisa ativar (com apelido) e ainda escolhe se mostra o progresso do dia. Quem não ativa nunca é cobrado: nenhuma faixa, nenhum aviso.
+  - **Nada de ranking e nada de números absolutos:** a lista é em ordem alfabética, ninguém vê litros, ml, peso, horários ou localização de ninguém. Só **% da meta de hoje (0 a 100)**, se bateu a meta, **sequência** e as insígnias. A "Maré da turma" fala só de coisas boas ("3 de 4 já bateram a meta hoje") e nunca de quem está atrás.
+  - Interação positiva e leve: **um aceno por amigo por dia** ("oi" 👋 para quem está no caminho, "parabéns" 🎉 para quem bateu a meta), com festinha quando a turma inteira bate a meta (uma vez por dia) e quando uma amizade nasce.
+  - Privacidade em primeiro lugar: perfil lido só por amigos aprovados, convite por **código** (nunca por busca de nomes), e dá para **trocar o código**, **remover** qualquer amizade e **sair** (apaga tudo da nuvem, ou não apaga nada: ver "Sair dos amigos").
+
+### Insígnias do mar (`core.js`, `art.js`, `views.js`, `app.js`)
+- Tabela `INSIGNIAS` (`core.js`), marcos em litros de **água acumulada** (`allMl()` em `store.js`, que usa `dayWater`: só água, mesmo com "Somar outros líquidos na meta" ligado):
+
+  | id | nome | litros |
+  |---|---|---|
+  | `concha` | Concha | 0 (nasce com a pessoa, sem festa) |
+  | `estrela` | Estrela-do-mar | 10 |
+  | `baiacu` | Baiacu | 30 |
+  | `tartaruga` | Tartaruga-marinha | 60 |
+  | `cavalo` | Cavalo-marinho | 100 |
+  | `polvo` | Polvo | 175 |
+  | `agua-viva` | Água-viva | 275 |
+  | `golfinho` | Golfinho | 400 |
+  | `baleia` | Baleia | 700 |
+  | `narval` | Narval | 1000 |
+
+  Cada uma tem `cheer` (frase de parabéns) e `fact` ("Você sabia?", uma curiosidade real e bem conhecida do bicho; se trocar por outra, confira a fonte). Para mudar marcos ou textos basta editar a tabela; `core.test.js` confere a ordem, os marcos crescentes e o `levelFor`. O `e` (emoji) é só uma reserva para textos sem desenho (vai no texto de "Compartilhar meu progresso"): o cavalo-marinho usa 🌊 porque **não existe emoji de cavalo-marinho**. Todos os emojis do app precisam ser do Unicode 11 ou anterior (o `compat.test.js` confere).
+- **Conquistada, nunca sai** (como as medalhas): `S.insignias = { id: timestamp }`. `newInsignias(S, totalMl)` diz o que falta guardar; `grantInsignias(live)` (`app.js`) guarda. `live = true` é o gole que cruzou o marco (vira comemoração: entra na fila `S.ui.unseenIns` e o painel "Você desbloqueou" aparece quando a tela está calma, ver `showUnlock()`); `live = false` é concessão silenciosa, **datada pelo histórico** de registros (`insigniaDates`): primeira abertura depois de atualizar, backup restaurado, dados de outro aparelho. Quem já usava o app ganha as que merecia de uma vez e só a mais alta é comemorada (`welcomeInsignias()`).
+- **Mascote:** `S.profile.mascot` (id, ou `''` = a mais alta conquistada). `mascotOf(S)` sempre devolve uma insígnia já conquistada. É o que os amigos veem no avatar. Troca-se no painel da insígnia (Jornada) ou em "Meu perfil".
+- **Arte:** os desenhos são **gerados**. Edite `scripts/art/creatures.mjs` (formas) e rode `npm run art` (`scripts/art/build.mjs` + `tube.mjs`), que reescreve `public/js/art.js`. **Não edite `art.js` à mão.** Regras da arte (para o iOS 12 desenhar igual): só `<path>/<circle>/<ellipse>/<polygon>/<g>`, **sem `id`, `<use>`, gradiente nem `clip-path`**, em um quadro de 100×100. O medalhão (fundo, anel, brilho, bolhinhas) e a **silhueta de "bloqueada"** são CSS (`.bdg` e `.bdg.lock` em `app.css`). `badge(id, { size, locked, label, cls })` (em `art.js`) monta o HTML; sem `label` o desenho fica oculto para leitor de tela.
+- **Telas:** Jornada ganhou o card do nível atual (medalhão que flutua + barra até a próxima insígnia + quanto falta) e o **recife** (grade com as 10, as bloqueadas em silhueta com os litros que faltam). Tocar numa abre o painel (curiosidade, "Usar como meu mascote"; bloqueada: quanto falta). A janela de novidades da 1.1.0 (`newsSheet`) apresenta as insígnias e os amigos uma única vez.
+- A tabela antiga `LEVELS` (8 níveis temáticos, Gota … Maré cheia, de 0 a 2000 L) **foi substituída** pelas 10 insígnias (0 a 1000 L). `levelFor(totalMl)` continua em `core.js`, agora sobre `INSIGNIAS`, e o campo `stats.level` que vai para a nuvem passa a ser o índice da insígnia (0 a 9; antes 0 a 7). Nada no servidor lê esse campo (a Cloud Function só usa `tz`, `wake`, `sleep`, `unit`, `goal`, `today`, `reminder` e `fcm`). As **medalhas** (12) e as **missões** continuam como estavam.
+- **As insígnias no perfil público revelam, de propósito, a faixa de litros da pessoa** (os ids vão em `profiles/{uid}.ins`): é o objetivo do joguinho (mostrar a conquista). Nada mais fino que isso sai do aparelho.
+
+### Amigos: dados na nuvem (`firestore.rules`)
+Três coleções novas; **`users/*` e `users/*/days/*` não mudaram** (continuam privados do dono). **Nenhum documento público leva carimbo de hora do dono** (nem `u`, nem `updatedAt`): quem tem um convite, ou é amigo, não pode saber quando a pessoa abre o app ou registra um gole. Os únicos horários são os de eventos que a pessoa faz de propósito dentro de uma amizade (`at` do pedido, `ok` do aceite e `at` de cada aceno), legíveis só pelos dois membros.
+- `profiles/{uid}`: o que os amigos veem. Campos fechados (`hasOnly`; todos obrigatórios menos `pct`): `v` (=1), `nm` (apelido), `mc` (mascote), `ins` (ids das insígnias: até 12 textos de até 24 caracteres; o servidor não conhece a lista de ids, então insígnia nova não exige regra nova), `pct` (inteiro de 0 a 100, ou ausente/`null` quando o progresso está em pausa), `met` (bateu a meta), `st` (sequência), `day` (o dia a que o `pct` se refere) e `sh` (mostra progresso?). Só o dono escreve; **só o dono e amigos aprovados (`friendships/*` com `st == 'active'`) conseguem `get`**; não há `list`. Nunca há ml, peso, horário nem localização.
+- `codes/{CÓDIGO}`: o convite. Código de **8 caracteres** do alfabeto `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (sem I, L, O, 0, 1; ~40 bits, gerado com `crypto.getRandomValues`). Documento: `uid`, `nm`, `mc` e, se revogado, `rv: true`. **Qualquer pessoa logada pode `get`** (é assim que quem tem o código vê "nome + mascote" de quem convidou, e nada mais); só o dono faz `list` (e só dos seus: `where uid == eu`). **Convites nunca são apagados, nem pelo dono** (`allow delete: if false`): trocar o código (Ajustes → Amigos → Novo código) marca o antigo com `rv: true` e cria o novo **na mesma transação**; sair dos amigos revoga todos e troca nome e mascote por `-`. Um código revogado **continua ocupado para sempre** (ninguém mais consegue criá-lo com outro dono e se passar por quem o divulgou) e **não pode ser reaberto** (a regra de `update` não deixa tirar o `rv`). `lookup()` trata revogado como "não encontrei".
+- `friendships/{uidMenor_uidMaior}`: a amizade entre dois usuários. O id junta os dois uids com `_`, **menor primeiro comparando em minúsculas** (`pairId`, igual em `social.js` e nas regras: os ids do login misturam maiúsculas e minúsculas). Campos: `m` (os dois uids), `by` (quem pediu), `st` (`'pending'` → `'active'`), `nm`/`mc` (quem pediu), `tn`/`tc` (nome e mascote de quem recebeu, vistos no convite), `cd` (o **código de convite usado no pedido**), `at`, `ok` (hora do aceite) e `w` (acenos: `w[uid] = { k: 'hi'|'cheer', d: 'AAAA-MM-DD', at }`).
+  - **Criar** só como `pending`, só por quem pediu (`by == auth.uid`), com `at == request.time` e **só com `cd` = um código que existe agora, é do destinatário e não foi revogado** (`liveCode`). Isso é o que faz o "Novo código de convite" valer de verdade: saber o identificador de alguém (ele aparece no convite e para os amigos) **não basta** para pedir amizade. Pedidos já enviados continuam valendo depois da troca (aceitar ou recusar segue possível). **Aceitar** só por quem **recebeu** (muda só `st` e `ok`, com `ok == request.time`). **Aceno** só em amizade ativa, só na **própria** entrada de `w`, com `at == request.time` e **no mínimo 10 minutos** desde o anterior (o app só deixa 1 por amigo por dia). **Apagar**: qualquer um dos dois (recusar, cancelar e remover são o mesmo `delete`). Ler (`get`/`list`): só quem está em `m`.
+- Pedido cruzado (A pede a B enquanto B já tinha pedido a A): o app percebe o `pending` do outro lado e **aceita na hora** (`request()` em `social-cloud.js` devolve `kind: 'accepted'`).
+- Sem índices compostos: as consultas são `friendships where m array-contains <eu>` e `codes where uid == <eu>`.
+- **Limite de 30 amigos** é do app (`MAX_FRIENDS`), porque as regras não contam documentos. Apelido até 20 letras no app (`NICK_MAX`); nas regras o teto é folgado (80) para nunca recusar 20 letras com acento ou emoji.
+
+### Amigos: cliente
+- `social.js` (**lógica pura**, sem DOM nem Firebase): código (`genCode`, `normCode`, `validCode`, `fmtCode`, `codeFromURL`, `inviteLink`), nomes (`cleanNick` tira controles C0 e C1, `< >`, caracteres invisíveis, de formato e de inversão de direção, limita sequências de acentos soltos a 2 e cai em "Amigo" se não sobrar letra), `profilePayload(S, dia)` (**o único lugar que decide o que sai do aparelho**), `cleanFriend`/`cleanRequest`/`cleanInvite`/`cleanState` (**tudo o que chega da nuvem passa por aqui**: um amigo mal-intencionado não consegue enviar HTML, números fora da faixa ou insígnias que não existem), `liveOf` (estado de hoje de um amigo: `met`, `going`, `idle`, `away`, `paused`, `unknown`), `turma`, `waveFor`/`waveIn`/`unseenWaves`/`arrivals`, `errText` (mensagens em português; nunca texto técnico do Firestore). Dia de aceno ou de perfil **mais de 2 dias à frente de hoje é ignorado** (relógio errado ou dado forjado não fixa um aceno "para sempre").
+- `social-cloud.js` (**fala com o Firestore**): `createSocial({ FS, db, uid, rand, cache, leaveMs })` recebe o SDK já pronto, então roda igual no navegador (SDK do CDN, via `firebase.js`) e nos testes (SDK do npm contra o emulador). API: `join, start, stop, refresh, publish, touch, flush, newCode, lookup, request, accept, decline, cancel, remove, declineAll, wave, leave, state, on`. Erros são `SocialError` com `code`: `rules, offline, notfound, self, exists, pending, full, gone, wave, notjoined, bad, auth, busy, unknown` (a tela ainda usa `off`, nuvem indisponível, e `slow`, espera longa demais). Mantém **uma escuta** de `friendships` (array-contains) e **uma escuta de perfil por amigo** (no máximo 30), com tentativa de novo crescente (4 s até 5 min) quando cai. `publish` só grava se algo mudou (`samePayload`) e `touch()` junta mudanças (debounce) para não gastar escritas a cada gole; **só mexe no convite quando nome ou mascote mudaram** e só o **atualiza** (nunca cria nem reabre um código).
+  - **Gravações em dois passos viram transações só de escrita** (`atomic`): trocar o código (`newCode`: cria o novo e revoga o antigo juntos) e sair (`leave`). Uma transação só de escrita **não entra na fila offline do SDK**: sem internet ela falha na hora e **nada muda**.
+  - **`leave()` é tudo ou nada.** Primeiro desliga as escutas e zera o `hooks` (nenhum envio agendado recria o perfil), liga a bandeira `leaving` e lê os convites uma vez. Depois, em rodadas: lê as amizades (páginas de 200) e grava, **numa transação só, as últimas amizades + o perfil + a limpeza dos convites** (`nm: '-'`, `mc: '-'`, `rv: true`). Se há mais de 200 amizades, as rodadas anteriores apagam só amizades (perfil e convites vão por último). Se uma amizade some entre a leitura e a gravação (o outro lado desfez agora), as regras recusam a transação inteira e a rodada **lê de novo e repete** (até 4 vezes). Prazo de **15 s** (`leaveMs`): depois dele nenhuma etapa nova começa e o erro (`offline`) chega à tela. Enquanto sai, `join`, `newCode`, `request`, `accept`, `decline`/`cancel`/`remove`, `declineAll` e `wave` respondem `busy` (ler continua liberado), e `start` e `publish` não fazem nada.
+  - `declineAll()` ("Recusar todos"): se a escuta ainda não respondeu, **confere no servidor** antes de agir; se não alcança, falha com `offline` e não apaga nada; apaga em lotes (o Firestore aceita no máximo 500 gravações por lote). `refresh()` sem escuta lê **todas** as amizades (sem o limite da página). A tela mostra no máximo 30 pedidos, mas `request`/`accept`/`decline` também acham pedidos além da primeira página de 200.
+- `firebase.js`: `cloud.social(cacheRaw)` cria a camada sob demanda (import dinâmico). `cloud.wipe()` ("Apagar meus dados") **tenta sair dos amigos primeiro** (e segue mesmo se não conseguir; quem garante a ordem é o `app.js`, ver abaixo). `initializeAuth` cai para `getAuth` se já existir uma instância, e os emuladores só são ligados uma vez.
+- `store.js`: `SOC = { mode: 'wait'|'ready'|'off', st }` é o que as telas leem. `app.js` (seção "amigos") liga tudo: `connectSoc(ms)` pega a camada (com **uma nova tentativa** de religar a nuvem se ela não tinha subido), `wireSoc` liga os ouvintes de cada instância, `retrySocial`, `exitCloud`/`afterLeft`/`leaveFriends`, `resetAll`/`eraseLocal`. Guarda a **cópia local `mare:social`** (primeira pintura e uso sem internet; limpa por `cleanState` e **presa ao uid**: se o login mudou, a cópia da conta antiga é ignorada). Operações que esperam o servidor passam por `guard(promessa, ms)` (rejeita com `code: 'slow'`): a tela avisa em vez de girar para sempre.
+- `friends-view.js` e `kit.js`: HTML da aba, dos painéis (amigo, "Meu perfil", "Inserir código", "Como funciona a privacidade"), da faixa em Hoje e do grupo em Ajustes. `kit.js` foi extraído de `views.js` (botões, linhas, interruptores) para as duas telas dividirem as mesmas peças.
+- Estado no aparelho: `S.social = { on, nick, share, code }` e `S.profile.mascot`. **Ficam de fora do backup** (`social` é zerado ao exportar e ao importar): o login é anônimo e por aparelho, então amigos pertencem a este aparelho. Chaves de `S.ui` usadas: `invite` (código recebido por link e ainda não usado), `wv` (acenos já vistos), `crewAt` (dia em que a festa da turma já saiu), `unseenIns` (fila de insígnias a comemorar) e as dicas `tip_*`.
+
+### Amigos: fluxos e telas
+- **Entrada** (aba Amigos, antes de ativar): explica o que os amigos veem e o que **nunca** veem; campo de apelido já preenchido com o primeiro nome; interruptor "Mostrar meu progresso do dia" (ligado de fábrica); botão "Ativar amigos". **Nada liga sozinho.** Sem a nuvem (aparelho sem internet na primeira vez, ou nuvem fora do ar) a tela avisa e não deixa ativar.
+- **Convidar:** card com o código `ABCD-EFGH` (8 caracteres, com traço só na tela), "Convidar" (compartilhamento do aparelho com o **link** `…/mare/?amigo=ABCDEFGH`; se não houver, copia o texto) e "Copiar código". **Receber:** quem abre o link vê quem convidou e, ao ativar, o pedido é enviado junto; quem já tem os amigos ligados cai direto no painel "Inserir código" com o resultado. O mesmo painel aceita **digitar** o código ou **colar o link inteiro**.
+- **Pedidos:** "Pedidos de amizade" (recebidos: Aceitar / Agora não; enviados: Cancelar; "Recusar todos" quando há vários). Aceitar faz festa ("Nova amizade", pop 🤗). Bolinha na aba quando há pedido ou aceno novo.
+- **Lista da turma:** avatares com **anel de progresso** (verde com ✓: meta batida; azul que vai enchendo: no caminho; trilho claro: ainda sem registros; tracejado: progresso em pausa ou sem novidades), apelido e uma frase ("62% da meta de hoje", "Meta batida hoje 🎉", "Ainda sem registros hoje", "Progresso do dia em pausa", "Sem novidades há 4 dias"). **Ordem alfabética**, sem barra de classificação. Faixa "Maré da turma" no topo (só frases positivas; "Turma completa!" tem o card verde e a festa uma vez por dia). Quem está há mais de 3 dias sem aparecer não entra na conta da turma.
+- **Painel do amigo:** avatar, frase de hoje, sequência, as 10 insígnias (as que ele não tem em silhueta, o mascote destacado), "Amigos desde…", botão de aceno e "Remover amizade" (com confirmação). **Aceno recebido:** aparece na lista ("acenou para você 👋" / "mandou parabéns pra você 🎉") com bolinha na aba até a pessoa ver.
+- **Hoje:** uma faixa discreta com a turma só aparece **para quem tem amigos** e abre a aba. **Ajustes → Amigos:** "Meu perfil público", interruptor do progresso, "Novo código de convite" e "Sair dos amigos".
+- **Sair dos amigos** só vale se a nuvem confirmar (senão o perfil continuaria público e o app diria que saiu). Se der certo: "Você saiu dos amigos. Seu perfil foi apagado da nuvem." Se não der (sem internet, por exemplo): avisa e **nada mudou**, a pessoa continua nos amigos. Se a espera estourar (rede travada) mas a gravação terminar depois, a tela acompanha o que de fato aconteceu (`afterLeft`) em vez de ficar dizendo outra coisa que a nuvem.
+- **Apagar tudo (Ajustes), com os amigos ligados:** primeiro sai dos amigos. Se não conseguir, **não apaga nada** e abre o aviso "Não consegui sair dos amigos", com duas saídas: tentar de novo mais tarde ou "Apagar só neste aparelho" (`eraseLocal`), para ninguém ficar sem poder apagar os próprios dados (por exemplo, num aparelho onde a nuvem nunca sobe). Nesse segundo caminho o perfil continua na nuvem, visível só a quem já era amigo, até a pessoa ativar os amigos de novo e sair (o aviso diz isso com todas as letras).
+- **Fuso:** `day` do perfil é o dia de quem publicou; quem olha de um fuso atrás ainda vê "hoje" (`liveOf` trata `day > hoje` como hoje, até 2 dias).
+- Visual: avatares são as mesmas insígnias; cores novas com tema claro e escuro; ≤ 359 px tem regras próprias (textos curtos, botão do aceno compacto); alvos de toque de ~44 px. Revisado de 280 a 430 px.
+
+### Segurança e privacidade: o que foi verificado
+- `profilePayload` é o único caminho de saída. Testes conferem que **nada além dos campos permitidos** é enviado e que `share = false` zera `pct`, `met` e `st`.
+- As regras foram testadas contra o emulador com 64 casos que **tentam o que não pode** (ler perfil de quem não é amigo, ler código alheio listando, aceitar o próprio pedido, forjar `by`, acenar duas vezes em 10 minutos, escrever na entrada do outro, campos extras, `u`/carimbos no perfil e no convite, reabrir ou apagar um código, pedir amizade com código antigo, pedido em nome de outro, `ins` fora do limite, apagar amizade de terceiros…), mais 96 casos de integração do `social-cloud.js` contra o mesmo emulador (convite, pedido, aceite, pedido cruzado, limite, recusa, remoção, acenos, escuta ao vivo, sair, falhas e quedas de rede injetadas, enxurradas de mais de 200 pedidos, cópia de outra conta).
+- **Teste de mutação:** 52 defeitos plantados de propósito (regras, camada de nuvem, lógica pura e interface), um de cada vez; cada um precisa fazer **pelo menos um teste falhar** (todos pegos: 48 de primeira e 4 depois de reforçar testes que estavam fracos). Serve para provar que os testes realmente pegam o problema que dizem pegar, e não só passam. Ver "Como foi validado".
+- Duas **revisões independentes** (dois revisores separados; a segunda já em cima das correções da primeira) tentaram quebrar as regras e a camada de nuvem. Resultado e o que foi feito de cada achado estão abaixo.
+
+### Revisões independentes: o que acharam e o que foi feito
+Nenhuma das duas achou como **ler o perfil de outra pessoa, forjar ou aceitar sozinho uma amizade, ou injetar HTML**. Os achados eram de contenção de abuso, revogação de convite, saída/apagar tudo e vazamento de horário. Na tabela, **R1** é a primeira revisão e **R2** a segunda.
+
+| # | Achado (gravidade) | O que foi feito |
+|---|---|---|
+| R1·1 | Recusar = apagar, então quem tem o código pede de novo para sempre; enxurrada de pedidos enterra os de verdade; leitura só da 1ª página de 200 (média) | **Parcial.** Leituras sem limite de página e acha pedidos além dela; `declineAll` ("Recusar todos") em lotes. **Não construído:** lista de bloqueio. Defesa: "Novo código de convite" fecha a porta (pedido novo exige o código vigente) |
+| R1·2 | Revogação de convite não durável: id livre podia ser recriado por outra pessoa; aba antiga recriava código revogado; `newCode` engolia erro (média) | **Corrigido.** Convite revogado vira "túmulo" (`rv`), pedido exige código vigente, `syncCode` só atualiza, `newCode` é transação (cria + revoga juntos, tudo ou nada) |
+| R1·3 | `leave()`/`wipe()` podia deixar o perfil público e o app dizendo que apagou; hooks sobreviviam (média) | **Corrigido.** Saída em transação, repete se uma amizade some no meio, `leaving` trava o resto, e `resetAll` só apaga se saiu |
+| R1·4 | Cópia local sem uid: trava a entrada se o login mudar (baixa-média) | **Corrigido.** A cópia leva o uid e é ignorada se não bater; `publish` não cria código |
+| R1·5 | Escritas do perfil sem freio; `ins` sem validação (baixa) | **`ins` validado** (≤ 12 itens de ≤ 24 caracteres). **Freio de escrita não construído:** exigiria carimbo de hora no perfil, o que contraria a decisão de privacidade (ver R2·1). Recomendado: App Check e alerta de orçamento |
+| R1·6 | Apelidos com caracteres invisíveis ou "zalgo" (baixa) | **Corrigido** (e reforçado por R2·3) |
+| R1·7 | Aceno recusado sempre dizia "tente de novo" (baixa) | **Corrigido.** Confere se a amizade ainda existe: "não existe mais" ou "tente daqui a pouco" |
+| R2·1 | `u` (carimbo) em perfis e convites revela quando a pessoa abre o app ou bebe (média) | **Corrigido.** `u` saiu das regras, do payload e dos convites; abrir o app não toca mais no convite. **Resta** (inerente a mostrar % ao vivo): um amigo com o app aberto vê quando o % muda |
+| R2·2 | `leave()` não era atômico nem cancelável; a tela dizia "não apaguei nada" e a saída terminava depois (média) | **Corrigido.** Transação tudo ou nada, prazo de 15 s, `busy`, `afterLeft` quando termina depois da espera |
+| R2·3 | Apelido ainda burlável (controles C1, marcas combinantes, formato) (baixa) | **Corrigido** |
+| R2·4 | Dia de aceno no futuro distante fica "para sempre" (baixa) | **Corrigido** (mais de 2 dias à frente é ignorado) |
+| R2·5 | "Apagar tudo" nunca funcionava se a nuvem não subiu na sessão (baixa, regressão) | **Corrigido.** Nova tentativa de religar a nuvem + "Apagar só neste aparelho" |
+| R2·6 | Regras permitiam apagar códigos (o "túmulo" dependia do cliente) (baixa) | **Corrigido.** `allow delete: if false` |
+| R2·7 | "Recusar todos" usava a cópia local e podia não recusar nada (baixa) | **Corrigido.** Confere no servidor se a escuta ainda não respondeu |
+| R2·testes | Quatro afirmações de teste que não provavam o que diziam | **Corrigido.** Testes reescritos (escutas e temporizadores contados de verdade, junção de notificações, documentos malformados, asserções de `uid` e `u`) |
+
+**Aceito de propósito (não construído) e por quê:**
+- **Apagar tudo sem internet:** o perfil na nuvem só some quando a pessoa ativar os amigos de novo e sair. Um "marcador de apagamento pendente" persistido ficaria preso se o aparelho nunca mais tivesse a nuvem. O aviso diz a verdade.
+- **% ao vivo revela o ritmo aproximado de quando se bebe** (e, por degraus, tamanhos de copo). É inerente a mostrar progresso do dia; a pessoa pode desligar "Mostrar meu progresso do dia".
+- **Metadados do Firestore:** a API REST expõe `updateTime` dos documentos que a pessoa consegue ler (o próprio perfil e, para amigos, o dos amigos). Não dá para esconder isso do lado do app.
+- **Emulador:** os testes das regras rodam no `hidane` (não oficial, sem Java). Conferir uma vez no emulador oficial (comando em "Para publicar").
+- **Custo e abuso:** escritas do perfil sem freio e limite de 30 amigos só no app. Recomendado: App Check (já na lista "Antes das lojas") e alerta de orçamento do Blaze.
+- **Sem lista de bloqueio** (ver R1·1) e **sem push** de pedido/aceno. **Várias abas do mesmo aparelho abertas ao mesmo tempo não são um caso suportado** (o estado local é gravado pela última aba que salvar, como no resto do app); no servidor, os testes cobrem duas instâncias entrando e saindo juntas sem deixar nada pela metade.
+- **Insígnias revelam a faixa de litros** (por desenho) e **sobram "túmulos" de convite sem nome** depois de sair (revogados, ocupados para sempre, de poucos bytes cada).
+- **Não verificado em produção:** o instante exato em que o Firestore real corta a escuta do perfil de quem acabou de ser removido (o cliente de série desliga a escuta na hora; um cliente modificado poderia continuar recebendo até reiniciar) e a corrida "aceite local x escuta do perfil" (passou no `hidane`).
+
+### Como foi validado
+- `npm test` (Vitest): 194 testes de lógica: `core` (50), `art` (13), `social` (81) e `compat` (50).
+- `npm run test:rules` (emulador do Firestore, via `hidane`, sem Java): 160 testes (`firestore.rules.test.js` 64, `social-cloud.test.js` 96).
+- `npm run test:e2e` (Playwright): 727 execuções nos mesmos 13 perfis da Parte 6 (722 passam, 5 puladas de propósito: o mesmo teste de push no iOS). São 89 testes por perfil nos 8 perfis padrão (32 do app, incluindo os de insígnias, e **57 de amigos** em `tests/e2e-friends.spec.js`) e só os 3 testes `layout:` nos 5 perfis extras (8 × 89 + 5 × 3). Os perfis de iPhone/iPad continuam **emulados no Chromium**; Safari real exige aparelho. Os testes de "rede travada" (sair/apagar com a nuvem sem responder por mais de 40 s) usam o relógio controlado do Playwright (`page.clock`, a partir do Playwright 1.45), para "passar" a espera sem esperar de verdade.
+- **Teste de mutação** (feito com scripts descartáveis, não incluídos no repositório): 52 mutações (12 nas regras, 19 na camada de nuvem, 10 na lógica pura e 11 na interface). Quatro sobreviveram em algum momento (religar a escuta no meio da saída; o aviso "Apagando…" ficar por cima do aviso de falha; não religar a escuta depois de uma saída que falha; não largar a escuta ao "Apagar só neste aparelho") e expuseram testes fracos: um só olhava o estado da tela (a 1ª resposta chega antes do fim da saída), outro esperava o aviso sumir sozinho, a nuvem falsa não parava de escutar ao sair como a real faz e, depois de corrigida, escondia a falta de `stop()` no apagar local (o teste agora deixa o apagar da nuvem sem resposta). Foram reescritos (contam as escutas abertas, olham o aviso uma vez só, a nuvem falsa imita a real) e as mutações passaram a ser pegas.
+- **Nuvem falsa nos testes de interface:** o sandbox de testes não alcança o Firebase real, e `FIREBASE_ENABLED` é `false` com `navigator.webdriver`. Por isso `tests/helpers/friends.js` (`stubFriendsCloud`) troca `firebase-config.js` e `firebase.js` por `tests/helpers/fake-cloud.browser.js`, uma nuvem de mentira em memória que usa **as mesmas funções de limpeza** de `social.js`. O que a nuvem real faz está nos testes do emulador, não nos de interface. Para testar um cenário novo, passe `seed` (`friends`, `reqIn`, `code`, `startErr`, `initFail`, `cache`…). `tests/helpers/seed.js` (`seed(page, opções)`) monta o estado local.
+- `tests/compat.test.js` (**guarda de compatibilidade**): lê tudo de `public/` e reprova sintaxe nova demais (via esbuild com alvo `chrome70`/`safari12`), APIs que o iOS 12 não tem, CSS que ele não entende (`gap` em flex, `aspect-ratio`, `inset`, `clamp()`, `backdrop-filter` sem `-webkit-`…) e **emojis do Unicode 12 em diante** (viram quadradinho no iOS 12). Se reprovar, a mensagem diz o que trocar. Dica: `\p{…}` em expressão regular funciona no iOS 12, mas o esbuild reescreve uma regex que **começa** com `\p{…}` e a guarda reprova; por isso elas ficam dentro de colchetes (`/[\p{Cf}]/gu`).
+- Revisão visual (claro e escuro, 280/375/430 px) de todas as telas e painéis novos: entrada, lista, painel do amigo, "Meu perfil", "Inserir código", pedidos, privacidade, faixa em Hoje, Ajustes, recife, painel e festa de insígnia.
+- **Ainda não testado:** o fluxo com **duas pessoas de verdade** no Firebase real (precisa de dois aparelhos com o app aberto), Safari/iPhone de verdade e o teste real de push (tarefa pendente da 1.0.x).
+
+### Para publicar (1.1.0): **há um passo novo, as regras**
+1. **Publicar as regras do Firestore ANTES (ou junto com) o site.** São o arquivo `firestore.rules` inteiro (as regras de `users/*` continuam iguais; foram acrescentadas `profiles`, `codes` e `friendships`).
+   - Pelo console: Firebase → projeto `mare-hidratacao` → **Firestore Database → Regras** → apagar tudo, colar o conteúdo de `firestore.rules` → **Publicar**. Conferência: o texto publicado deve ser idêntico ao arquivo. SHA-256 do arquivo: `e1d32a79eed72be14e44e774bc4e31416bc9b8e3263d7ee65dd93f9bca9bdf0f` (`sha256sum firestore.rules`; o console pode tirar a última quebra de linha ao copiar de volta, o que não muda nada nas regras).
+   - Ou pelo Cloud Shell (https://shell.cloud.google.com/?project=mare-hidratacao, já logado): `git clone` do repositório (ou `git pull`) e `firebase deploy --only firestore:rules --project mare-hidratacao`. (`npm run deploy` também publica as regras, mas junta `functions` e `hosting`.)
+   - **Se esquecer:** o site funciona normalmente; só a ativação dos amigos mostra "Os amigos ainda não foram liberados no servidor do Maré. Tente de novo mais tarde." (erro `rules`). Nada quebra e nenhum dado é exposto.
+2. **Conferência opcional no emulador oficial** (recomendada uma vez; leva uns 2 minutos no Cloud Shell, que já tem Java): `npm install && firebase emulators:exec --only firestore --project demo-mare-rules "npm run test:rules"`. Os testes das regras rodaram no `hidane`; se alguma diferença com o Firestore real existir, é aqui que aparece (o `rules-test.mjs` usa o emulador oficial quando `FIRESTORE_EMULATOR_HOST` está definido, o que o `emulators:exec` faz).
+3. Extrair o ZIP por cima do repositório, commit e push na `main`; o Actions publica em cerca de 1 minuto e quem já tem o app vê "Nova versão disponível". `VERSION` (sw.js), `APP_VERSION` (app.js) e `package.json` estão em `1.1.0`. A lista de arquivos obrigatórios do `pages.yml` e as listas `CORE`/`EXTRA` do `sw.js` já incluem os módulos novos (`art.js`, `kit.js`, `social.js`, `friends-view.js`, `social-cloud.js`).
+4. **Não precisa** reimplantar `functions` nem mexer em `firestore.indexes.json`.
+5. Primeiro teste real (recomendado, uns 10 minutos, com a esposa ou um amigo): os dois abrem o app, concluem o onboarding, vão em **Amigos → Ativar amigos**; um toca em **Convidar** e manda o link; o outro abre, ativa e aceita; conferir o aceno 👋, o progresso mudando ao registrar água, **Novo código de convite**, **Remover amizade** e **Sair dos amigos**. No iPhone, lembrar que o link abre no Safari e não no app instalado (ver limitações): usar **Inserir código**.
+
+### Limitações conhecidas (1.1.0)
+- **Identidade = login anônimo do aparelho.** Limpar os dados do site, trocar de celular ou, no iOS, usar o app instalado em vez do Safari (armazenamento separado) cria **outra identidade**: a pessoa precisa ativar de novo e os amigos a veem como alguém novo. O perfil antigo fica órfão na nuvem (aparece como "Sem novidades há N dias" até alguém remover a amizade). Solução futura: vincular Google/Apple (`linkWithCredential`, já na lista "Antes das lojas").
+- **iOS e links de convite:** o link do WhatsApp abre no Safari, que não compartilha dados com o app da Tela de Início. O app mostra o código e tem o painel **Inserir código** como caminho garantido; o texto do convite já inclui o código.
+- **Sem aviso por push** de pedido ou aceno: eles aparecem ao abrir o app (aviso na tela, bolinha na aba). Push seria uma Cloud Function nova com gatilho em `friendships`.
+- **Sem lista de bloqueio.** Recusar apaga o pedido, e quem ainda tem o código vigente pode pedir de novo. Defesa: **Novo código de convite**, que as regras tratam como porta fechada (pedido novo exige o código atual) e "Recusar todos". Para bloquear alguém específico, sem trocar o código para todos, seria preciso uma coleção de bloqueios e uma regra a mais.
+- O limite de 30 amigos é só do app (as regras não contam documentos). Escritas do perfil não têm freio no servidor (ver "Aceito de propósito").
+- Apelidos são livres (sem filtro de palavrões nem checagem de nomes parecidos), só higienizados contra caracteres invisíveis e de controle.
+- Perfis órfãos não expiram sozinhos, e convites revogados nunca são apagados (de propósito). Se virar problema, dá para criar uma política de TTL do Firestore (com um campo novo de expiração) ou uma limpeza agendada com o Admin SDK, que ignora as regras.
+- Apagar tudo sem internet deixa o perfil na nuvem até a pessoa voltar aos amigos e sair (explicado no aviso).
+- Custo: o uso esperado é pequeno (uma escuta de amizades + uma por amigo, no máximo 30, e escritas só quando o perfil muda de verdade). Se o número de pessoas crescer, vale conferir leituras do Firestore no console e o alerta de orçamento (Parte 6, item 3 de "O que falta").
+
+### Ideias para depois
+- Login com Google/Apple para manter a identidade ao trocar de aparelho (e restaurar amigos junto).
+- Push para pedidos e acenos (Cloud Function por gatilho) e resumo semanal da turma.
+- Desafios **em grupo e cooperativos** ("a turma bebe 50 L juntos neste mês"), mantendo a regra de nunca comparar pessoas.
+- Insígnias novas por constância (sequências), e uma escolha de "moldura" para o avatar.
+- Lista de bloqueio e denúncia, se o app for aberto ao público em geral.
+- App Check + freio de escrita no servidor, se a base de usuários crescer.

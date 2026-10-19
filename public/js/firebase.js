@@ -1,6 +1,7 @@
 // Maré — nuvem opcional (Parte 4): login anônimo, cópia dos dados no Firestore e token de push (FCM).
 // O app.js só carrega este arquivo se FIREBASE_ENABLED = true. Qualquer falha aqui deixa o app 100% local.
 // Contrato: initCloud(hooks) → Promise<cloud>; hooks = { state, onRemote, onStatus } (ver adendo da Parte 3 no HANDOFF).
+// cloud = { uid, social(cache), push, syncDays, syncMeta, enablePush, wipe }; cloud.social() devolve a camada de amigos (social-cloud.js).
 import { firebaseConfig, VAPID_KEY, USE_EMULATORS } from './firebase-config.js';
 import { dayKey, dayTotal, dayWater, goalToday, streak, bestStreak, levelFor, hash } from './core.js';
 
@@ -9,6 +10,7 @@ import { dayKey, dayTotal, dayWater, goalToday, streak, bestStreak, levelFor, ha
 const V = '10.14.1';
 const CDN = 'https://www.gstatic.com/firebasejs/' + V + '/';
 const MARK = 'mare:cloud'; // { uid, pullAt, pushAt, fcm }: o que já foi trocado com a nuvem neste aparelho
+let emulated = false; // os emuladores (só em desenvolvimento) se conectam uma vez: o SDK recusa uma segunda
 
 function readMark() { try { return JSON.parse(localStorage.getItem(MARK) || '{}') || {}; } catch (e) { return {}; } }
 const timeout = (p, ms) => new Promise((res, rej) => {
@@ -22,11 +24,16 @@ export async function initCloud(hooks) {
   const A = mods[0], AU = mods[1], FS = mods[2];
   const app = A.initializeApp(firebaseConfig);
   // initializeAuth sem popup/redirect: mais leve. Ao ligar login Google/Apple, inclua browserPopupRedirectResolver.
-  const auth = AU.initializeAuth(app, { persistence: [AU.indexedDBLocalPersistence, AU.browserLocalPersistence] });
+  // (O app pode religar a nuvem depois de uma falha, por exemplo sem internet ao abrir: o SDK só aceita iniciar o login uma vez, então
+  // numa segunda chamada pega o mesmo login em vez de falhar para sempre.)
+  let auth;
+  try { auth = AU.initializeAuth(app, { persistence: [AU.indexedDBLocalPersistence, AU.browserLocalPersistence] }); }
+  catch (e) { auth = AU.getAuth(app); }
   let db;
   try { db = FS.initializeFirestore(app, { localCache: FS.persistentLocalCache({ tabManager: FS.persistentMultipleTabManager() }) }); }
   catch (e) { db = FS.getFirestore(app); } // sem IndexedDB (ex.: aba privada): cache só em memória
-  if (USE_EMULATORS && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+  if (USE_EMULATORS && !emulated && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+    emulated = true;
     AU.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
     FS.connectFirestoreEmulator(db, '127.0.0.1', 8080);
   }
@@ -112,9 +119,21 @@ export async function initCloud(hooks) {
     cloud.push = true;
     return true;
   }
+  // Amigos (Parte 9): o módulo só é carregado quando alguém usa. Fica guardado aqui para a tela e o wipe() falarem com a mesma instância.
+  let socialP = null;
+  function social(cacheRaw) {
+    if (!socialP) {
+      socialP = import('./social-cloud.js').then((m) => m.createSocial({ FS: FS, db: db, uid: uid, cache: cacheRaw }))
+        .catch((e) => { socialP = null; throw e; }); // falhou ao carregar (ex.: sem rede): a próxima chamada tenta de novo
+    }
+    return socialP;
+  }
   async function wipe() {
     wiping = true; clearTimeout(timer); pending = {}; metaDirty = false;
     try {
+      // Antes de tudo, sai da rede de amigos (perfil, convites, amizades). Quem tem os amigos ligados já saiu pelo app (resetAll não apaga
+      // nada se isso falhar); aqui fica a garantia para quem nunca entrou ou ainda não tem as regras publicadas: se falhar, o resto segue.
+      try { await timeout(social(null).then((sc) => sc.leave()), 20000); } catch (e) { /* amigos podem não existir ou estar fora do ar */ }
       const docs = (await FS.getDocs(days)).docs;
       for (let i = 0; i < docs.length; i += 400) {
         const b = FS.writeBatch(db);
@@ -129,6 +148,8 @@ export async function initCloud(hooks) {
   }
 
   const cloud = {
+    uid: uid,
+    social: social,
     push: !!mark.fcm,
     syncDays: (keys) => { if (wiping) return; (keys || []).forEach((k) => { pending[k] = 1; }); later(); },
     syncMeta: () => { if (wiping) return; metaDirty = true; later(); },

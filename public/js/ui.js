@@ -11,6 +11,7 @@ const ICON = {
   today: '<path d="M12 3.5C8.8 7.6 6 11 6 14.2a6 6 0 0 0 12 0C18 11 15.2 7.6 12 3.5z"/>',
   history: '<path d="M4 20h16M7 16v-5M12 16V6M17 16v-8"/>',
   journey: '<path d="M8 4h8v5a4 4 0 0 1-8 0V4zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M9 20h6l-1-3h-4z"/>',
+  friends: '<circle cx="9" cy="8.5" r="3.2"/><path d="M3.4 19.5a5.6 5.6 0 0 1 11.2 0"/><path d="M15.4 5.7a3 3 0 0 1 0 5.7M17.6 14.3a5.2 5.2 0 0 1 3.1 5.2"/>',
   settings: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
@@ -125,10 +126,13 @@ export function openSheet(html) {
   const t = $('#sheetTitle');
   if (t) { try { t.focus({ preventScroll: true }); } catch (e) { /* navegador antigo */ } }
 }
+const closeFns = [];
+export const onSheetClose = (fn) => { closeFns.push(fn); }; // avisado sempre que o painel fecha (botão, fundo, Esc, arrastar ou "voltar")
 export function closeSheet(fromPop) {
   if (!sheetOpen) return;
   sheetOpen = false;
   confirmFn = null;
+  closeFns.forEach((fn) => { try { fn(); } catch (e) { /* um gancho com erro não pode travar o fechamento */ } });
   sheet.classList.remove('open');
   document.body.classList.remove('lock');
   document.body.style.top = '';
@@ -229,9 +233,23 @@ export function confetti() {
   fx.appendChild(box);
   setTimeout(() => { box.remove(); }, 3800);
 }
+// Emoji que sobe e some a partir de um elemento (aceno enviado a um amigo)
+export function floatEmoji(el, emoji) {
+  if (reducedMotion() || !el || !el.getBoundingClientRect) return;
+  const r = el.getBoundingClientRect();
+  if (r.bottom < 0 || r.top > window.innerHeight) return;
+  const e = document.createElement('div');
+  e.className = 'fx-emoji';
+  e.textContent = emoji;
+  e.style.left = (r.left + r.width / 2) + 'px';
+  e.style.top = (r.top + r.height / 2) + 'px';
+  fx.appendChild(e);
+  setTimeout(() => { e.remove(); }, 1000);
+}
 // Cartão central de conquista (medalha, missão, nível). Fila: um de cada vez.
 const pops = [];
 let popping = false;
+export const popBusy = () => popping || pops.length > 0; // há um cartão de conquista na tela ou na fila
 export function pop(e, kind, title, sub) {
   pops.push([e, kind, title, sub]);
   if (!popping) nextPop();

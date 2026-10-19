@@ -6,37 +6,19 @@
 //  • Painel de registro: #eMl, #eTime, #eErr. Onboarding: #obName, #obWeight, #obWake, #obSleep, #obGoal (data-total), #obDrop.
 //  • "Hoje" é montado em partes com id (TODAY_PARTS) para atualizar sem redesenhar a gota (#drop).
 //  • Barras com data-w crescem via ui.animBars; a gota enche via ui.dropTo(el, total, meta, dropOpts(total, meta)).
-import { WATERS, OTHERS, ACTIVITY, LEVELS, ACHIEVEMENTS, drink, isOther, dayTotal, dayOther, otherCounted, mixOn, isMet, calcGoal, goalToday, expectedBy,
-  dayWindow, streak, bestStreak, levelFor, missionFor, missionProgress, stats, insights, dayKey, keyToDate, addDays, minOf, fmtHM,
-  fmtNum } from './core.js';
+import { WATERS, OTHERS, ACTIVITY, INSIGNIAS, ACHIEVEMENTS, drink, isOther, dayTotal, dayOther, otherCounted, mixOn, isMet, calcGoal, goalToday, expectedBy,
+  dayWindow, streak, bestStreak, insigniaById, unlockedInsignias, mascotOf, reefFor, missionFor, missionProgress, stats, insights, dayKey, keyToDate,
+  addDays, minOf, fmtHM, fmtNum } from './core.js';
 import { S, esc, clamp, plural, byT, p2, cap, MONTHS, today, longDate, shortDate, relDay, goalNow, totalNow, otherNow, othersOn, allMl,
   firstName, U, vol, unitL, fromMl, big, compact, presets } from './store.js';
 import { svgI, sheetHead, dropSVG } from './ui.js';
+import { badge } from './art.js';
 import { isIOS, isAndroid, iosVersion, isStandalone, isNative, canInstall, notifStatus } from './platform.js';
+import { att, btn, sbtn, sec, row, stack, sw, seg, empty, stat, tip, steps, shareIco } from './kit.js';
+import { crewHTML, settingsFriendsHTML, tabDots } from './friends-view.js';
 
 /* ---------- peças ---------- */
-const att = (b) => (b ? 'true' : 'false');
-const btn = (action, label, cls, extra) => '<button class="btn' + (cls ? ' ' + cls : '') + '" type="button" data-action="' + action + '"' +
-  (extra || '') + '>' + label + '</button>';
-const sbtn = (action, label, cls) => '<button class="btn sm ' + (cls || 'ghost') + '" type="button" data-action="' + action + '">' + label + '</button>';
-const sec = (t) => '<h2 class="sec-t">' + t + '</h2>';
-const row = (label, note, ctrl, noteId) => '<div class="row"><div class="row-l"><span>' + label + '</span>' +
-  (note || noteId ? '<small' + (noteId ? ' id="' + noteId + '"' : '') + '>' + (note || '') + '</small>' : '') +
-  '</div><div class="row-c">' + ctrl + '</div></div>';
-const stack = (label, note, ctrl) => '<div class="row stack"><div class="row-l"><span>' + label + '</span>' +
-  (note ? '<small>' + note + '</small>' : '') + '</div><div class="row-c">' + ctrl + '</div></div>';
-const sw = (action, on, label, extra) => '<button class="switch" type="button" role="switch" aria-checked="' + att(on) +
-  '" aria-label="' + label + '" data-action="' + action + '"' + (extra || '') + '><span></span></button>';
-const seg = (action, cur, opts, label) => '<div class="seg" role="radiogroup" aria-label="' + label + '">' + opts.map((o) =>
-  '<button type="button" role="radio" aria-checked="' + att(String(o[0]) === String(cur)) + '" data-action="' + action +
-  '" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div>';
-const empty = (e, t) => '<div class="empty"><span class="em" aria-hidden="true">' + e + '</span>' + t + '</div>';
-const stat = (e, l, v) => '<div class="stat"><span class="em" aria-hidden="true">' + e + '</span><small>' + l + '</small><b>' + v + '</b></div>';
-const tip = (id, e, title, text, b) => '<section class="card tip"><span class="em" aria-hidden="true">' + e + '</span><div class="tip-b"><b>' +
-  title + '</b><p>' + text + '</p>' + (b ? btn(b[0], b[1], 'sm') : '') + '</div><button class="tip-x" type="button" data-action="tip-x" data-tip="' +
-  id + '" aria-label="Dispensar dica">×</button></section>';
-const steps = (list) => '<ol class="steps">' + list.map((s) => '<li>' + s + '</li>').join('') + '</ol>';
-const shareIco = () => svgI('share', 'ico-share');
+// btn, sbtn, sec, row, stack, sw, seg, empty, stat, tip, steps e shareIco vêm de kit.js (compartilhadas com friends-view.js)
 // Texto curto sobre como os outros líquidos entram na conta (depende do interruptor "Somar na meta" em Ajustes)
 export const otherNote = () => (mixOn() ? 'Outros líquidos somam na meta, até metade dela.' : 'Outros líquidos contam à parte e não entram na meta de água.');
 export const fmtW = (w) => String(Math.round((+w || 0) * 10) / 10).replace('.', ',');
@@ -93,6 +75,10 @@ function quickHTML() {
 }
 function tipsHTML() {
   const ui = S.ui, ios = isIOS();
+  if (!ui.tip_news) {
+    return tip('news', '🐚', 'Novidades no Maré', 'Cada marco de água agora vira um bichinho do mar para colecionar, e dá para acompanhar o dia de quem você gosta.',
+      ['news', 'Ver as novidades']);
+  }
   if (!isStandalone() && !isNative() && !ui.tip_install && (canInstall() || ios || isAndroid())) {
     return tip('install', '📲', 'Instale o Maré', ios
       ? 'Na Tela de Início ele abre como app' + (iosVersion() >= 1604 ? ', libera os lembretes' : '') + ' e protege seus dados da limpeza automática do Safari.'
@@ -130,9 +116,9 @@ function entryList(k) {
 function logHTML() {
   const k = today(), d = S.days[k], n = d && d.entries ? shown(d.entries).length : 0;
   return '<section class="card"><div class="card-h"><h2>Registros de hoje</h2><small>' + (n ? plural(n, 'registro', 'registros') : '') + '</small></div>' +
-    (n ? entryList(k) : empty('🫗', 'Nada por aqui ainda. Que tal começar com um copo agora?')) + '</section>';
+    (n ? entryList(k) : empty('🥛', 'Nada por aqui ainda. Que tal começar com um copo agora?')) + '</section>';
 }
-export const TODAY_PARTS = { tTop: topHTML, tMeta: metaHTML, tQuick: quickHTML, tTips: tipsHTML, tMission: missionHTML, tLog: logHTML };
+export const TODAY_PARTS = { tTop: topHTML, tMeta: metaHTML, tQuick: quickHTML, tCrew: crewHTML, tTips: tipsHTML, tMission: missionHTML, tLog: logHTML };
 const part = (id) => '<div id="' + id + '">' + TODAY_PARTS[id]() + '</div>';
 // A segunda gota (outros líquidos) fica no canto da principal. Como a principal, não é redesenhada a cada registro:
 // o app.js só sobe e desce o nível dela (paintDrop2).
@@ -146,7 +132,7 @@ export function todayView() {
   return part('tTop') + '<section class="hero" aria-label="Progresso de hoje"><div class="drops"><div class="drop-wrap" id="drop">' +
     dropSVG('hd', { pct: '', num: '', sub: '', label: 'Progresso de hoje' }) + '</div>' + (othersOn() ? drop2HTML() : '') +
     '</div><div class="hero-meta" id="tMeta">' + metaHTML() + '</div></section>' +
-    part('tQuick') + part('tTips') + part('tMission') + part('tLog');
+    part('tQuick') + part('tCrew') + part('tTips') + part('tMission') + part('tLog');
 }
 export function dropOpts(total, goal) {
   return { fmt: (n) => fmtNum(n, U()), sub: 'de ' + vol(goal),
@@ -196,7 +182,7 @@ export function daySheet(k) {
     (oth ? '<p class="day-oth">' + (mixOn()
       ? 'Inclui <b>' + vol(cnt) + '</b> de outros líquidos' + (oth > cnt ? ' (o limite é metade da meta; você registrou ' + vol(oth) + ')' : '')
       : '+ <b>' + vol(oth) + '</b> de outros líquidos, contados à parte') + '</p>' : '') +
-    (entryList(k) || empty('🫙', 'Nenhum registro neste dia.')) +
+    (entryList(k) || empty('📝', 'Nenhum registro neste dia.')) +
     btn('new-entry', '+ Adicionar registro', 'block ghost mt', ' data-day="' + k + '"');
 }
 export function installSheet() {
@@ -270,16 +256,28 @@ function calHTML(ym) {
 }
 
 /* ---------- Jornada ---------- */
+// Uma peça do recife: o medalhão (colorido se já conquistada, silhueta se não), o nome e a data ou a meta de água
+function reefTile(x, mine, mas) {
+  const ts = mine[x.id], on = !!ts;
+  return '<button class="rf' + (on ? '' : ' off') + (on && x.id === mas.id ? ' cur' : '') + '" type="button" data-action="ins" data-id="' + x.id +
+    '" aria-label="' + x.n + ', ' + (on ? 'conquistada em ' + shortDate(ts) : 'bloqueada, desbloqueia com ' + big(x.at * 1000)) + '">' +
+    badge(x.id, { size: 0, locked: !on }) + '<b>' + x.n + '</b><small>' + (on ? shortDate(ts) : big(x.at * 1000)) + '</small></button>';
+}
 export function journeyView() {
-  const tot = allMl(), lv = levelFor(tot), got = S.achievements || {}, ins = insights(S, today(), S.profile);
-  const n = ACHIEVEMENTS.filter((a) => got[a.id]).length, mis = Object.keys(S.missions || {}).length, pct = Math.round(lv.p * 100);
+  const tot = allMl(), rf = reefFor(S, tot), got = S.achievements || {}, ins = insights(S, today(), S.profile), mine = S.insignias || {}, mas = mascotOf(S);
+  const n = ACHIEVEMENTS.filter((a) => got[a.id]).length, mis = Object.keys(S.missions || {}).length, pct = Math.round(rf.p * 100);
+  const bar = (v, label) => '<div class="bar" role="progressbar" aria-label="' + label + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + v +
+    '"><i data-w="' + v + '"></i></div>';
   return '<header class="page-h"><h1 class="h1">Jornada</h1><p class="eyebrow">Cada gole te leva mais longe</p></header>' +
-    '<section class="level"><span class="lv-e" aria-hidden="true">' + lv.e + '</span><p class="lv-k">Nível ' + (lv.i + 1) + ' de ' + LEVELS.length +
-    '</p><p class="lv-n">' + lv.n + '</p><div class="bar" role="progressbar" aria-label="Progresso até o próximo nível" aria-valuemin="0" ' +
-    'aria-valuemax="100" aria-valuenow="' + pct + '"><i data-w="' + pct + '"></i></div><p class="lv-s">' +
-    (lv.next ? 'Faltam ' + big(Math.max(100, (lv.next.at - lv.liters) * 1000)) + ' para ' + lv.next.e + ' ' + lv.next.n : 'Você chegou ao topo da maré!') +
-    '<br>' + big(tot) + ' de água · ' + plural(mis, 'missão cumprida', 'missões cumpridas') + '</p><div class="path" aria-hidden="true">' +
-    LEVELS.map((l, i) => '<span' + (i <= lv.i ? ' class="on"' : '') + '>' + l.e + '</span>').join('') + '</div></section>' +
+    '<section class="level"><span class="lv-b">' + badge(rf.cur.id, { size: 132, label: rf.cur.n, cls: 'float' }) + '</span>' +
+    '<p class="lv-k">Insígnia ' + (rf.i + 1) + ' de ' + INSIGNIAS.length + '</p><p class="lv-n">' + rf.cur.n + '</p>' +
+    (rf.next
+      ? '<div class="lv-prog">' + bar(pct, 'Progresso até a próxima insígnia') + badge(rf.next.id, { size: 36, locked: true, label: 'Próxima: ' + rf.next.n + ', bloqueada' }) +
+        '</div><p class="lv-s">Faltam ' + big(Math.max(100, rf.leftMl)) + ' para ' + rf.next.n
+      : '<div class="lv-prog">' + bar(100, 'Recife completo') + '</div><p class="lv-s">Você completou o recife! Cada gole continua valendo') +
+    '<br>' + big(tot) + ' de água · ' + plural(mis, 'missão cumprida', 'missões cumpridas') + '</p></section>' +
+    '<div class="card-h out"><h2>Seu recife</h2><small>' + rf.have + ' de ' + INSIGNIAS.length + '</small></div>' +
+    '<section class="reef" aria-label="Insígnias">' + INSIGNIAS.map((x) => reefTile(x, mine, mas)).join('') + '</section>' +
     '<div class="card-h out"><h2>Seus padrões</h2><small>últimas 4 semanas</small></div><section class="card">' + (ins.length
       ? '<div class="ins-list">' + ins.map((x) => '<div class="ins"><span class="em" aria-hidden="true">' + x.e + '</span><p>' + x.t + '</p></div>').join('') + '</div>'
       : empty('🔍', 'Registre por pelo menos 4 dias e o Maré revela seus padrões: horário mais seco, melhor dia da semana e mais.')) + '</section>' +
@@ -291,9 +289,47 @@ export function journeyView() {
     }).join('') + '</div><button class="btn block ghost mt" type="button" data-action="share">' + shareIco() +
     '<span style="margin-left:8px">Compartilhar meu progresso</span></button>';
 }
+// Painel de uma insígnia (toque no recife). Conquistada: curiosidade e "usar como mascote". Bloqueada: quanto falta.
+export function insigniaSheet(id) {
+  const x = insigniaById(id) || INSIGNIAS[0], ts = (S.insignias || {})[x.id], on = !!ts, tot = allMl(), L = tot / 1000, mas = mascotOf(S);
+  if (on) {
+    return sheetHead(x.n) + '<div class="ins-sheet">' + badge(x.id, { size: 150, label: x.n, cls: 'float' }) +
+      '<span class="ins-k">Conquistada em ' + shortDate(ts) + '</span><p class="ins-s">' + x.cheer + '</p>' +
+      '<div class="fact"><b>Você sabia?</b>' + x.fact + '</div>' +
+      (S.social && S.social.on ? '<p class="note">Seus amigos veem o seu mascote no perfil.</p>' : '') +
+      '<div class="btns">' + (x.id === mas.id ? btn('close-sheet', '✓ É o seu mascote', 'ghost') : btn('mascot', 'Usar como meu mascote', '', ' data-id="' + x.id + '"')) +
+      (x.id === mas.id ? '' : btn('close-sheet', 'Fechar', 'ghost')) + '</div></div>';
+  }
+  const p = Math.round(Math.min(1, Math.max(0, L / x.at)) * 100);
+  return sheetHead(x.n) + '<div class="ins-sheet">' + badge(x.id, { size: 150, locked: true, label: x.n + ', ainda bloqueada' }) +
+    '<span class="ins-k">Ainda bloqueada</span><p class="ins-s">Chega aos ' + big(x.at * 1000) + ' de água. Faltam ' + big(Math.max(100, Math.round(x.at * 1000 - tot))) + '.</p>' +
+    '<div class="bar" role="progressbar" aria-label="Progresso até ' + x.n + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + p + '"><i data-w="' + p + '"></i></div>' +
+    '<div class="fact off"><b>Curiosidade</b>Beba mais um pouquinho para descobrir uma curiosidade sobre este bichinho.</div>' +
+    '<div class="btns">' + btn('close-sheet', 'Fechar', 'ghost') + '</div></div>';
+}
+// "Desbloqueou!": o painel de comemoração (vem de app.js quando a água acumulada cruza um marco)
+export function unlockSheet(id) {
+  const x = insigniaById(id) || INSIGNIAS[0];
+  return sheetHead('Nova insígnia!') + '<div class="ins-sheet unlock"><i class="glow" aria-hidden="true"></i><i class="sp a" aria-hidden="true">✨</i>' +
+    '<i class="sp b" aria-hidden="true">✨</i><i class="sp c" aria-hidden="true">✨</i><i class="sp d" aria-hidden="true">✨</i>' +
+    badge(x.id, { size: 150, label: x.n }) + '<span class="ins-k">Você desbloqueou</span><p class="ins-n">' + x.n + '</p>' +
+    '<p class="ins-s">' + x.cheer + '<br>Já são ' + big(Math.max(allMl(), x.at * 1000)) + ' de água!</p>' + // max: se a pessoa desfez o copo logo depois, o marco continua valendo
+    '<div class="fact"><b>Você sabia?</b>' + x.fact + '</div>' +
+    (S.social && S.social.on && S.social.share !== false ? '<p class="note">Seus amigos vão ver essa insígnia no seu perfil.</p>' : '') +
+    '<div class="btns">' + btn('close-sheet', 'Que legal!') + btn('reef', 'Ver meu recife', 'ghost') + '</div></div>';
+}
+// Novidades da versão 1.1 (a dica da tela Hoje abre este painel)
+export function newsSheet() {
+  const have = unlockedInsignias(S).length;
+  return sheetHead('Novidades do Maré') +
+    '<div class="news-i">' + badge('cavalo', { size: 48 }) + '<div><b>Insígnias do mar</b><p>Cada marco de água vira um bichinho para colecionar: da concha ao narval. ' +
+    (have > 1 ? 'Você já tem ' + have + ' de ' + INSIGNIAS.length + '.' : 'Você começa com a concha.') + '</p></div></div>' +
+    '<div class="news-i"><span class="em" aria-hidden="true">🤗</span><div><b>Amigos, sem competição</b><p>Acompanhe o dia de quem você gosta, se a pessoa permitir, e mande um incentivo. Não tem ranking nem comparação de litros.</p></div></div>' +
+    '<div class="btns stk">' + btn('news-friends', 'Conhecer os amigos') + btn('news-go', 'Ver meu recife', 'ghost') + btn('close-sheet', 'Depois', 'ghost') + '</div>';
+}
 export function shareText() {
-  const st = streak(S.days, today()), lv = levelFor(allMl());
-  return 'Estou no nível ' + lv.n + ' ' + lv.e + ' no Maré' + (st > 1 ? ', com ' + st + ' dias seguidos ' + (mixOn() ? 'na meta' : 'na meta de água') : '') +
+  const st = streak(S.days, today()), m = mascotOf(S);
+  return 'Ganhei a insígnia ' + m.n + ' ' + m.e + ' no Maré' + (st > 1 ? ', com ' + st + ' dias seguidos ' + (mixOn() ? 'na meta' : 'na meta de água') : '') +
     '. Já são ' + big(allMl()) + ' de água! 💧';
 }
 
@@ -358,6 +394,7 @@ export function settingsView(info) {
       // opcional e discreto: só aparece com a segunda gota ligada. Vem desligado (muitos nutricionistas preferem a meta só com água)
       (othersOn() ? row('Somar outros líquidos na meta', 'Café, chá, suco e companhia contam na meta, até metade dela; o resto precisa ser água. ' +
         'Vale também para o histórico.', sw('toggle', p.mix === true, 'Somar outros líquidos na meta', ' data-k="mix"')) : '') + '</div>' +
+    settingsFriendsHTML() +
     sec('Aparência') + '<div class="group">' +
       stack('Tema', '', seg('theme', p.theme, [['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Escuro']], 'Tema')) +
       stack('Unidade', '', seg('unit', p.unit, [['ml', 'Mililitros (ml)'], ['oz', 'Onças (oz)']], 'Unidade')) + '</div>' +
@@ -445,8 +482,10 @@ export function onboardingView(ob) {
 }
 
 /* ---------- barra de abas ---------- */
-const TABS = [['today', 'Hoje'], ['history', 'Histórico'], ['journey', 'Jornada'], ['settings', 'Ajustes']];
+const TABS = [['today', 'Hoje'], ['history', 'Histórico'], ['journey', 'Jornada'], ['friends', 'Amigos'], ['settings', 'Ajustes']];
 export function tabbarHTML(cur) {
+  const dots = tabDots(); // bolinha: pedidos de amizade ou acenos novos
   return TABS.map((t) => '<button class="tab" type="button" data-action="tab" data-tab="' + t[0] + '"' + (t[0] === cur ? ' aria-current="page"' : '') +
-    '><span class="ti">' + svgI(t[0]) + '</span>' + t[1] + '</button>').join('');
+    '><span class="ti">' + svgI(t[0]) + (dots[t[0]] ? '<i class="td" aria-hidden="true"></i>' : '') + '</span>' + t[1] +
+    (dots[t[0]] ? '<span class="sr"> (novidades)</span>' : '') + '</button>').join('');
 }

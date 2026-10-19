@@ -179,7 +179,7 @@ describe('ritmo e lembretes', () => {
   });
 });
 
-describe('sequência e níveis', () => {
+describe('sequência', () => {
   it('streak conta a partir de ontem enquanto hoje não bate', () => {
     const days = { '2026-06-07': met(), '2026-06-08': met(), '2026-06-09': met() };
     expect(C.streak(days, '2026-06-10')).toBe(3);
@@ -191,14 +191,114 @@ describe('sequência e níveis', () => {
   it('bestStreak atravessa a virada do mês', () => {
     expect(C.bestStreak({ '2026-05-30': met(), '2026-05-31': met(), '2026-06-01': met(), '2026-06-03': met() })).toBe(3);
   });
-  it('níveis por litros acumulados', () => {
-    expect(C.levelFor(0).n).toBe('Gota');
-    expect(C.levelFor(10000).n).toBe('Poça');
-    expect(C.levelFor(30000).p).toBeCloseTo(0.5);
-    const top = C.levelFor(2500000);
-    expect(top.n).toBe('Maré cheia');
-    expect(top.next).toBeNull();
-    expect(top.p).toBe(1);
+});
+
+describe('insígnias (bichinhos do mar)', () => {
+  const L = (n) => n * 1000; // litros → ml
+  const withIns = (ids) => { const S = C.defaults(); ids.forEach((id, i) => { S.insignias[id] = 1000 + i; }); return S; };
+  it('catálogo: 10 bichinhos em ordem crescente, a primeira de graça e o cavalo-marinho aos 100 L', () => {
+    expect(C.INSIGNIAS.map((x) => x.id)).toEqual(['concha', 'estrela', 'baiacu', 'tartaruga', 'cavalo', 'polvo', 'agua-viva', 'golfinho', 'baleia', 'narval']);
+    expect(C.INSIGNIAS[0].at).toBe(0);
+    expect(C.insigniaById('cavalo')).toMatchObject({ n: 'Cavalo-marinho', at: 100 });
+    for (let i = 1; i < C.INSIGNIAS.length; i++) expect(C.INSIGNIAS[i].at, C.INSIGNIAS[i].id).toBeGreaterThan(C.INSIGNIAS[i - 1].at);
+    C.INSIGNIAS.forEach((x) => {
+      ['n', 'e', 'fact', 'cheer'].forEach((k) => { expect(typeof x[k] === 'string' && x[k].length >= (k === 'e' ? 1 : 4), x.id + '.' + k).toBe(true); });
+      expect(/^[a-z-]+$/.test(x.id)).toBe(true);
+      expect(C.insigniaIndex(x.id)).toBe(C.INSIGNIAS.indexOf(x));
+    });
+    expect(C.insigniaById('xyz')).toBeNull();
+    expect(C.insigniaIndex('xyz')).toBe(-1);
+  });
+  it('levelFor: a insígnia atual e o progresso até a próxima, pela água acumulada', () => {
+    expect(C.levelFor(0)).toMatchObject({ id: 'concha', i: 0, p: 0 });
+    expect(C.levelFor(-500).id).toBe('concha'); // nunca negativo
+    expect(C.levelFor(L(5)).p).toBeCloseTo(0.5); // metade do caminho até a estrela-do-mar (10 L)
+    expect(C.levelFor(L(10) - 1).id).toBe('concha');
+    expect(C.levelFor(L(10)).id).toBe('estrela');
+    expect(C.levelFor(L(99.9)).id).toBe('tartaruga');
+    expect(C.levelFor(L(100)).id).toBe('cavalo');
+    expect(C.levelFor(L(100)).next.id).toBe('polvo');
+    const top = C.levelFor(L(1000));
+    expect(top).toMatchObject({ id: 'narval', next: null, p: 1 });
+    expect(C.levelFor(L(5000)).id).toBe('narval'); // passou do fim do recife
+  });
+  it('newInsignias: só o que a água já alcançou e ainda não foi guardado; nada é retirado', () => {
+    expect(C.newInsignias(C.defaults(), 0).map((x) => x.id)).toEqual(['concha']);
+    expect(C.newInsignias(withIns(['concha']), L(9.9))).toEqual([]);
+    expect(C.newInsignias(withIns(['concha']), L(10)).map((x) => x.id)).toEqual(['estrela']);
+    expect(C.newInsignias(withIns(['concha', 'estrela']), L(120)).map((x) => x.id)).toEqual(['baiacu', 'tartaruga', 'cavalo']);
+    const all = withIns(C.INSIGNIAS.map((x) => x.id));
+    expect(C.newInsignias(all, L(2000))).toEqual([]);
+    expect(C.newInsignias(all, 0)).toEqual([]); // apagar registros não tira insígnia
+    expect(C.newInsignias({}, L(10)).map((x) => x.id)).toEqual(['concha', 'estrela']); // estado sem o campo
+  });
+  it('unlockedInsignias segue a ordem do recife e ignora ids desconhecidos', () => {
+    const S = C.defaults();
+    S.insignias = { cavalo: 5, concha: 1, fantasma: 9, estrela: 3 };
+    expect(C.unlockedInsignias(S).map((x) => x.id)).toEqual(['concha', 'estrela', 'cavalo']);
+    expect(C.unlockedInsignias({})).toEqual([]);
+  });
+  it('reefFor: a mais alta conquistada, quanto falta e o progresso (nunca regride com registros apagados)', () => {
+    const r = C.reefFor(withIns(['concha', 'estrela', 'baiacu']), L(47));
+    expect(r).toMatchObject({ i: 2, have: 3, leftMl: L(13) });
+    expect(r.cur.id).toBe('baiacu');
+    expect(r.next.id).toBe('tartaruga');
+    expect(r.p).toBeCloseTo((47 - 30) / 30);
+    const less = C.reefFor(withIns(['concha', 'estrela', 'baiacu']), L(5)); // a pessoa apagou registros
+    expect(less.cur.id).toBe('baiacu');
+    expect(less.p).toBe(0);
+    expect(less.leftMl).toBe(L(55));
+    expect(C.reefFor(withIns(['concha', 'estrela']), L(999))).toMatchObject({ leftMl: 0, p: 1 }); // concessão ainda por fazer
+    const full = C.reefFor(withIns(C.INSIGNIAS.map((x) => x.id)), L(1200));
+    expect(full).toMatchObject({ have: 10, next: null, p: 1, leftMl: 0 });
+    expect(C.reefFor(C.defaults(), 0).cur.id).toBe('concha'); // sem nada guardado, mostra a primeira
+  });
+  it('insigniaDates data cada marco pelo gole que fez a soma de água passar dele (outros líquidos não contam)', () => {
+    const S = C.defaults();
+    S.days['2026-06-03'] = day(2500, [[at(3, 9), L(20)]]); // 20 L de uma vez: vale para teste
+    S.days['2026-06-01'] = day(2500, [[at(1, 8), L(8)], [at(1, 12), L(30), 'coffee']]); // o café não conta
+    S.days['2026-06-02'] = day(2500, [[at(2, 10), L(4)]]);
+    const d = C.insigniaDates(S);
+    expect(d.concha).toBe(at(1, 8)); // o primeiro gole de água
+    expect(d.estrela).toBe(at(2, 10)); // 8 + 4 = 12 L
+    expect(d.baiacu).toBe(at(3, 9)); // 12 + 20 = 32 L
+    expect(d.tartaruga).toBeUndefined();
+    expect(C.insigniaDates(C.defaults())).toEqual({});
+    expect(C.insigniaDates({})).toEqual({});
+  });
+  it('mascotOf: a escolhida (se já conquistada) ou a mais alta', () => {
+    const S = withIns(['concha', 'estrela', 'baiacu']);
+    expect(C.mascotOf(S).id).toBe('baiacu');
+    S.profile.mascot = 'estrela';
+    expect(C.mascotOf(S).id).toBe('estrela');
+    S.profile.mascot = 'narval'; // ainda não conquistada
+    expect(C.mascotOf(S).id).toBe('baiacu');
+    S.profile.mascot = 'fantasma';
+    expect(C.mascotOf(S).id).toBe('baiacu');
+    expect(C.mascotOf(C.defaults()).id).toBe('concha');
+  });
+  it('migrate: mascote, insígnias e amigos chegam saneados (estado antigo, quebrado ou malicioso)', () => {
+    const old = C.migrate({ profile: { name: 'Ana' } });
+    expect(old.insignias).toEqual({});
+    expect(old.profile.mascot).toBe('');
+    expect(old.social).toEqual({ on: false, nick: '', share: true, code: '' });
+    expect(C.migrate({ profile: { mascot: 'cavalo' } }).profile.mascot).toBe('cavalo');
+    expect(C.migrate({ profile: { mascot: 'dragao' } }).profile.mascot).toBe('');
+    expect(C.migrate({ insignias: [1, 2] }).insignias).toEqual({});
+    expect(C.migrate({ insignias: 'x' }).insignias).toEqual({});
+    expect(C.migrate({ insignias: { concha: 5 } }).insignias).toEqual({ concha: 5 });
+    const so = C.migrate({ social: { on: 'sim', nick: 'N'.repeat(40), share: 0, code: 'abc' } }).social;
+    expect(so).toEqual({ on: false, nick: 'N'.repeat(20), share: true, code: '' }); // só "true" liga; código inválido some
+    expect(C.migrate({ social: { on: true, nick: 'Bia', share: false, code: 'ABCD2345' } }).social).toEqual({ on: true, nick: 'Bia', share: false, code: 'ABCD2345' });
+    expect(C.migrate({ social: { nick: 42 } }).social.nick).toBe('');
+  });
+  it('a medalha "Dez na meta" (10 dias, seguidos ou não) substituiu a de 100 L, que agora é insígnia', () => {
+    expect(C.ACHIEVEMENTS.some((a) => a.id === 'l100')).toBe(false);
+    const S = C.defaults();
+    for (let i = 0; i < 9; i++) S.days[C.addDays('2026-06-01', i * 2)] = met(); // dias alternados
+    expect(C.newAchievements(S).map((a) => a.id)).not.toContain('d10');
+    S.days['2026-06-30'] = met();
+    expect(C.newAchievements(S).map((a) => a.id)).toContain('d10');
   });
 });
 

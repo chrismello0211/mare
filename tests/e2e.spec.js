@@ -1,6 +1,7 @@
 // Maré — testes de interface (Parte 5). Rodar: npm run test:e2e
 // Cada teste roda em todos os aparelhos do playwright.config.js. Qualquer erro de JavaScript na página reprova.
 import { test, expect } from '@playwright/test';
+import { seed } from './helpers/seed.js';
 
 let errors = [];
 test.beforeEach(async ({ page }) => {
@@ -9,24 +10,6 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(() => { expect(errors, 'erros de JavaScript na página').toEqual([]); });
 
-// Estado pronto, pulando o onboarding. É montado dentro do navegador para usar o fuso do aparelho emulado.
-async function seed(page, o) {
-  await page.addInitScript((opt) => {
-    if (sessionStorage.getItem('mare:seeded')) return; // só na 1ª carga: recarregar mantém o que o teste fez
-    sessionStorage.setItem('mare:seeded', '1');
-    const p2 = (n) => (n < 10 ? '0' : '') + n, now = new Date(), days = {};
-    const k = now.getFullYear() + '-' + p2(now.getMonth() + 1) + '-' + p2(now.getDate());
-    if (opt.todayMl) days[k] = { goal: 2800, entries: [{ id: 'seed', t: now.getTime() - 60000, ml: opt.todayMl, d: 'water' }] };
-    if (opt.entries) days[k] = { goal: 2800, entries: opt.entries.map((e, i) => ({ id: 'seed' + i, t: now.getTime() - (opt.entries.length - i) * 60000, ml: e[0], d: e[1] })) };
-    localStorage.setItem('mare:v1', JSON.stringify({
-      v: 1, onboarded: true, createdAt: now.getTime() - 10 * 864e5,
-      profile: Object.assign({ name: 'Ana', weight: 70, activity: 'moderate', wake: '07:00', sleep: '23:00', unit: 'ml', theme: 'light' }, opt.profile || {}),
-      goal: { mode: 'manual', manual: 2800, climate: false, bonus: 0, temp: null, day: '' },
-      cups: [150, 250, 350, 500], last: opt.last || 'water', reminders: { enabled: false, interval: 90, smart: true, nextAt: 0 },
-      days: days, achievements: {}, missions: {}, ui: { tip_install: 1, tip_climate: 1 },
-    }));
-  }, o || {});
-}
 const tab = (page, name) => page.locator('#tabbar').getByRole('button', { name: name, exact: true });
 const cup = (page, label) => page.getByRole('button', { name: 'Adicionar ' + label, exact: true });
 
@@ -98,6 +81,192 @@ test('ajustes: onças e tema escuro', async ({ page }) => {
   await expect(cup(page, '8 oz')).toBeVisible();
 });
 
+/* ---------- insígnias (bichinhos do mar) ---------- */
+const sheetOf = (page) => page.locator('#sheetBody');
+const stored = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('mare:v1')));
+
+test('jornada: insígnia atual, recife com silhuetas e o painel de cada bichinho', async ({ page }) => {
+  await seed(page, { history: [26, 2500], insignias: { concha: 30, estrela: 20, baiacu: 10, tartaruga: 3 } }); // 65 L de água
+  await page.goto('/');
+  await tab(page, 'Jornada').click();
+  await expect(page.locator('.level .lv-n')).toHaveText('Tartaruga-marinha');
+  await expect(page.locator('.level .lv-k')).toHaveText('Insígnia 4 de 10');
+  await expect(page.locator('.level .lv-s')).toContainText('Faltam 35 L para Cavalo-marinho');
+  await expect(page.locator('.level .lv-s')).toContainText('65 L de água');
+  await expect(page.locator('.reef .rf')).toHaveCount(10);
+  await expect(page.locator('.reef .rf.off')).toHaveCount(6);
+  // bloqueada: o nome aparece, o bichinho é uma silhueta e a curiosidade fica escondida
+  await page.getByRole('button', { name: /^Cavalo-marinho, bloqueada, desbloqueia com 100 L/ }).click();
+  const sheet = sheetOf(page);
+  await expect(sheet.locator('#sheetTitle')).toHaveText('Cavalo-marinho');
+  await expect(sheet).toContainText('Chega aos 100 L de água. Faltam 35 L.');
+  await expect(sheet.locator('.bdg.lock')).toBeVisible();
+  await expect(sheet.locator('.fact.off')).toContainText('Beba mais um pouquinho');
+  await expect(sheet).not.toContainText('papai quem carrega'); // a curiosidade só vem com a insígnia
+  await sheet.locator('.btns').getByRole('button', { name: 'Fechar' }).click();
+  await expect(page.locator('#sheet')).toBeHidden();
+  // conquistada: curiosidade e "usar como mascote"
+  await page.getByRole('button', { name: /^Tartaruga-marinha, conquistada em/ }).click();
+  await expect(sheet.locator('#sheetTitle')).toHaveText('Tartaruga-marinha');
+  await expect(sheet.locator('.fact')).toContainText('Muitas tartarugas-marinhas voltam');
+  await expect(sheet.locator('.bdg.lock')).toHaveCount(0);
+});
+
+test('mascote: escolher outra insígnia conquistada muda o destaque no recife e fica salvo', async ({ page }) => {
+  await seed(page, { history: [26, 2500], insignias: { concha: 30, estrela: 20, baiacu: 10, tartaruga: 3 } });
+  await page.goto('/');
+  await tab(page, 'Jornada').click();
+  await expect(page.locator('.rf.cur')).toContainText('Tartaruga-marinha'); // sem escolha: a mais alta
+  await page.getByRole('button', { name: /^Baiacu, conquistada/ }).click();
+  await sheetOf(page).getByRole('button', { name: 'Usar como meu mascote' }).click();
+  await expect(page.locator('#toast')).toContainText('Mascote trocado');
+  await expect(sheetOf(page).getByRole('button', { name: '✓ É o seu mascote' })).toBeVisible();
+  await sheetOf(page).getByRole('button', { name: '✓ É o seu mascote' }).click();
+  await expect(page.locator('#sheet')).toBeHidden();
+  await expect(page.locator('.rf.cur')).toContainText('Baiacu');
+  expect((await stored(page)).profile.mascot).toBe('baiacu');
+});
+
+test('desbloquear: cruzar um marco comemora uma única vez e a insígnia fica para sempre', async ({ page }) => {
+  test.setTimeout(60000);
+  await seed(page, { history: [3, 3300], insignias: { concha: 5 }, medals: true }); // 9,9 L: falta pouco para a estrela-do-mar (10 L)
+  await page.goto('/');
+  await cup(page, '250 ml').click(); // 10,15 L
+  await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Nova insígnia!', { timeout: 9000 });
+  await expect(sheetOf(page)).toContainText('Estrela-do-mar');
+  await expect(sheetOf(page)).toContainText('Você sabia?');
+  await expect(sheetOf(page).locator('.bdg.lock')).toHaveCount(0);
+  await sheetOf(page).getByRole('button', { name: 'Que legal!' }).click();
+  await expect(page.locator('#sheet')).toBeHidden();
+  let st = await stored(page);
+  expect(typeof st.insignias.estrela).toBe('number');
+  expect(st.ui.unseenIns).toEqual([]);
+  // apagar o registro e registrar de novo não repete a festa; recarregar também não
+  await page.locator('#tLog .log-item').first().click();
+  await sheetOf(page).getByRole('button', { name: 'Excluir' }).click();
+  await expect(page.locator('#tLog')).toContainText('Nada por aqui ainda');
+  await cup(page, '250 ml').click();
+  await page.waitForTimeout(3200);
+  await expect(page.locator('#sheet')).toBeHidden();
+  await page.reload();
+  await page.waitForTimeout(3200);
+  await expect(page.locator('#sheet')).toBeHidden();
+  st = await stored(page);
+  expect(Object.keys(st.insignias).sort()).toEqual(['concha', 'estrela']);
+});
+
+test('desbloquear: o registro manual fecha o painel dele e só depois vem a comemoração', async ({ page }) => {
+  await seed(page, { history: [3, 3300], insignias: { concha: 5 }, medals: true });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Outro volume ou horário' }).click();
+  await page.locator('#eMl').fill('300');
+  await sheetOf(page).getByRole('button', { name: 'Adicionar', exact: true }).click();
+  await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Nova insígnia!', { timeout: 9000 });
+  await expect(sheetOf(page)).toContainText('Estrela-do-mar');
+  // o botão "Ver meu recife" leva à Jornada e fecha o painel
+  await sheetOf(page).getByRole('button', { name: 'Ver meu recife' }).click();
+  await expect(page.locator('#sheet')).toBeHidden();
+  await expect(tab(page, 'Jornada')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('.level .lv-n')).toHaveText('Estrela-do-mar');
+});
+
+test('desbloquear: o fundo do painel e o "voltar" também contam como "visto"', async ({ page }) => {
+  await seed(page, { history: [3, 3300], insignias: { concha: 5 }, medals: true });
+  await page.goto('/');
+  await cup(page, '250 ml').click();
+  await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Nova insígnia!', { timeout: 9000 });
+  await page.evaluate(() => { history.back(); }); // botão voltar do Android
+  await expect(page.locator('#sheet')).toBeHidden();
+  expect((await stored(page)).ui.unseenIns).toEqual([]);
+  await page.waitForTimeout(3000);
+  await expect(page.locator('#sheet')).toBeHidden(); // não volta a aparecer
+});
+
+test('quem já usava o Maré ganha as insígnias de uma vez e só a mais alta é comemorada', async ({ page }) => {
+  await seed(page, { history: [26, 2500], ui: { tip_news: 0 }, medals: true }); // 65 L e nenhuma insígnia guardada (estado da versão 1.0.x)
+  await page.goto('/');
+  await expect(page.locator('#tTips')).toContainText('Novidades no Maré');
+  await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Nova insígnia!', { timeout: 9000 });
+  await expect(sheetOf(page)).toContainText('Tartaruga-marinha');
+  await sheetOf(page).getByRole('button', { name: 'Que legal!' }).click();
+  await expect(page.locator('#sheet')).toBeHidden();
+  const st = await stored(page);
+  expect(Object.keys(st.insignias).sort()).toEqual(['baiacu', 'concha', 'estrela', 'tartaruga']);
+  Object.keys(st.insignias).forEach((id) => { expect(st.insignias[id], id).toBeLessThanOrEqual(Date.now()); });
+  expect(st.ui.unseenIns).toEqual([]);
+  // a dica de novidades abre o painel e some em seguida
+  await page.locator('#tTips').getByRole('button', { name: 'Ver as novidades' }).click();
+  await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Novidades do Maré');
+  await expect(sheetOf(page)).toContainText('Insígnias do mar');
+  await expect(sheetOf(page)).toContainText('Você já tem 4 de 10');
+  await sheetOf(page).getByRole('button', { name: 'Depois' }).click();
+  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
+});
+
+test('quem está começando agora ganha a concha de presente, sem festa nem dica de novidades', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Começar', exact: true }).click();
+  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+  await page.getByRole('button', { name: 'Perfeito, continuar' }).click();
+  await page.getByRole('button', { name: /Agora não|Começar a usar/ }).click();
+  await expect(page.locator('#tabbar')).toBeVisible();
+  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
+  await page.waitForTimeout(2500);
+  await expect(page.locator('#sheet')).toBeHidden();
+  await cup(page, '250 ml').click();
+  await page.waitForTimeout(2500);
+  await expect(page.locator('#sheet')).toBeHidden(); // a concha (0 L) nunca é comemorada
+  const st = await stored(page);
+  expect(Object.keys(st.insignias)).toEqual(['concha']);
+  await tab(page, 'Jornada').click();
+  await expect(page.locator('.level .lv-n')).toHaveText('Concha');
+  await expect(page.locator('.reef .rf:not(.off)')).toHaveCount(1);
+});
+
+test('backup antigo (sem insígnias): restaura, concede em silêncio e não deixa o backup ligar os amigos', async ({ page }) => {
+  await seed(page);
+  await page.goto('/');
+  const days = {};
+  const now = Date.now(), p2 = (n) => (n < 10 ? '0' : '') + n;
+  for (let i = 1; i <= 26; i++) {
+    const d = new Date(now - i * 864e5), k = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+    days[k] = { goal: 2800, entries: [{ id: 'b' + i, t: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 10, 0).getTime(), ml: 2500, d: 'water' }] };
+  }
+  const backup = { app: 'mare', v: 1, data: { v: 1, onboarded: true, profile: { name: 'Bia', weight: 60, theme: 'light', mascot: 'dragao' }, days: days,
+    insignias: { fantasma: 1, estrela: 'x' }, social: { on: true, nick: 'Invasor', share: true, code: 'ABCD2345' } } };
+  await tab(page, 'Ajustes').click();
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'Importar' }).click()]);
+  await chooser.setFiles({ name: 'mare-backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) });
+  await sheetOf(page).getByRole('button', { name: 'Restaurar' }).click();
+  await expect(page.locator('#toast')).toContainText('Backup restaurado');
+  await page.waitForTimeout(3000);
+  await expect(page.locator('#sheet')).toBeHidden(); // concessão silenciosa
+  const st = await stored(page);
+  expect(Object.keys(st.insignias).sort()).toEqual(['baiacu', 'concha', 'estrela', 'tartaruga']); // 65 L; ids inventados e valores ruins caíram
+  expect(st.profile.mascot).toBe('');
+  expect(st.social).toEqual({ on: false, nick: '', share: true, code: '' }); // amigos são deste aparelho
+});
+
+test('insígnias: a arte cabe no medalhão e a silhueta da bloqueada funciona', async ({ page }) => {
+  await seed(page, { history: [30, 2500], insignias: { concha: 90, estrela: 80, baiacu: 70, tartaruga: 60, cavalo: 50 } }); // 75 L
+  await page.goto('/');
+  await tab(page, 'Jornada').click();
+  const geo = await page.evaluate(() => [].slice.call(document.querySelectorAll('.reef .rf')).map((rf) => {
+    const g = rf.querySelector('svg > g.cr'), b = g.getBBox(), lock = rf.classList.contains('off');
+    const fills = [].slice.call(g.querySelectorAll('[fill]:not([fill="none"])')).map((e) => getComputedStyle(e).fill);
+    return { name: rf.querySelector('b').textContent, x: b.x, y: b.y, r: b.x + b.width, bt: b.y + b.height, lock: lock, fills: fills.filter((f, i, a) => a.indexOf(f) === i).length,
+      face: getComputedStyle(g.querySelector('.fc')).display };
+  }));
+  expect(geo.length).toBe(10);
+  geo.forEach((x) => {
+    expect(x.x, x.name + ' passa da esquerda').toBeGreaterThanOrEqual(-1);
+    expect(x.y, x.name + ' passa do topo').toBeGreaterThanOrEqual(-1);
+    expect(x.r, x.name + ' passa da direita').toBeLessThanOrEqual(101);
+    expect(x.bt, x.name + ' passa da base').toBeLessThanOrEqual(101);
+    if (x.lock) { expect(x.fills, x.name + ' bloqueada tem uma cor só').toBe(1); expect(x.face).toBe('none'); } else { expect(x.fills, x.name).toBeGreaterThan(1); expect(x.face).not.toBe('none'); }
+  });
+});
+
 test('voltar do Android fecha o painel e depois volta para Hoje', async ({ page }) => {
   await seed(page);
   await page.goto('/');
@@ -121,7 +290,7 @@ test('atalho do ícone ?add=250 registra e limpa o endereço', async ({ page }) 
 test('layout: sem rolagem lateral, alvos de toque confortáveis e screenshots', async ({ page }, info) => {
   await seed(page, { todayMl: 1200 });
   await page.goto('/');
-  for (const name of ['Hoje', 'Histórico', 'Jornada', 'Ajustes']) {
+  for (const name of ['Hoje', 'Histórico', 'Jornada', 'Amigos', 'Ajustes']) {
     await tab(page, name).click();
     await page.waitForTimeout(700); // animações de entrada
     const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

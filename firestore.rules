@@ -1,6 +1,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
     function isOwner(uid) {
       return request.auth != null && request.auth.uid == uid;
     }
@@ -24,6 +27,130 @@ service cloud.firestore {
         allow read, delete: if isOwner(uid);
         allow create, update: if isOwner(uid) && validDay(day, request.resource.data);
       }
+    }
+
+    /* ---------- amigos (1.1.0) ----------
+       profiles/{uid}      perfil que os AMIGOS veem: nome escolhido, mascote, insígnias, % da meta de hoje e sequência.
+                           Só o dono escreve; só o dono e amigos aprovados leem. Sem volumes, peso, meta em ml, localização e
+                           sem horários: nenhum documento público leva carimbo de hora (nem "u"), para quem tem o convite ou é
+                           amigo não ficar sabendo quando a pessoa abre o app.
+       codes/{CODIGO}      convite: quem tem o código lê "nome + mascote" de quem convidou (e nada mais). Não dá para listar.
+                           Trocar o código NÃO apaga o antigo: marca "rv" (revogado). Um código revogado fica ocupado para sempre
+                           (ninguém mais consegue criá-lo com outro dono) e deixa de valer para pedidos. Convites nunca são
+                           apagados (nem pelo dono): apagar liberaria o código para outra pessoa se passar por quem o divulgou.
+       friendships/{par}   amizade entre dois usuários; o id é "uidMenor_uidMaior". Nasce "pending" (pedido), que só vale com um código
+                           de convite VIGENTE de quem vai receber ("cd"), e só quem RECEBEU o pedido a torna "active". Qualquer um dos dois
+                           pode apagar. Acenos ("w") só em amizade ativa. */
+    function isDay(s) {
+      return s is string && s.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+    // O app limita o apelido a 20 letras. O limite aqui é folgado de propósito (80): conforme o servidor conte caracteres ou bytes,
+    // 20 letras com acento ou emoji (até 4 bytes cada) nunca podem ser recusadas. Serve só para barrar abuso de tamanho.
+    function isName(s) {
+      return s is string && s.size() >= 1 && s.size() <= 80;
+    }
+    function isMascot(s) {
+      return s is string && s.size() >= 1 && s.size() <= 16;
+    }
+    // Mesma conta do app (social.js): compara em minúsculas, porque os ids do login misturam maiúsculas e minúsculas
+    function pairId(a, b) {
+      return a.lower() < b.lower() ? a + '_' + b : b + '_' + a;
+    }
+    function pairPath(a, b) {
+      return /databases/$(database)/documents/friendships/$(pairId(a, b));
+    }
+    function areFriends(a, b) {
+      return exists(pairPath(a, b)) && get(pairPath(a, b)).data.st == 'active';
+    }
+    // Cada item de "ins" é um texto curto (o app guarda ids como "agua-viva"). Sem listar os ids aqui: insígnia nova não exige regra nova.
+    function insAt(l, i) {
+      return l.size() <= i || (l[i] is string && l[i].size() <= 24);
+    }
+    function insOk(l) {
+      return l is list && l.size() <= 12
+        && insAt(l, 0) && insAt(l, 1) && insAt(l, 2) && insAt(l, 3) && insAt(l, 4) && insAt(l, 5)
+        && insAt(l, 6) && insAt(l, 7) && insAt(l, 8) && insAt(l, 9) && insAt(l, 10) && insAt(l, 11);
+    }
+    function validProfile(d) {
+      return d.keys().hasOnly(['v', 'nm', 'mc', 'ins', 'pct', 'met', 'st', 'day', 'sh'])
+        && d.keys().hasAll(['v', 'nm', 'mc', 'ins', 'met', 'st', 'day', 'sh'])
+        && d.v == 1 && isName(d.nm) && isMascot(d.mc)
+        && insOk(d.ins)
+        && (!('pct' in d) || d.pct == null || (d.pct is int && d.pct >= 0 && d.pct <= 100))
+        && d.met is bool && d.st is int && d.st >= 0 && d.st <= 9999
+        && isDay(d.day) && d.sh is bool;
+    }
+    // "rv": o código foi revogado (troca de código ou saída dos amigos). Só pode valer true.
+    function validCode(d) {
+      return d.keys().hasOnly(['uid', 'nm', 'mc', 'rv'])
+        && d.keys().hasAll(['uid', 'nm', 'mc'])
+        && d.uid == request.auth.uid && isName(d.nm) && isMascot(d.mc)
+        && (!('rv' in d) || d.rv == true);
+    }
+    function codePath(c) {
+      return /databases/$(database)/documents/codes/$(c);
+    }
+    // O código existe, é de "owner" e não foi revogado
+    function liveCode(c, owner) {
+      let x = get(codePath(c)).data;
+      return x.uid == owner && !('rv' in x);
+    }
+    // O pedido precisa levar ("cd") um código de convite VIGENTE de quem vai receber o pedido. Saber o identificador de alguém
+    // (ele aparece no convite e para os amigos) não basta: trocar o código de convite fecha a porta para quem já o conhecia.
+    function validRequest(pair, d) {
+      let ids = pair.split('_');
+      let other = ids[0] == request.auth.uid ? ids[1] : ids[0];
+      return ids.size() == 2 && ids[0].lower() < ids[1].lower()
+        && d.keys().hasOnly(['m', 'by', 'st', 'nm', 'mc', 'tn', 'tc', 'cd', 'at'])
+        && d.keys().hasAll(['m', 'by', 'st', 'nm', 'mc', 'tn', 'tc', 'cd', 'at'])
+        && d.m == ids && d.by == request.auth.uid && request.auth.uid in ids
+        && d.st == 'pending'
+        && isName(d.nm) && isMascot(d.mc) && isName(d.tn) && isMascot(d.tc)
+        && d.cd is string && d.cd.matches('^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$')
+        && liveCode(d.cd, other)
+        && d.at == request.time;
+    }
+    // Quem recebeu o pedido aceita: só "st" e "ok" mudam
+    function acceptOk(a, b) {
+      return a.st == 'pending' && a.by != request.auth.uid && b.st == 'active'
+        && b.diff(a).affectedKeys().hasOnly(['st', 'ok'])
+        && b.ok == request.time;
+    }
+    // Aceno: só a minha entrada em "w" muda, é "oi" ou "parabéns", e no máximo um a cada 10 minutos por amizade
+    function waveOk(a, b) {
+      let me = request.auth.uid;
+      let old = a.get('w', {});
+      return a.st == 'active' && b.st == 'active'
+        && b.diff(a).affectedKeys().hasOnly(['w'])
+        && b.w.diff(old).affectedKeys().hasOnly([me])
+        && b.w[me].keys().hasOnly(['k', 'd', 'at'])
+        && b.w[me].k in ['hi', 'cheer']
+        && isDay(b.w[me].d)
+        && b.w[me].at == request.time
+        && (!(me in old) || request.time > old[me].at + duration.value(10, 'm'));
+    }
+
+    match /profiles/{uid} {
+      allow get: if isOwner(uid) || (signedIn() && areFriends(request.auth.uid, uid));
+      allow create, update: if isOwner(uid) && validProfile(request.resource.data);
+      allow delete: if isOwner(uid);
+    }
+    match /codes/{code} {
+      allow get: if signedIn();
+      allow list: if signedIn() && resource.data.uid == request.auth.uid;
+      allow create: if signedIn() && code.matches('^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$') && validCode(request.resource.data);
+      // Atualizar: só o dono, e um código revogado continua revogado (ninguém reabre uma porta fechada)
+      allow update: if signedIn() && resource.data.uid == request.auth.uid && validCode(request.resource.data)
+        && (!('rv' in resource.data) || 'rv' in request.resource.data);
+      // Ninguém apaga convite (só revoga): um código apagado ficaria livre para outra pessoa criar e se passar pelo dono
+      allow delete: if false;
+    }
+    match /friendships/{pair} {
+      allow get, list: if signedIn() && request.auth.uid in resource.data.m;
+      allow create: if signedIn() && validRequest(pair, request.resource.data);
+      allow update: if signedIn() && request.auth.uid in resource.data.m
+        && (acceptOk(resource.data, request.resource.data) || waveOk(resource.data, request.resource.data));
+      allow delete: if signedIn() && request.auth.uid in resource.data.m;
     }
   }
 }

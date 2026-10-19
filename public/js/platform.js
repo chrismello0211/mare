@@ -45,7 +45,8 @@ export function haptic(kind) {
       quiet(kind === 'success' ? H.notification({ type: 'SUCCESS' }) : H.impact({ style: kind === 'medium' ? 'MEDIUM' : 'LIGHT' }));
       return;
     }
-    if (navigator.vibrate) navigator.vibrate(kind === 'success' ? [12, 60, 18] : kind === 'medium' ? 18 : 8);
+    // Sem nenhum toque na página ainda (ex.: festa que aparece na abertura), o Chrome bloqueia a vibração e reclama no console
+    if (navigator.vibrate && !(navigator.userActivation && !navigator.userActivation.hasBeenActive)) navigator.vibrate(kind === 'success' ? [12, 60, 18] : kind === 'medium' ? 18 : 8);
   } catch (e) {}
 }
 

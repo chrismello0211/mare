@@ -1,13 +1,13 @@
 // Maré — Service Worker (Parte 4): cache offline, atualização controlada, push e ação "+250 ml" da notificação.
 // A cada deploy, aumente VERSION (e APP_VERSION em js/app.js): é isso que dispara o aviso "Nova versão disponível".
 // Não use firebase-messaging-sw.js: o firebase.js registra o token FCM neste SW e o push chega aqui como "data".
-const VERSION = '1.0.3';
+const VERSION = '1.1.0';
 const CACHE = 'mare-' + VERSION, RUNTIME = 'mare-sdk', TAG = 'mare-lembrete';
 const SHELL = new URL('./', self.location).href, ROOT = new URL('./', self.location).pathname;
 const CORE = ['./', './manifest.webmanifest', './css/app.css', './js/app.js', './js/core.js', './js/store.js',
-  './js/ui.js', './js/views.js', './js/platform.js'];
+  './js/ui.js', './js/views.js', './js/platform.js', './js/art.js', './js/kit.js', './js/social.js', './js/friends-view.js'];
 // Opcionais: a instalação não falha se ainda não existirem (os PNGs vêm do script da Parte 5)
-const EXTRA = ['./js/firebase-config.js', './js/firebase.js', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png',
+const EXTRA = ['./js/firebase-config.js', './js/firebase.js', './js/social-cloud.js', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png',
   './icons/maskable-512.png', './icons/apple-touch-icon.png', './icons/badge-72.png'];
 
 // Guarda o app no cache. Roda na instalação e de novo se o cache sumir: vários apps dividem esta mesma origem

@@ -1,6 +1,7 @@
 // Maré — estado e utilidades compartilhadas (Parte 3A).
 // O app.js foi dividido em store.js, ui.js, views.js e app.js (mesma lógica, arquivos menores).
 import { dayKey, keyToDate, addDays, goalToday, dayTotal, dayWater, dayOther, setMix, defaults, migrate, OZ, fmtVol, fmtNum, fmtL } from './core.js';
+import { cleanState } from './social.js';
 
 export const KEY = 'mare:v1';
 // Estado vivo. "export let" é live binding: quem importa S sempre enxerga o valor atual.
@@ -10,6 +11,9 @@ export function setS(v) { S = v; applyMix(); }
 // e não podem entrar na conta. Chame depois de mudar S.profile.mix ou S.profile.others.
 export function applyMix() { setMix(S.profile.others !== false && S.profile.mix === true); }
 export const hooks = { saveError: null };
+// Amigos, como a tela enxerga: o app.js alimenta a partir da camada de nuvem (social-cloud.js) e da cópia guardada no aparelho.
+// mode: 'off' = nuvem indisponível · 'wait' = ainda conectando · 'ready' = pronta. st = { ready, err, code, friends, reqIn, reqOut, at }.
+export const SOC = { mode: 'wait', st: cleanState(null) };
 
 export function load() {
   try { return migrate(JSON.parse(localStorage.getItem(KEY) || 'null')); } catch (e) { return defaults(); }

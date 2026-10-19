@@ -1,31 +1,38 @@
 // Maré — aplicativo (Parte 3C). Liga estado, telas, lembretes, clima, celebrações e a nuvem opcional.
 // Toda alteração segue: muda S → save() → afterChange() (lembrete, conquistas, badge, nuvem) → atualiza só o necessário.
 import { ACTIVITY, drink, isWater, mixOn, retired, uid, dayKey, keyToDate, minOf, fmtHM, expectedBy, nextReminderAt, climateBonus, goalToday,
-  levelFor, missionFor, missionProgress, newAchievements, streak, buildICS, defaults, migrate } from './core.js';
-import { KEY, S, setS, applyMix, hooks, load, save, clamp, num, plural, byT, shiftYm, today, goalNow, totalNow, otherNow, othersOn, ensureDay,
-  syncTodayGoal, allMl, U, vol, toMl, fromMl, big } from './store.js';
-import { $, $$, tween, animBars, onBack, hPush, hBack, toast, runToastAction, showBanner, sheetBody, sheetIsOpen, openSheet,
-  closeSheet, confirmSheet, runConfirm, splash, confetti, pop, levelY, dropTo } from './ui.js';
+  missionFor, missionProgress, newAchievements, newInsignias, insigniaDates, insigniaById, streak, buildICS, defaults, migrate } from './core.js';
+import { KEY, S, SOC, setS, applyMix, hooks, load, save, clamp, num, plural, byT, shiftYm, today, goalNow, totalNow, otherNow, othersOn, ensureDay,
+  syncTodayGoal, allMl, U, vol, toMl, fromMl, big, esc } from './store.js';
+import { $, $$, tween, animBars, onBack, hPush, hBack, toast, hideToast, runToastAction, showBanner, sheetBody, sheetIsOpen, openSheet,
+  closeSheet, onSheetClose, confirmSheet, runConfirm, splash, confetti, pop, popBusy, levelY, dropTo, floatEmoji } from './ui.js';
 import { isNative, reducedMotion, onMedia, haptic, registerSW, applyUpdate, notifStatus, requestNotifPermission, showNotification,
   scheduleNative, setBadge, drainInbox, initInstall, canInstall, promptInstall, getCoords, fetchMaxTemp, saveFile, share,
-  persistStorage } from './platform.js';
+  persistStorage, copyText } from './platform.js';
 import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboardingView, OB_STEPS, tabbarHTML, othersSheet, otherNote,
   entrySheet, daySheet, installSheet, notifHelpSheet, dropOpts, dropOpts2, drop2Label, paceInfo, goalSumHTML, remNoteText, shareText,
-  fmtW } from './views.js';
+  insigniaSheet, unlockSheet, newsSheet, fmtW } from './views.js';
+import { friendsView, friendSheet, profileSheet, codeSheet, aboutSheet, friendsSig, inviteInfo } from './friends-view.js';
+import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inviteLink, inviteText, fmtCode, profilePayload, liveOf, myLive, turma,
+  waveFor, seenWaves, arrivals, errText } from './social.js';
 
-export const APP_VERSION = '1.0.3'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.1.0'; // aumente a cada deploy, junto com VERSION no sw.js
 
-const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'settings'];
+const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'friends', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;
 let tab = 'today', ym = '', ob = null, dr = null, dropSt = null, dropSt2 = null, curDay = '', remT = 0, climBusy = false, fileIn = null;
-let cloud = null, syncState = 'off', cloudOn = false;
+let cloud = null, syncState = 'off', cloudOn = false, cloudP = null;
+// amigos: soc = camada de nuvem (social-cloud.js, criada sob demanda); frSig = o que a aba mostra agora; frInv = convite aberto por link (tela de entrada);
+// frCode = painel "Inserir código"; waving = acenos em andamento; tabHTML = a barra de abas desenhada agora (só mexe quando muda)
+let soc = null, socP = null, socWired = null, frSig = '', frInv = null, frCode = null, tabHTML = '';
+const waving = {};
 
 /* ---------- utilidades ---------- */
 const info = () => ({ version: 'v' + APP_VERSION, sync: syncState, push: !!(cloud && cloud.push) });
 function sync(keys) { try { if (cloud) cloud.syncDays(keys); } catch (e) { /* a nuvem é opcional */ } }
 function syncMeta() { try { if (cloud) cloud.syncMeta(); } catch (e) { /* idem */ } }
 const touch = (k) => { if (S.days[k]) S.days[k].u = Date.now(); }; // u = última alteração do dia (usado na sincronização)
-const snap = () => ({ total: totalNow(), goal: goalNow(), lv: levelFor(allMl()).i });
+const snap = () => ({ total: totalNow(), goal: goalNow() });
 const typing = () => { const a = document.activeElement; return !!a && a.tagName === 'INPUT' && view.contains(a); };
 const findEntry = (k, id) => { const d = S.days[k]; return (d && d.entries ? d.entries.filter((e) => e.id === id)[0] : null) || null; };
 // Hora do último gole de ÁGUA de hoje: o lembrete parte dele. Café, chá etc. não adiam o próximo lembrete de água,
@@ -74,10 +81,14 @@ function render(still) {
   if (!S.onboarded) { if (ob) renderOb(); else startOnboarding(); return; }
   document.body.classList.remove('no-tabs');
   tabbar.hidden = false;
-  tabbar.innerHTML = tabbarHTML(tab);
-  view.innerHTML = tab === 'history' ? historyView(ym) : tab === 'journey' ? journeyView() : tab === 'settings' ? settingsView(info()) : todayView();
+  if (tab === 'friends') markWavesSeen(); // abrir a aba é "ver" os acenos: a bolinha some
+  tabHTML = tabbarHTML(tab);
+  tabbar.innerHTML = tabHTML;
+  view.innerHTML = tab === 'history' ? historyView(ym) : tab === 'journey' ? journeyView() : tab === 'friends' ? friendsView({ invite: frInvCtx() })
+    : tab === 'settings' ? settingsView(info()) : todayView();
   bars(view, !still);
   if (tab === 'today') paintDrop();
+  if (tab === 'friends') { frSig = friendsSig(); resolveInvite(); }
 }
 function refreshToday(fx) {
   if (tab !== 'today' || !$('#drop')) return;
@@ -161,11 +172,14 @@ function finishOb() {
   S.onboarded = true;
   ob = null;
   if (n) hBack(n); // remove as entradas do onboarding: "voltar" na tela Hoje sai do app
+  S.ui.tip_news = 1; // quem está começando agora já nasce com tudo: a dica de novidades é só para quem já usava
+  grantInsignias(false); // a concha (0 L) vem de presente, sem festa
   syncTodayGoal(); save();
   tab = 'today';
   render(); planReminder(); updateBadge(); persistStorage();
   startCloud();
   toast('Tudo pronto! Sua meta de hoje é ' + vol(goalNow()) + ' 💧');
+  if (S.ui.invite) setTimeout(() => { if (S.onboarded && !ob) go('friends'); }, 1600); // chegou por um convite: leva a pessoa direto aos amigos
 }
 
 /* ---------- registros ---------- */
@@ -241,6 +255,7 @@ function afterChange(keys, before, fx) {
   celebrate(before, keys);
   updateBadge();
   sync(keys);
+  socTouch(); crewCheck(SOC.st);
   if (tab === 'today') refreshToday(fx); else if (tab !== 'settings') render(true);
   refreshDaySheet(keys);
 }
@@ -255,10 +270,60 @@ function celebrate(b, keys) {
     S.missions[k] = Date.now();
     pop(m.e, 'Missão cumprida', m.t, 'Amanhã tem missão nova');
   }
-  const lv = levelFor(allMl());
-  if (lv.i > b.lv) pop(lv.e, 'Novo nível', lv.n, big(allMl()) + ' hidratados até aqui');
   newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); pop(a.e, 'Nova medalha', a.t, a.d); });
+  if (grantInsignias(true).length) planUnlock(1600);
   save();
+}
+
+/* ---------- insígnias ---------- */
+// Guarda em S.insignias as insígnias que a água acumulada já alcançou (como as medalhas, depois de conquistadas nunca saem).
+// live = true: o gole que cruzou o marco acabou de acontecer, então vira comemoração (fila S.ui.unseenIns). Senão a concessão é silenciosa
+// e datada pelo histórico de registros (primeira abertura após atualizar, backup, outro aparelho). A primeira (0 L) nunca é comemorada.
+function grantInsignias(live) {
+  const list = newInsignias(S, allMl());
+  if (!list.length) return list;
+  const dates = live ? null : insigniaDates(S);
+  if (!Array.isArray(S.ui.unseenIns)) S.ui.unseenIns = [];
+  list.forEach((x) => {
+    S.insignias[x.id] = live ? Date.now() : (dates[x.id] || Date.now());
+    if (live && x.at > 0 && S.ui.unseenIns.indexOf(x.id) < 0) S.ui.unseenIns.push(x.id);
+  });
+  return list;
+}
+// Quem já usava o Maré ganha as insígnias que merecia de uma vez, e só a mais alta é comemorada (uma única vez)
+function welcomeInsignias() {
+  const first = !Object.keys(S.insignias).length, list = grantInsignias(false), top = list[list.length - 1];
+  if (first && top && top.at > 0) S.ui.unseenIns.push(top.id);
+  if (list.length) save();
+  if (S.ui.unseenIns && S.ui.unseenIns.length) planUnlock(1800);
+}
+let unlockT = 0, unlockId = '';
+function planUnlock(ms) { clearTimeout(unlockT); unlockT = setTimeout(showUnlock, ms || 1200); }
+// O painel "Nova insígnia!" espera a tela ficar tranquila: sem outro painel aberto (o registro manual fecha o dele logo depois de salvar),
+// sem digitação, sem cartão de conquista aparecendo e com o app visível. Se a pessoa fechar o app antes, a fila continua para a próxima abertura.
+function showUnlock() {
+  const q = S.ui.unseenIns;
+  if (!S.onboarded || ob || !Array.isArray(q) || !q.length) return;
+  if (sheetIsOpen() || typing() || popBusy() || document.visibilityState !== 'visible') { planUnlock(1500); return; }
+  const id = q[0];
+  if (!insigniaById(id) || !S.insignias[id]) { q.shift(); save(); planUnlock(200); return; }
+  unlockId = id;
+  confetti(); haptic('success');
+  openSheet(unlockSheet(id));
+}
+onSheetClose(() => {
+  if (!unlockId) return;
+  const q = S.ui.unseenIns, i = Array.isArray(q) ? q.indexOf(unlockId) : -1;
+  unlockId = '';
+  if (i >= 0) { q.splice(i, 1); save(); }
+  if (Array.isArray(q) && q.length) planUnlock(900);
+});
+function setMascot(id) {
+  if (!insigniaById(id) || !S.insignias[id]) return;
+  S.profile.mascot = id; save(); haptic('light'); socTouch();
+  openSheet(insigniaSheet(id));
+  if (tab === 'journey') render(true);
+  toast('Mascote trocado ✓');
 }
 
 /* ---------- lembretes ---------- */
@@ -332,10 +397,12 @@ function testNotif() {
 function rulesChanged() {
   applyMix();
   planReminder(); updateBadge(); // planReminder também salva e sincroniza
+  socTouch(); // a % da meta que os amigos veem muda junto
   render(true);
 }
 function goalChanged() {
   syncTodayGoal(); planReminder(); updateBadge(); // planReminder também salva e sincroniza
+  socTouch();
   const gs = $('#goalSum');
   if (gs) gs.innerHTML = goalSumHTML();
 }
@@ -396,7 +463,7 @@ function exportICS() {
   });
 }
 function exportBackup() {
-  const json = JSON.stringify({ app: 'mare', v: 1, exportedAt: new Date().toISOString(), data: S });
+  const json = JSON.stringify({ app: 'mare', v: 1, exportedAt: new Date().toISOString(), data: Object.assign({}, S, { social: defaults().social }) });
   saveFile('mare-backup-' + today() + '.json', json, 'application/json').then((r) => {
     if (r !== 'cancel') toast('Backup pronto ✓ Guarde o arquivo num lugar seguro.');
   });
@@ -452,30 +519,58 @@ function sanitize(raw) {
     Object.keys(s[key]).forEach((x) => { if (isFinite(s[key][x])) o[String(x).slice(0, 24)] = +s[key][x]; });
     s[key] = o;
   });
+  const ins = {};
+  Object.keys(s.insignias).forEach((x) => { if (insigniaById(x) && isFinite(s.insignias[x])) ins[x] = +s.insignias[x]; });
+  s.insignias = ins;
+  s.social = defaults().social; // amigos são deste aparelho (o login muda de aparelho para aparelho): nada disso vem do backup
   return s;
 }
 function applyBackup(s) {
-  s.reminders = S.reminders; s.ui = S.ui; s.onboarded = true; // lembretes e dicas pertencem a este aparelho
+  s.reminders = S.reminders; s.ui = S.ui; s.social = S.social; s.onboarded = true; // lembretes, dicas e amigos pertencem a este aparelho
   if (tab !== 'today' && !ob) hBack();
   setS(s);
   ob = null; tab = 'today'; dropSt = null; dropSt2 = null;
+  grantInsignias(false); // o backup antigo não traz insígnias: saem do histórico, sem festa
   syncTodayGoal(); save(); applyTheme();
   render(); planReminder(); updateBadge();
   startCloud();
   sync(Object.keys(S.days));
+  socTouch();
   toast('Backup restaurado ✓');
 }
+let erasing = false; // saindo dos amigos para apagar tudo: um segundo "Apagar tudo" nesse meio tempo não repete
 function resetAll() {
   confirmSheet('Apagar todos os dados?', 'Registros, medalhas e ajustes deste aparelho serão removidos' +
-    (cloud ? ', inclusive a cópia na nuvem' : '') + '. Não dá para desfazer.', 'Apagar tudo', true, () => {
-    if (cloud && cloud.wipe) cloud.wipe().catch(() => {});
-    clearTimeout(remT); scheduleNative(0); setBadge(0);
-    try { localStorage.removeItem(KEY); } catch (e) { /* ignora */ }
-    if (tab !== 'today') hBack();
-    setS(defaults()); save();
-    tab = 'today'; dropSt = null; dropSt2 = null;
-    startOnboarding();
+    (cloud ? ', inclusive a cópia na nuvem' : '') + '. Não dá para desfazer.', 'Apagar tudo', true, async () => {
+    // Com os amigos ligados, primeiro sai da rede (perfil, convites, amizades). Se não der (sem internet, por exemplo), nada é apagado:
+    // o perfil não pode continuar público na nuvem com o app dizendo que apagou tudo. A pessoa pode tentar de novo ou, se preferir,
+    // apagar só o que é deste aparelho (uma saída para quem não consegue sair dos amigos nunca ficar sem poder apagar os próprios dados).
+    if (S.social.on) {
+      if (erasing) { toast('Apagando…'); return; }
+      erasing = true;
+      toast('Apagando…');
+      try { await exitCloud(); } catch (e) {
+        hideToast(); // o "Apagando…" não pode ficar por cima do aviso de que não deu
+        confirmSheet('Não consegui sair dos amigos', 'Seu perfil continua na nuvem, visível só para quem já é seu amigo, e não deu para apagá-lo agora. ' +
+          'Confira a internet e tente de novo. Se preferir, apague só os dados deste aparelho: o perfil nos amigos só some quando você ativar os amigos de novo e sair.',
+        'Apagar só neste aparelho', true, eraseLocal);
+        return;
+      } finally { erasing = false; }
+    }
+    eraseLocal();
   });
+}
+// Apaga o que é deste aparelho (e a cópia na nuvem, se a conexão deixar) e volta para a tela de boas-vindas
+function eraseLocal() {
+  try { if (soc) soc.stop(); } catch (e) { /* a camada de amigos é opcional */ }
+  if (cloud && cloud.wipe) cloud.wipe().catch(() => {});
+  clearTimeout(remT); scheduleNative(0); setBadge(0);
+  try { localStorage.removeItem(KEY); } catch (e) { /* ignora */ }
+  dropSocCache(); SOC.st = cleanState(null); frSig = ''; frInv = null; frCode = null; // amigos: o wipe() da nuvem já apagou perfil e amizades
+  if (tab !== 'today') hBack();
+  setS(defaults()); save();
+  tab = 'today'; dropSt = null; dropSt2 = null;
+  startOnboarding();
 }
 function shareProgress() {
   share(shareText(), location.href.split(/[?#]/)[0]).then((r) => {
@@ -493,17 +588,24 @@ function startCloud() {
   cloudOn = true;
   initCloudLayer();
 }
+// cloudP resolve com a nuvem pronta ou com null (desligada ou falhou): os amigos esperam por ela sem travar a tela
 function initCloudLayer() {
-  import('./firebase-config.js')
+  cloudP = import('./firebase-config.js')
     .then((c) => (c.FIREBASE_ENABLED ? import('./firebase.js') : null))
     .then((m) => (m ? m.initCloud({ state: () => S, onRemote: mergeRemote, onStatus: (st) => { syncState = st; } }) : null))
     .then((c) => {
-      if (!c) return;
-      cloud = c; syncState = 'on';
+      if (!c) { cloudDown(); return null; }
+      cloud = c; syncState = 'on'; SOC.mode = 'ready';
       syncMeta();
       if (S.reminders.enabled && notifStatus() === 'granted' && cloud.enablePush) cloud.enablePush().then(refreshUI, () => {});
+      startSocial();
+      return c;
     })
-    .catch((e) => { syncState = 'off'; console.warn('[nuvem] desligada:', e && e.message ? e.message : e); });
+    .catch((e) => { syncState = 'off'; console.warn('[nuvem] desligada:', e && e.message ? e.message : e); cloudDown(); return null; });
+}
+function cloudDown() {
+  SOC.mode = 'off';
+  if (tab === 'friends' && S.onboarded && !ob) render(true);
 }
 // Dados da nuvem: por dia, vence a alteração mais recente (campo u, em ms)
 function mergeRemote(days) {
@@ -516,9 +618,348 @@ function mergeRemote(days) {
   });
   if (!keys.length) return;
   newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); }); // sem festa: são conquistas antigas
+  grantInsignias(false);
   save();
   if (keys.indexOf(today()) >= 0) planReminder();
-  updateBadge(); refreshUI();
+  updateBadge(); refreshUI(); socTouch();
+}
+
+/* ---------- amigos ---------- */
+// social-cloud.js guarda a verdade (perfil, convites, amizades, acenos) e avisa cada mudança; SOC.st é o que as telas mostram.
+// A cópia em localStorage ('mare:social') é a primeira pintura e o que se vê sem internet. Tudo é opcional: sem nuvem, o app segue igual.
+// Operações que esperam o servidor passam por guard(): se a rede estiver parada, a tela avisa em vez de ficar girando para sempre.
+const guard = (p, ms) => new Promise((res, rej) => {
+  const t = setTimeout(() => { rej({ code: 'slow' }); }, ms);
+  Promise.resolve(p).then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
+});
+const codeOf = (e) => (e && e.code ? String(e.code) : 'unknown');
+const socPayload = () => (S.onboarded && S.social.on ? profilePayload(S, today()) : null);
+function readSocCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); } catch (e) { return null; } }
+function writeSocCache(st) {
+  // uid: a cópia só vale para a conta que a gravou (se o login mudar neste aparelho, a lista antiga não é da conta nova)
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ uid: (soc && soc.me) || st.uid || '', code: st.code, at: st.at, friends: st.friends, reqIn: st.reqIn, reqOut: st.reqOut })); } catch (e) { /* sem espaço: segue sem a cópia */ }
+}
+function dropSocCache() { try { localStorage.removeItem(CACHE_KEY); } catch (e) { /* ignora */ } }
+function socTouch() { try { if (soc && S.social.on) soc.touch(); } catch (e) { /* amigos são opcionais */ } }
+function socFlush() { try { if (soc && S.social.on) soc.flush().catch(() => {}); } catch (e) { /* idem */ } }
+function cloudReady() { if (!cloudP) startCloud(); return cloudP || Promise.resolve(null); }
+function getSoc() {
+  if (soc) return Promise.resolve(soc);
+  if (!socP) {
+    socP = cloudReady().then((c) => {
+      if (!c || !c.social) throw { code: 'off' };
+      return c.social(readSocCache());
+    }).then((s) => { soc = s; wireSoc(s); return s; }, (e) => { socP = null; throw e; });
+  }
+  return socP;
+}
+// Refaz a conexão com a nuvem do zero (ela não subiu: sem internet ao abrir o app, por exemplo)
+function reconnectCloud() { SOC.mode = 'wait'; cloudOn = false; cloudP = null; socP = null; soc = null; startCloud(); }
+// getSoc() com uma segunda chance: se a nuvem estava fora, tenta subi-la de novo uma vez antes de desistir. Quem sai dos amigos ou apaga
+// tudo não pode ficar preso a uma falha de quando o app abriu.
+async function connectSoc(ms) {
+  try { return await guard(getSoc(), ms); } catch (e) {
+    if (codeOf(e) !== 'off') throw e;
+    reconnectCloud();
+    return guard(getSoc(), ms);
+  }
+}
+function wireSoc(s) { if (socWired === s) return; socWired = s; s.on(onSocial); } // uma vez por instância (ao religar a nuvem nasce outra)
+// Com os amigos ligados neste aparelho: escuta a nuvem e confere o perfil e o código de convite (uma vez por abertura)
+function startSocial() {
+  if (!S.onboarded || !S.social.on) return;
+  getSoc().then((s) => {
+    s.start({ payload: socPayload });
+    return s.join({ payload: socPayload(), code: S.social.code });
+  }).then((code) => { if (code && code !== S.social.code && S.social.on) { S.social.code = code; save(); } },
+    (e) => { console.warn('[amigos]', codeOf(e)); });
+}
+// Chega a cada mudança da camada de nuvem (amigo novo, progresso de alguém, pedido, aceno, erro de conexão)
+function onSocial(st) {
+  if (!S.social.on) return; // saiu dos amigos: o que chegar agora não vale
+  const prev = SOC.st;
+  SOC.st = st;
+  if (st.code && st.code !== S.social.code) { S.social.code = st.code; save(); }
+  writeSocCache(st);
+  if (st.ready) announceSocial(prev, st);
+  crewCheck(st);
+  refreshFriendsUI();
+}
+// Avisos do que mudou desde a última vez: pedido aceito (festinha) e pedido novo (toque no aviso abre a aba)
+function announceSocial(prev, st) {
+  const a = arrivals(prev, st);
+  if (a.accepted.length) {
+    const f = a.accepted[0];
+    pop('🤗', 'Nova amizade', f.nm + ' aceitou seu pedido', a.accepted.length > 1 ? 'e mais ' + (a.accepted.length - 1) + (a.accepted.length > 2 ? ' pessoas' : ' pessoa') : 'Agora vocês se acompanham');
+  } else if (a.requests.length && tab !== 'friends' && !sheetIsOpen()) {
+    const r = a.requests[0];
+    toast(a.requests.length === 1 ? esc(r.nm) + ' quer acompanhar o dia com você 💌' : 'Você tem ' + a.requests.length + ' pedidos de amizade 💌',
+      { label: 'Ver', fn: () => go('friends') });
+  }
+}
+// Quando todo mundo da turma bateu a meta, uma comemoração por dia
+function crewCheck(st) {
+  if (!S.social.on || !st || !st.ready || !st.friends.length) return;
+  const k = today();
+  if (S.ui.crewAt === k) return;
+  if (turma(myLive(S, k), st.friends.map((f) => liveOf(f, k))).kind !== 'all') return;
+  S.ui.crewAt = k; save();
+  if (!popBusy()) confetti();
+  pop('🌊', 'Turma completa!', 'Todo mundo bateu a meta hoje', 'A maré está cheia');
+}
+// Os acenos de agora viram "vistos" quando a aba Amigos está aberta (a bolinha da aba some)
+function markWavesSeen() {
+  const seen = seenWaves(SOC.st.friends, today());
+  if (JSON.stringify(seen) !== JSON.stringify(S.ui.wv || {})) { S.ui.wv = seen; save(); }
+}
+function paintTabs() {
+  if (!S.onboarded || ob) return;
+  const h = tabbarHTML(tab);
+  if (h !== tabHTML) { tabHTML = h; tabbar.innerHTML = h; }
+}
+// Redesenha só o que depende dos amigos, e só se mudou: um amigo atualizar o perfil não faz a tela piscar nem a rolagem pular
+function refreshFriendsUI() {
+  if (!S.onboarded || ob) return;
+  if (tab === 'friends') markWavesSeen();
+  paintTabs();
+  if (tab === 'today') refreshPart('tCrew');
+  else if (tab === 'friends' && friendsSig() !== frSig && !typing()) render(true);
+  refreshFriendSheet();
+}
+const friendById = (id) => SOC.st.friends.filter((f) => f.uid === id)[0] || null;
+const friendSig = (id) => { const f = friendById(id); return f ? JSON.stringify(f) + today() : ''; };
+function openFriend(id) {
+  if (!friendById(id)) return;
+  openSheet(friendSheet(id));
+  sheetBody.setAttribute('data-fsig', friendSig(id));
+}
+function refreshFriendSheet() {
+  if (!sheetIsOpen()) return;
+  const el = $('[data-friend]', sheetBody);
+  if (!el) return;
+  const id = el.getAttribute('data-friend'), sg = friendSig(id);
+  if (!sg) { closeSheet(); return; } // a amizade acabou
+  if (sg !== sheetBody.getAttribute('data-fsig')) openFriend(id);
+}
+function busyBtn(el, on, label) {
+  if (!el || !el.isConnected) return;
+  if (on) { el.setAttribute('data-l', el.innerHTML); el.disabled = true; el.setAttribute('aria-busy', 'true'); if (label) el.textContent = label; }
+  else { el.disabled = false; el.removeAttribute('aria-busy'); const l = el.getAttribute('data-l'); if (l != null) el.innerHTML = l; }
+}
+const frErr = (t) => { const e = $('#frErr'); if (e) e.textContent = t || ''; if (t) haptic('medium'); };
+
+/* convite aberto por link (?amigo=CÓDIGO) antes de ativar os amigos */
+const frInvCtx = () => (S.ui.invite && !S.social.on ? (frInv && frInv.code === S.ui.invite ? frInv : { code: S.ui.invite, st: 'loading' }) : null);
+function paintInvite() {
+  const box = $('#frInv'), cta = $('#frCta');
+  if (!box) return;
+  const i = inviteInfo(frInvCtx());
+  box.innerHTML = i.html;
+  if (cta && !cta.disabled) cta.textContent = i.cta;
+}
+function resolveInvite() {
+  const code = S.ui.invite;
+  if (!code || S.social.on || (frInv && frInv.code === code)) return;
+  frInv = { code: code, st: 'loading' };
+  getSoc().then((s) => s.lookup(code)).then((who) => {
+    frInv = !who ? { code: code, st: 'gone' } : who.self ? { code: code, st: 'self' } : { code: code, st: 'ok', who: who };
+  }, (e) => { frInv = { code: code, st: 'err', err: codeOf(e) }; }).then(paintInvite);
+}
+function openInvite(code) {
+  if (tab === 'friends') render(true); else go('friends');
+  if (!S.social.on) return; // a tela de entrada mostra o convite (S.ui.invite) e pede o apelido
+  delete S.ui.invite; save();
+  openCodeSheet(code);
+  findCode($('[data-action="fr-find"]', sheetBody));
+}
+
+/* ativar, privacidade e perfil */
+async function joinFriends(el) {
+  if (S.social.on) return;
+  const inp = $('#frNick'), nick = cleanNick(inp ? inp.value : '');
+  if (!nick) { frErr('Escolha um apelido para seus amigos te reconhecerem.'); if (inp) inp.focus(); return; }
+  frErr('');
+  S.social.nick = nick;
+  busyBtn(el, true, 'Ativando…');
+  try {
+    const s = await guard(getSoc(), 20000);
+    const code = await guard(s.join({ payload: profilePayload(S, today()), code: S.social.code }), 25000);
+    S.social.on = true; S.social.code = code; save();
+    SOC.st = s.state(); SOC.mode = 'ready'; frSig = '';
+    s.start({ payload: socPayload });
+    const inv = S.ui.invite;
+    if (inv) { delete S.ui.invite; frInv = null; save(); }
+    if (tab === 'friends') render(true); else paintTabs();
+    toast('Amigos ativados 💙');
+    if (inv) await sendInvite(s, inv);
+  } catch (e) { busyBtn(el, false); frErr(errText(codeOf(e))); }
+}
+async function sendInvite(s, code) {
+  try {
+    const r = await guard(s.request(code), 30000);
+    if (r.kind === 'accepted') pop('🤗', 'Nova amizade', 'Você e ' + r.nm + ' agora se acompanham', 'Que tal mandar um aceno?');
+    else toast('Pedido enviado para ' + esc(r.nm) + ' 💌');
+  } catch (e) {
+    const c = codeOf(e);
+    if (c !== 'self' && c !== 'exists' && c !== 'pending') toast(errText(c)); // abrir o próprio convite ou de quem já é amigo não é erro
+  }
+}
+function toggleShare() {
+  S.social.share = S.social.share === false;
+  save(); haptic('light');
+  const on = S.social.share !== false;
+  $$('[data-action="fr-share"]').forEach((x) => { x.setAttribute('aria-checked', on ? 'true' : 'false'); });
+  if (!S.social.on) return;
+  socTouch();
+  if (sheetIsOpen() && $('#frNm', sheetBody)) openSheet(profileSheet()); // o texto sob o avatar muda junto
+}
+function nickChanged(el, v) {
+  const n = cleanNick(v);
+  if (!n) { el.value = S.social.nick; toast('Escolha um apelido para seus amigos te reconhecerem.'); return; }
+  S.social.nick = n; el.value = n; save(); socTouch();
+  const nm = $('#frNm'); if (nm) nm.textContent = n;
+  if (tab === 'settings') render(true);
+}
+function pickMascot(id) {
+  if (!insigniaById(id) || !S.insignias[id]) return;
+  S.profile.mascot = id; save(); haptic('light'); socTouch();
+  openSheet(profileSheet());
+  if (tab === 'today') refreshPart('tCrew'); else if (tab !== 'settings') render(true);
+  toast('Mascote trocado ✓');
+}
+
+/* convidar e entrar por código */
+function inviteShare() {
+  const code = SOC.st.code || S.social.code;
+  if (!code) return;
+  share(inviteText(code), inviteLink(location.href, code)).then((r) => {
+    if (r === 'copied') toast('Convite copiado ✓ É só colar no WhatsApp ou onde quiser.');
+    else if (r === false) toast('Não consegui compartilhar agora.');
+  });
+}
+function inviteCopy() {
+  const code = SOC.st.code || S.social.code;
+  if (!code) return;
+  copyText(fmtCode(code)).then((r) => { toast(r === 'copied' ? 'Código copiado ✓' : 'Não consegui copiar. Anote o código que está na tela.'); });
+}
+function openCodeSheet(raw) { frCode = { raw: raw || '', who: null, err: '' }; openSheet(codeSheet(frCode)); }
+async function findCode(el) {
+  const inp = $('#frCode'), raw = inp ? inp.value : '', cur = { raw: raw, who: null, err: '' };
+  frCode = cur;
+  const code = codeFromURL(raw) || normCode(raw); // aceita o código ("abcd-efgh") ou o link inteiro do convite
+  if (!validCode(code)) { frErr('O código tem 8 letras e números. Confira se está completo.'); return; }
+  frErr('');
+  busyBtn(el, true, 'Procurando…');
+  try {
+    const s = await guard(getSoc(), 15000);
+    const who = await guard(s.lookup(code), 15000);
+    if (!who) throw { code: 'notfound' };
+    if (who.self) throw { code: 'self' };
+    if (frCode !== cur || !sheetIsOpen()) return; // a pessoa fechou o painel enquanto procurava
+    cur.who = who;
+    openSheet(codeSheet(cur));
+  } catch (e) { if (frCode === cur && sheetIsOpen()) { busyBtn(el, false); frErr(errText(codeOf(e))); } }
+}
+async function sendCode(el) {
+  const cur = frCode, who = cur && cur.who;
+  if (!who) return;
+  busyBtn(el, true, 'Enviando…');
+  try {
+    const s = await guard(getSoc(), 15000);
+    await guard(s.publish(socPayload()), 15000); // garante meu nome e mascote no pedido (no-op se nada mudou)
+    const r = await guard(s.request(who.code), 30000);
+    if (frCode === cur && sheetIsOpen()) closeSheet();
+    if (r.kind === 'accepted') pop('🤗', 'Nova amizade', 'Você e ' + r.nm + ' agora se acompanham', 'Que tal mandar um aceno?');
+    else toast('Pedido enviado para ' + esc(r.nm) + ' 💌');
+  } catch (e) {
+    if (frCode !== cur || !sheetIsOpen()) return;
+    cur.err = errText(codeOf(e));
+    openSheet(codeSheet(cur));
+  }
+}
+
+/* pedidos, acenos e amizades */
+function acceptReq(id) {
+  const r = SOC.st.reqIn.filter((x) => x.uid === id)[0];
+  if (!r) return;
+  if (!soc) { toast(errText('off')); return; }
+  haptic('success');
+  soc.accept(id).then(() => { pop('🤗', 'Nova amizade', 'Você e ' + r.nm + ' agora se acompanham', 'Que tal mandar um aceno?'); },
+    (e) => { toast(errText(codeOf(e))); });
+}
+function dropReq(id, how) {
+  if (!soc) { toast(errText('off')); return; }
+  (how === 'cancel' ? soc.cancel(id) : soc.decline(id)).then(() => { toast(how === 'cancel' ? 'Convite cancelado' : 'Pedido recusado'); },
+    (e) => { toast(errText(codeOf(e))); });
+}
+// Recusa de uma vez todos os pedidos recebidos (a tela mostra no máximo 30, mas vale para todos)
+function declineAllReqs() {
+  if (!soc) { toast(errText('off')); return; }
+  guard(soc.declineAll(), 30000).then((n) => { toast(n === 0 ? 'Nenhum pedido para recusar' : n === 1 ? 'Pedido recusado' : n + ' pedidos recusados'); },
+    (e) => { toast(errText(codeOf(e))); });
+}
+function waveTo(el, id) {
+  const f = friendById(id);
+  if (!f) { toast(errText('gone')); return; }
+  if (!soc) { toast(errText('off')); return; }
+  const t = today(), w = waveFor(f, t);
+  if (w.done || waving[id]) return; // um aceno por amigo por dia
+  waving[id] = 1;
+  haptic('light');
+  floatEmoji(el, w.kind === 'cheer' ? '🎉' : '👋');
+  toast((w.kind === 'cheer' ? 'Parabéns enviado para ' : 'Aceno enviado para ') + esc(f.nm) + (w.kind === 'cheer' ? ' 🎉' : ' 👋'));
+  soc.wave(id, w.kind, t).then(() => { delete waving[id]; }, (e) => { delete waving[id]; toast(errText(codeOf(e))); });
+}
+function removeFriend(id) {
+  const f = friendById(id);
+  if (!f) return;
+  confirmSheet('Remover amizade?', 'Você e <b>' + esc(f.nm) + '</b> deixam de acompanhar o dia um do outro. Dá para se reconectar depois com um novo convite.', 'Remover', true, () => {
+    if (!soc) { toast(errText('off')); return; }
+    soc.remove(id).then(() => { toast('Amizade desfeita'); }, (e) => { toast(errText(codeOf(e))); });
+  });
+}
+function newCode() {
+  if (!soc) { toast(errText('off')); return; }
+  guard(soc.newCode(), 20000).then((c) => {
+    S.social.code = c; save();
+    toast('Novo código: ' + fmtCode(c) + ' ✓');
+    if (tab === 'friends') render(true);
+  }, (e) => { toast(errText(codeOf(e))); });
+}
+// Sai da rede de amigos na nuvem (perfil, convites, amizades). Resolve quando saiu; rejeita quando não deu, e então nada mudou lá (a saída
+// é tudo ou nada). Se a espera estourar (rede travada), a gravação ainda pode terminar depois de a tela desistir: a tela acompanha o que
+// de fato aconteceu (saiu: passa a refletir isso; falhou: volta a escutar), em vez de ficar dizendo uma coisa e a nuvem outra.
+async function exitCloud() {
+  const s = await connectSoc(15000);
+  const p = s.leave();
+  const again = () => { try { s.start({ payload: socPayload }); } catch (e) { /* a escuta volta quando der */ } };
+  try { await guard(p, 40000); } catch (e) {
+    if (codeOf(e) === 'slow') p.then(() => { if (S.social.on) afterLeft(); }, again); // (durante a saída, start() não faz nada: volta só se ela falhar)
+    else again();
+    throw e;
+  }
+}
+// O aparelho passa a refletir que a pessoa saiu dos amigos (a nuvem já foi limpa)
+function afterLeft() {
+  S.social.on = false; S.social.code = ''; delete S.ui.wv; save();
+  SOC.st = cleanState(null); dropSocCache(); frSig = '';
+  paintTabs();
+  if (tab === 'today') refreshPart('tCrew'); else if (tab === 'friends' || tab === 'settings') render(true);
+}
+// Sair apaga tudo na nuvem; só vale se der certo (senão o perfil continuaria público e o app diria que saiu)
+async function leaveFriends() {
+  toast('Saindo dos amigos…');
+  try { await exitCloud(); } catch (e) { toast(errText(codeOf(e))); return; }
+  afterLeft();
+  toast('Você saiu dos amigos. Seu perfil foi apagado da nuvem.');
+}
+function retrySocial() {
+  if (SOC.mode === 'off') { // a nuvem não subiu: refaz a conexão do zero
+    reconnectCloud();
+    render(true);
+    return;
+  }
+  if (soc) soc.refresh().catch(() => {}); else startSocial();
 }
 
 /* ---------- ações (data-action) ---------- */
@@ -590,6 +1031,39 @@ const A = {
   import: () => importBackup(),
   reset: () => resetAll(),
   share: () => shareProgress(),
+  // insígnias
+  ins: (el, d) => { openSheet(insigniaSheet(d.id)); animBars(sheetBody); },
+  mascot: (el, d) => setMascot(d.id),
+  reef: () => { closeSheet(); go('journey'); },
+  news: () => { S.ui.tip_news = 1; save(); refreshPart('tTips'); openSheet(newsSheet()); },
+  'news-go': () => { closeSheet(); go('journey'); },
+  'news-friends': () => { closeSheet(); go('friends'); },
+  // amigos
+  'fr-intro': () => go('friends'),
+  'fr-join': (el) => joinFriends(el),
+  'fr-share': () => toggleShare(),
+  'fr-skip': () => { delete S.ui.invite; frInv = null; save(); paintInvite(); },
+  'fr-invite': () => inviteShare(),
+  'fr-copy': () => inviteCopy(),
+  'fr-code': () => openCodeSheet(''),
+  'fr-find': (el) => findCode(el),
+  'fr-send': (el) => sendCode(el),
+  'fr-back': () => { frCode = { raw: frCode ? frCode.raw : '', who: null, err: '' }; openSheet(codeSheet(frCode)); },
+  'fr-accept': (el, d) => acceptReq(d.id),
+  'fr-decline': (el, d) => dropReq(d.id, 'decline'),
+  'fr-decline-all': () => confirmSheet('Recusar todos os pedidos?', 'Todos os pedidos de amizade que você recebeu serão recusados. Quem pediu não é avisado e só consegue ' +
+    'pedir de novo com o seu código de convite atual. Para fechar essa porta, troque o código em Ajustes.', 'Recusar todos', true, declineAllReqs),
+  'fr-cancel': (el, d) => dropReq(d.id, 'cancel'),
+  'fr-open': (el, d) => openFriend(d.id),
+  'fr-wave': (el, d) => waveTo(el, d.id),
+  'fr-remove': (el, d) => removeFriend(d.id),
+  'fr-profile': () => openSheet(profileSheet()),
+  'fr-mascot': (el, d) => pickMascot(d.id),
+  'fr-about': () => openSheet(aboutSheet()),
+  'fr-newcode': () => confirmSheet('Trocar o código de convite?', 'Quem tem o código antigo não consegue mais usá-lo. Seus amigos e os pedidos que já chegaram continuam como estão.', 'Trocar', false, newCode),
+  'fr-leave': () => confirmSheet('Sair dos amigos?', 'Seu perfil, seus convites e suas amizades serão apagados da nuvem. Seus registros de água continuam no aparelho. ' +
+    'Para voltar, é só ativar de novo.', 'Sair', true, leaveFriends),
+  'fr-retry': () => retrySocial(),
   'ob-next': () => obNext(),
   'ob-back': () => obBack(false),
   'ob-weight': (el, d) => {
@@ -618,6 +1092,7 @@ document.addEventListener('change', (ev) => {
   const el = ev.target, f = el && el.getAttribute ? el.getAttribute('data-field') : null;
   if (!f) return;
   const p = S.profile, v = String(el.value || '');
+  if (f === 'nick') { nickChanged(el, v); return; } // apelido dos amigos: não mexe em meta nem em lembretes
   if (f === 'name') p.name = v.trim().slice(0, 30);
   else if (f === 'weight') {
     const w = num(v);
@@ -644,6 +1119,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' || !t || t.tagName !== 'INPUT') return;
   e.preventDefault();
   if (t.id === 'eMl') saveEntry();
+  else if (t.id === 'frCode') findCode($('[data-action="fr-find"]', sheetBody));
+  else if (t.id === 'frNick') t.blur(); // fecha o teclado; o botão Ativar fica à vista
   else if (t.id === 'obName') { const w = $('#obWeight'); if (w) w.focus(); }
   else if (/^ob/.test(t.id)) obNext();
   else t.blur(); // dispara o "change" e fecha o teclado
@@ -655,7 +1132,7 @@ function checkDay() {
   if (k === curDay) return false;
   curDay = k;
   if (!S.onboarded || ob) return true;
-  planReminder(); updateBadge(); refreshClimate(false);
+  planReminder(); updateBadge(); refreshClimate(false); socTouch(); // virou o dia: a % de hoje começa do zero para os amigos
   if (!sheetIsOpen()) render(true);
   return true;
 }
@@ -668,13 +1145,16 @@ function onResume() {
     refreshPart('tMeta');
   }
   refreshClimate(false);
+  if (soc && S.social.on && SOC.st.err) soc.refresh().catch(() => {}); // a escuta caiu enquanto o app estava longe: tenta de novo agora
 }
 function handleURL() {
-  const q = location.search, add = /[?&]add=(\d+)/.exec(q), t = /[?&]tab=(\w+)/.exec(q);
+  const q = location.search, add = /[?&]add=(\d+)/.exec(q), t = /[?&]tab=(\w+)/.exec(q), inv = codeFromURL(q);
   if (!q) return;
   try { history.replaceState(history.state, '', location.pathname + location.hash); } catch (e) { /* ignora */ }
+  if (inv) { S.ui.invite = inv; save(); } // convite por link (?amigo=CÓDIGO): guardado até o fim do onboarding, se a pessoa ainda não tem o app configurado
   if (!S.onboarded) return;
-  if (add) setTimeout(() => { quickAdd(clamp(+add[1], 10, 3000), 'water'); }, 500); // atalho do ícone (Android)
+  if (inv) setTimeout(() => { openInvite(inv); }, 300);
+  else if (add) setTimeout(() => { quickAdd(clamp(+add[1], 10, 3000), 'water'); }, 500); // atalho do ícone (Android)
   else if (t) go(t[1]);
 }
 
@@ -682,12 +1162,14 @@ function handleURL() {
 function boot() {
   hooks.saveError = () => { toast('Não consegui salvar no aparelho. Libere espaço ou saia da navegação privada.'); };
   setS(load());
+  SOC.st = S.social.on ? cleanState(readSocCache()) : cleanState(null); // primeira pintura dos amigos, antes da nuvem responder
   applyTheme();
   onMedia('(prefers-color-scheme: dark)', () => { if (S.profile.theme === 'auto') applyTheme(); });
   const bg = $('.sheet-bg');
   if (bg) bg.style.cursor = 'pointer'; // sem isso o iOS não entrega o toque no fundo do painel ao listener do document
   curDay = today();
   syncTodayGoal();
+  if (S.onboarded) welcomeInsignias();
   render();
   handleURL();
   registerSW({
@@ -703,7 +1185,7 @@ function boot() {
     updateBadge(); refreshClimate(false); persistStorage();
   }
   startCloud();
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') onResume(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') onResume(); else socFlush(); });
   window.addEventListener('pageshow', (e) => { if (e.persisted) onResume(); });
   setInterval(() => { // o ritmo muda com o relógio, mesmo sem novos registros
     if (document.visibilityState === 'visible' && S.onboarded && !ob && !checkDay() && tab === 'today') refreshPart('tMeta');
