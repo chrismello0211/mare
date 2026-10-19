@@ -244,7 +244,7 @@ test('backup antigo (sem insígnias): restaura, concede em silêncio e não deix
   const st = await stored(page);
   expect(Object.keys(st.insignias).sort()).toEqual(['baiacu', 'concha', 'estrela', 'tartaruga']); // 65 L; ids inventados e valores ruins caíram
   expect(st.profile.mascot).toBe('');
-  expect(st.social).toEqual({ on: false, nick: '', share: true, code: '' }); // amigos são deste aparelho
+  expect(st.social).toEqual({ on: false, nick: '', share: true, code: '', push: true }); // amigos são deste aparelho (e a chave de avisos nasce ligada)
 });
 
 test('insígnias: a arte cabe no medalhão e a silhueta da bloqueada funciona', async ({ page }) => {

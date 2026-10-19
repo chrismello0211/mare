@@ -1,6 +1,6 @@
 # Maré — PWA de hidratação · Handoff para o Claude Code
 
-Leia este arquivo inteiro antes de alterar o código. Ele explica o que está pronto, as decisões tomadas e o que falta. O código foi entregue em 5 partes numa conversa. **O estado real hoje (Firebase criado, GitHub Pages, correções feitas e o que falta) está no "Adendo — Parte 6", as bebidas da versão 1.0.2 (água na meta, outros líquidos à parte) estão no "Adendo — Parte 7" o interruptor opcional "Somar outros líquidos na meta" da versão 1.0.3 está no "Adendo — Parte 8", e as insígnias do mar e o sistema de amigos da versão 1.1.0 estão no "Adendo — Parte 9", todos no final.** Onde as seções antigas dizem "ainda não foi executado", "criar o projeto" ou falam de fatores de hidratação, vale o adendo.
+Leia este arquivo inteiro antes de alterar o código. Ele explica o que está pronto, as decisões tomadas e o que falta. O código foi entregue em 5 partes numa conversa. **O estado real hoje (Firebase criado, GitHub Pages, correções feitas e o que falta) está no "Adendo — Parte 6", as bebidas da versão 1.0.2 (água na meta, outros líquidos à parte) estão no "Adendo — Parte 7" o interruptor opcional "Somar outros líquidos na meta" da versão 1.0.3 está no "Adendo — Parte 8", as insígnias do mar e o sistema de amigos da versão 1.1.0 estão no "Adendo — Parte 9", e os avisos por push dos amigos da versão 1.1.1 (inclusive o passo novo de publicar a função) estão no "Adendo — Parte 10", todos no final.** Onde as seções antigas dizem "ainda não foi executado", "criar o projeto" ou falam de fatores de hidratação, vale o adendo.
 
 ## O que é
 
@@ -14,7 +14,7 @@ PWA de hidratação em pt-BR, pensado para ir às lojas depois (via Capacitor). 
 - Meta: peso × 35 ml + atividade + clima do dia (opcional, Open-Meteo, 1 consulta/dia, coordenadas arredondadas).
 - Só água e água com gás contam na meta. Café, chá, suco, leite, coco e isotônico ficam numa segunda gota (âmbar), em contagem à parte e opcional; refrigerante e álcool não existem mais no app (ver Parte 7). Quem preferir a meta de hidratação liga, só em Ajustes, "Somar outros líquidos na meta" (desligado de fábrica; os outros líquidos contam até metade da meta, ver Parte 8).
 - Registro retroativo, missões diárias, 12 medalhas, 10 insígnias de bichinhos do mar (da concha ao narval, por litros de água acumulados; ver Parte 9), sequência de dias.
-- Amigos (1.1.0, opcional): convite por código, perfil público mínimo (apelido, mascote, insígnias, % da meta de hoje e sequência) visto só por amigos aprovados, acenos de "oi" e "parabéns". **Sem ranking e sem volumes**: é para motivar, não para competir (ver Parte 9).
+- Amigos (1.1.0, opcional): convite por código, perfil público mínimo (apelido, mascote, insígnias, % da meta de hoje e sequência) visto só por amigos aprovados, acenos de "oi" e "parabéns". **Sem ranking e sem volumes**: é para motivar, não para competir (ver Parte 9). Desde a 1.1.1, pedido, aceite e aceno também chegam como **notificação push** com o app fechado (ver Parte 10).
 - Insights locais: período mais seco do dia, melhor dia da semana, % da água antes do meio-dia, semana vs. semana anterior.
 - Visual: gota SVG com ondas, texto "líquido", gota caindo + respingo a cada registro, confete na meta, tema claro/escuro, respeita "reduzir movimento".
 - Plano B sem push: exporta lembretes recorrentes para o calendário (.ics).
@@ -28,7 +28,7 @@ Compatibilidade: o código evita de propósito `?.`, `??`, `gap` em flexbox, `as
 
 Dados: o estado inteiro fica em `localStorage` (chave `mare:v1`). IndexedDB é usado só pelo Service Worker, como caixa de entrada das ações de notificação. O local é a fonte da verdade. Com Firebase ligado, os dias alterados são enviados com debounce, e o Firestore usa cache persistente offline.
 
-Notificações: na web não existe agendamento local com o app fechado. Por isso o push vem do servidor: uma Cloud Function roda a cada 15 min e consulta usuários com `reminder.nextAt <= agora`. As mensagens são "data-only" e o nosso `sw.js` monta a notificação (com ações). Não use `firebase-messaging-sw.js`. Sem Firebase, os lembretes funcionam apenas com o app aberto, e o .ics serve de plano B.
+Notificações: na web não existe agendamento local com o app fechado. Por isso o push vem do servidor: uma Cloud Function roda a cada 15 min e consulta usuários com `reminder.nextAt <= agora`. As mensagens são "data-only" e o nosso `sw.js` monta a notificação (com ações). Não use `firebase-messaging-sw.js`. Sem Firebase, os lembretes funcionam apenas com o app aberto, e o .ics serve de plano B. Desde a 1.1.1 há uma segunda função, `onFriendship` (gatilho em `friendships/*`), que avisa os amigos (pedido, aceite, aceno) pelo mesmo caminho: FCM só com `data` → `sw.js` monta a notificação (Parte 10).
 
 Atualizações: o SW é versionado e a página mostra o aviso "Nova versão disponível → Atualizar". A cada deploy, aumente `VERSION` em `public/sw.js` e `APP_VERSION` em `public/js/app.js`.
 
@@ -51,10 +51,13 @@ mare/
 │   ├── icons/                # icon.svg + PNGs gerados por scripts/icons.mjs (já versionados)
 │   └── js/ app.js  core.js  store.js  ui.js  views.js  platform.js  firebase.js  firebase-config.js
 │           art.js (GERADO)  kit.js  social.js  friends-view.js  social-cloud.js   # 1.1.0 (Parte 9)
-├── functions/  package.json  index.js
+│           alerts-sync.js                                                         # 1.1.1 (Parte 10)
+├── functions/  package.json  index.js  social-push.js  friend-push.js              # os dois últimos: 1.1.1 (Parte 10)
 └── tests/  core.test.js  art.test.js  social.test.js  compat.test.js  e2e.spec.js  e2e-friends.spec.js
+    │       push.test.js  sw.test.js  files.test.js  e2e-alerts.spec.js              # 1.1.1 (Parte 10)
     ├── helpers/  seed.js  friends.js  fake-cloud.browser.js
-    └── rules/  firestore.rules.test.js  social-cloud.test.js     # contra o emulador do Firestore (npm run test:rules)
+    └── rules/  firestore.rules.test.js  social-cloud.test.js  friend-push.test.js
+                alerts-sync.test.js  firebase-cloud.test.js                           # contra o emulador do Firestore (npm run test:rules)
 ```
 
 ## Modelo de dados
@@ -70,20 +73,24 @@ localStorage "mare:v1"
   days:{ "AAAA-MM-DD": { goal, entries:[{ id, t(ms), ml, d(drinkId) }] } },
   achievements:{ id: ts }, missions:{ "AAAA-MM-DD": 1 }, ui:{},
   insignias:{ id: ts },                                  // 1.1.0: insígnias do mar conquistadas (Parte 9)
-  social:{ on, nick, share, code }                       // 1.1.0: amigos; fica FORA do backup
+  social:{ on, nick, share, code, push }                 // 1.1.0: amigos; fica FORA do backup. push (1.1.1): avisos dos amigos, nasce true
   profile.mascot: id da insígnia que os amigos veem ('' = a mais alta conquistada) }
 localStorage "mare:social"   // cópia da lista de amigos { uid, code, at, friends, reqIn, reqOut }; só vale para o mesmo uid
 
 Firestore
 users/{uid}: name, tz, wake, sleep, unit, goal, today:{day, ml},
              reminder:{enabled, interval, smart, nextAt(Timestamp), lastSentAt},
-             fcm:{ <hash>: {token, ua, at} }, stats:{streak, best, totalMl, level}, updatedAt
+             fcm:{ <hash>: {token, ua, at} }, stats:{streak, best, totalMl, level},
+             social:{ push }  (1.1.1: só existe se a pessoa mexeu na chave; sem o campo vale ligado), updatedAt
 users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
 
 Firestore, amigos (1.1.0, Parte 9; nenhum documento público leva carimbo de hora do dono)
 profiles/{uid}:            v, nm, mc, ins[], pct?, met, st, day, sh
 codes/{CÓDIGO8}:           uid, nm, mc, rv?                    (nunca é apagado; rv = revogado)
 friendships/{menor_maior}: m[2], by, st, nm, mc, tn, tc, cd, at, ok?, w?   (w[uid] = { k, d, at })
+
+Firestore, avisos dos amigos (1.1.1, Parte 10; só o servidor lê e grava, as regras negam tudo ao app)
+pushlog/{uid}:             t{"tipo_quem": ms}, h[ms], q[ms], exp   (freio contra repetição e spam; exp = TTL opcional)
 ```
 
 ## Checklist
@@ -120,7 +127,7 @@ friendships/{menor_maior}: m[2], by, st, nm, mc, tn, tc, cd, at, ok?, w?   (w[ui
 - [ ] Screenshots no manifest (instalação rica no Android) e nas lojas; podem sair do Playwright.
 
 ## Limitações conhecidas
-- Amigos (1.1.0): as limitações próprias (identidade anônima por aparelho, link de convite no iOS, sem push, sem bloqueio, o que foi aceito de propósito nas revisões) estão no fim da Parte 9.
+- Amigos (1.1.0): as limitações próprias (identidade anônima por aparelho, link de convite no iOS, sem bloqueio, o que foi aceito de propósito nas revisões) estão no fim da Parte 9. Os avisos por push (1.1.1) têm as suas na Parte 10.
 - iOS: push só com o app instalado na Tela de Início e iOS 16.4+. Ações na notificação não existem no iOS (tocar abre o app).
 - Sem Firebase, lembretes só disparam com o app aberto ou recém-minimizado. Para isso existe o .ics.
 - Safari pode apagar dados de sites não instalados após ~7 dias sem uso. Instalado na Tela de Início, isso não acontece; por isso o app incentiva a instalação.
@@ -488,7 +495,7 @@ Nenhuma das duas achou como **ler o perfil de outra pessoa, forjar ou aceitar so
 - **Metadados do Firestore:** a API REST expõe `updateTime` dos documentos que a pessoa consegue ler (o próprio perfil e, para amigos, o dos amigos). Não dá para esconder isso do lado do app.
 - **Emulador:** os testes das regras rodam no `hidane` (não oficial, sem Java). Conferir uma vez no emulador oficial (comando em "Para publicar").
 - **Custo e abuso:** escritas do perfil sem freio e limite de 30 amigos só no app. Recomendado: App Check (já na lista "Antes das lojas") e alerta de orçamento do Blaze.
-- **Sem lista de bloqueio** (ver R1·1) e **sem push** de pedido/aceno. **Várias abas do mesmo aparelho abertas ao mesmo tempo não são um caso suportado** (o estado local é gravado pela última aba que salvar, como no resto do app); no servidor, os testes cobrem duas instâncias entrando e saindo juntas sem deixar nada pela metade.
+- **Sem lista de bloqueio** (ver R1·1) e, na 1.1.0, **sem push** de pedido/aceno (resolvido na 1.1.1, Parte 10). **Várias abas do mesmo aparelho abertas ao mesmo tempo não são um caso suportado** (o estado local é gravado pela última aba que salvar, como no resto do app); no servidor, os testes cobrem duas instâncias entrando e saindo juntas sem deixar nada pela metade.
 - **Insígnias revelam a faixa de litros** (por desenho) e **sobram "túmulos" de convite sem nome** depois de sair (revogados, ocupados para sempre, de poucos bytes cada).
 - **Não verificado em produção:** o instante exato em que o Firestore real corta a escuta do perfil de quem acabou de ser removido (o cliente de série desliga a escuta na hora; um cliente modificado poderia continuar recebendo até reiniciar) e a corrida "aceite local x escuta do perfil" (passou no `hidane`).
 
@@ -515,7 +522,7 @@ Nenhuma das duas achou como **ler o perfil de outra pessoa, forjar ou aceitar so
 ### Limitações conhecidas (1.1.0)
 - **Identidade = login anônimo do aparelho.** Limpar os dados do site, trocar de celular ou, no iOS, usar o app instalado em vez do Safari (armazenamento separado) cria **outra identidade**: a pessoa precisa ativar de novo e os amigos a veem como alguém novo. O perfil antigo fica órfão na nuvem (aparece como "Sem novidades há N dias" até alguém remover a amizade). Solução futura: vincular Google/Apple (`linkWithCredential`, já na lista "Antes das lojas").
 - **iOS e links de convite:** o link do WhatsApp abre no Safari, que não compartilha dados com o app da Tela de Início. O app mostra o código e tem o painel **Inserir código** como caminho garantido; o texto do convite já inclui o código.
-- **Sem aviso por push** de pedido ou aceno: eles aparecem ao abrir o app (aviso na tela, bolinha na aba). Push seria uma Cloud Function nova com gatilho em `friendships`.
+- **Sem aviso por push** de pedido ou aceno **(só na 1.1.0; resolvido na 1.1.1, Parte 10, com a Cloud Function `onFriendship`)**: eles aparecem ao abrir o app (aviso na tela, bolinha na aba) e continuam aparecendo.
 - **Sem lista de bloqueio.** Recusar apaga o pedido, e quem ainda tem o código vigente pode pedir de novo. Defesa: **Novo código de convite**, que as regras tratam como porta fechada (pedido novo exige o código atual) e "Recusar todos". Para bloquear alguém específico, sem trocar o código para todos, seria preciso uma coleção de bloqueios e uma regra a mais.
 - O limite de 30 amigos é só do app (as regras não contam documentos). Escritas do perfil não têm freio no servidor (ver "Aceito de propósito").
 - Apelidos são livres (sem filtro de palavrões nem checagem de nomes parecidos), só higienizados contra caracteres invisíveis e de controle.
@@ -525,8 +532,114 @@ Nenhuma das duas achou como **ler o perfil de outra pessoa, forjar ou aceitar so
 
 ### Ideias para depois
 - Login com Google/Apple para manter a identidade ao trocar de aparelho (e restaurar amigos junto).
-- Push para pedidos e acenos (Cloud Function por gatilho) e resumo semanal da turma.
+- Resumo semanal da turma por push (os avisos de pedido, aceite e aceno já existem desde a 1.1.1, Parte 10).
 - Desafios **em grupo e cooperativos** ("a turma bebe 50 L juntos neste mês"), mantendo a regra de nunca comparar pessoas.
 - Insígnias novas por constância (sequências), e uma escolha de "moldura" para o avatar.
 - Lista de bloqueio e denúncia, se o app for aberto ao público em geral.
 - App Check + freio de escrita no servidor, se a base de usuários crescer.
+
+
+## Adendo — Parte 10 (versão 1.1.1: avisos por push dos amigos)
+
+### O que o dono pediu e por quê
+- Depois de publicar a 1.1.0 (site e regras), o dono relatou que "as notificações parecem não estar funcionando direito desse novo recurso": um **aceno** de "oi" e um **pedido de amizade** não chegavam como notificação ("deveria, certo?"). Ele deu autorização total para o Claude acessar o Firebase dele se precisasse.
+- **Diagnóstico:** não era defeito, era a lacuna que a Parte 9 já listava ("sem aviso por push"). Na 1.1.0 pedido, aceite e aceno só aparecem **dentro do app** (aviso na tela e bolinha na aba, quando o app está aberto). A expectativa dele estava certa: tem que chegar no celular com o app fechado, como os lembretes de água. A 1.1.1 constrói isso. Não havia nada quebrado nos lembretes (`sendReminders`) nem nas regras.
+
+### O que avisa, para quem e com que texto
+Três eventos geram aviso. **Nada mais avisa** (recusar, cancelar, remover amizade, sair dos amigos e atualizar o perfil são silenciosos de propósito: ninguém é avisado de um "não").
+
+| Evento (`kind`) | Quem recebe o push | Título | Texto |
+|---|---|---|---|
+| Pedido de amizade (`request`) | quem **recebeu** o pedido | `Pedido de amizade 💌` | `<nome> quer acompanhar o dia com você. Toque para responder.` |
+| Pedido aceito (`accepted`) | quem **pediu** | `<nome> aceitou seu pedido 🤗` | `Agora vocês se acompanham. Que tal um aceno?` |
+| Aceno de "oi" (`wave`, `hi`) | o **outro lado** | `<nome> acenou para você 👋` | `Toque para acenar de volta.` |
+| Aceno de "parabéns" (`wave`, `cheer`) | o **outro lado** | `<nome> mandou parabéns pra você 🎉` | `Continue assim! Toque para ver seus amigos.` |
+
+- Se quem recebe o aceno **já tinha acenado nas últimas 12 h** (`BACK_MS`), o texto não sugere "acenar de volta": os dois avisos de aceno passam a dizer só `Toque para ver seus amigos.`
+- Entre o emoji e a palavra anterior vai um **espaço que não quebra** (o app faz igual), para o emoji nunca ficar sozinho na linha.
+- **Pedido cruzado** (A pede a B quando B já tinha pedido a A: o app de A aceita na hora): B recebe "A aceitou seu pedido".
+- O **nome** é o de quem fez a ação, do jeito que a tela de quem recebe o mostra: no pedido, o nome que veio no pedido (`nm`); nos outros, o do perfil (`profiles/{uid}.nm`, o mais novo), senão o que a amizade guardou (`nm`/`tn`). Passa por `cleanName`, uma cópia fiel da limpeza de apelido do app (`tidy()` de `social.js`): o aviso nunca mostra o que a tela não mostraria (invisíveis, texto "zalgo", `<` `>`). Sem nome vira "Alguém".
+
+### Servidor: a função `onFriendship`
+- **Arquivos** (`functions/`): `social-push.js` (**lógica pura**, sem Firebase: eventos, texto, pacote, quem recebe, limites), `friend-push.js` (conversa com o Firestore e o FCM; recebe `db`, `messaging`, `FieldValue`, relógio e log já prontos, então roda igual na nuvem e nos testes) e `index.js` (liga o gatilho ao Admin SDK, ao lado de `sendReminders`). `functions/` **não** tem a restrição de compatibilidade com iOS 12 (essa vale só para `public/`); roda em Node 22.
+- **Gatilho:** `onDocumentWritten('friendships/{pair}')`, 2ª geração, `southamerica-east1` (a região do Firestore), 256 MiB, 60 s, `maxInstances: 1` (herdado do `setGlobalOptions`), **sem retentativa**. Roda a cada criação, mudança ou remoção de uma amizade. **Não grava nada em `friendships`**, então não há laço.
+- **O que conta como evento** (`eventsOf(before, after)`): documento novo `pending` feito por um dos dois (`request`); `pending → active` (`accepted`, para quem pediu); e, em amizade `active`, um `w[uid].at` **maior que o anterior** com `k` em `hi` ou `cheer` (`wave`, para o outro lado). Apagar nunca avisa. Documento estranho (ids que não parecem uid, `m` fora de 2 itens, `st` desconhecido, `by` de fora do par, aceno com tipo inválido ou sem hora) não gera nada.
+- **Quem recebe:** os aparelhos de `users/{para}.fcm` (no máximo 10) e só se `users/{para}.social.push` **não for `false`** (sem o campo vale ligado; só um `false` explícito desliga). Sem aparelho registrado ou com a chave desligada, não envia (o motivo vai para o log).
+- **Envio:** `sendEachForMulticast` só com `data` (todo valor é texto): `kind: 'friend'`, `ev` (`request`/`accepted`/`wave`), `tag`, `url`, `title`, `body`. Cabeçalhos web push: `Urgency: high` e `TTL` (**pedido e aceite 172800 s = 2 dias; aceno 21600 s = 6 h**: aceno velho perde o sentido). **Sem `notification` no pacote**: quem monta a notificação é o `sw.js` (como nos lembretes; não existe `firebase-messaging-sw.js`). `tag = 'mare-amigo-<tipo>-<uid de quem fez>'`: um aviso do mesmo tipo e da mesma pessoa **substitui** o anterior na tela em vez de empilhar. `url = './?tab=friends'`.
+- **Aparelhos mortos:** `messaging/registration-token-not-registered` e `messaging/invalid-registration-token` removem aquele `fcm.<hash>` do usuário (como no `sendReminders`); qualquer outro erro mantém o aparelho. Se a conta sumiu nesse meio tempo, a limpeza falha em silêncio.
+- **Idempotência e freio (`admit`, `pushlog/{uid}`):** o Firestore entrega cada evento **pelo menos uma vez** (pode repetir), e um pedido de amizade só exige o código de convite de quem recebe (quem o tem poderia apagar e recriar pedidos para encher o celular de alguém). Por isso cada pessoa tem um registro `pushlog/{uid}` = `{ t, h, q, exp }`, que **só o servidor lê e grava** (as regras negam tudo ao app: `allow read, write: if false`):
+  - `t`: `{ "<tipo>_<uid de quem fez>": ms }`, o último aviso de cada tipo vindo de cada pessoa. O mesmo aviso só passa de novo depois de: **pedido 24 h, aceite 60 s, aceno 5 min** (`WINDOW`). Guarda no máximo 100 entradas (`KEEP`; saem as mais velhas) e descarta entradas com mais de 24 h ou com mais de 1 minuto à frente do relógio do servidor (um carimbo no futuro não "congela" um aviso).
+  - `h`: os avisos da última hora, **no máximo 20 por pessoa por hora** (`CAP.all`). `q`: os **pedidos** da última hora, **no máximo 5** (`CAP.request`).
+  - `exp`: uma data 2 dias à frente (só serve a uma política de TTL opcional, ver "Para publicar").
+  - A decisão e a gravação do registro acontecem **na mesma transação** (lê `users/{para}` e `pushlog/{para}` juntos), e o registro é gravado **antes** do envio. Assim duas entregas simultâneas do mesmo evento não passam as duas, e uma repetição cai na janela. **Preço assumido:** se o FCM falhar bem naquele instante, aquele aviso se perde (sem retentativas): "melhor perder um aviso que mandar dois". O pedido e o aceno continuam aparecendo no app.
+  - O freio só segura o **push**; o pedido continua na lista de pedidos. Os acenos já têm um freio próprio nas regras (1 a cada 10 min por amigo).
+- **Logs** (Firebase → Functions → `onFriendship` → Registros): `aviso de amigos` (com `kind`, `sent`, `failed`) quando enviou; `aviso de amigos não enviado` com `why` = `sem aparelho`, `desligado`, `repetido` ou `limite`; `aviso de amigos falhou` com o erro (um evento que falha não derruba os outros do mesmo documento).
+
+### Cliente (`app.js`, `friends-view.js`, `alerts-sync.js`, `firebase.js`, `core.js`)
+- **Chave "Avisos dos amigos"** (Ajustes → Amigos; só aparece com os amigos ligados): guarda `S.social.push` (nasce `true`; `migrate()` completa o campo em dados antigos). O que a tela mostra é o estado **efetivo**: permissão de notificação concedida **e** `push !== false`. Ao tocar:
+  - sem permissão ainda: pede a permissão **no próprio toque** (síncrono, sem `await` antes: exigência do iOS) e, se concedida, liga e registra o aparelho;
+  - permissão negada, ou iPhone sem o app instalado: abre a explicação (como liberar nos ajustes do aparelho / como instalar), sem ligar nada; a nota da linha diz o que falta;
+  - ligada: desliga (`push = false`) e avisa o servidor.
+  A linha se atualiza no lugar (`paintAlerts`), sem refazer a tela, e **mantém o foco do teclado**.
+- **Cartão na aba Amigos**, logo depois dos pedidos: "Receba avisos dos amigos" (botão "Ativar avisos") ou, no iPhone sem instalar, "Avisos dos amigos no iPhone" ("Como instalar"). Aparece só enquanto falta a permissão (ainda não pedida, ou iPhone sem instalar) e some quando ela é concedida, quando a pessoa o dispensa no X (`S.ui.tip_fpush`) ou quando desliga a chave. Se a permissão foi negada no navegador ou o aparelho não tem suporte, o cartão não insiste (a linha de Ajustes explica). **Nunca pede a permissão sozinho:** só num toque.
+- **Registro do aparelho:** `cloud.enablePush()` (via `ensurePush`) passou a rodar também **com os amigos ligados**, e não só com lembretes: na abertura com a nuvem pronta (`initCloudLayer`), ao entrar nos amigos (`joinFriends`) e ao ligar a chave (`setAlerts(true)`). Só registra se a permissão **já foi dada** (nunca pede). Sem amigos e sem lembretes o aparelho não se registra, e não existe aparelho para avisar.
+- **Escolha no servidor:** `users/{uid}.social = { push: bool }` (as regras de `users` aceitam só esse mapa com só esse campo booleano). O app só grava quando a escolha **difere do que o servidor assume** (ligado): quem nunca mexeu não escreve nada. A gravação é separada do resumo e **tolerante a falhas** (`public/js/alerts-sync.js`, usado por `flush()` em `firebase.js`): a marca local `mark.social` (em `mare:cloud`) só muda depois de o servidor confirmar; há uma única gravação em voo por vez; se falhar, tenta de novo no próximo `flush`; `reset()` ao apagar tudo.
+- **`sw.js` (1.1.1):** o envelope do FCM chega como `{ data: { … }, from, priority, fcmMessageId }`; o código usa `p.data || p`. Ramo `kind === 'friend'`: título e texto vêm no pacote, **sem** o botão "+250 ml", **sem** mexer no selo (badge) e com `renotify: true`. **Todo push mostra uma notificação** (`showNotification` sempre dentro do `waitUntil`: sem isso o Chrome e o Safari tratam como "push silencioso" e podem cortar o recurso). Toque: `data: { url, go: 'friends' }` → `focusOrOpen(url, go)`: se há janela do app aberta, ela recebe `postMessage({ type: 'go', tab: 'friends' })` (o app fecha o painel aberto e vai para a aba; **ignora durante o onboarding**); senão abre `./?tab=friends` (`handleURL()` entende `?tab=`).
+
+### Dados e regras (`firestore.rules`)
+- `users/{uid}`: `validUser` passou a aceitar `social` = mapa com **só** `push` booleano (nada de outras chaves).
+- `pushlog/{uid}`: `allow read, write: if false` (só o Admin SDK da função, que ignora as regras).
+- SHA-256 do `firestore.rules` da 1.1.1: `e1186f8cc1a27834c2e2bb5ea745c249787d7f7d521073e2f07ecdd876d19cf3` (`sha256sum firestore.rules`).
+- Local: `S.social.push` (backup **não** leva `social`, como antes). Marca na nuvem: `mark.social` em `mare:cloud`.
+
+### Como foi validado
+- `npm test` (Vitest): **314** testes de lógica: `core` 51, `art` 13, `social` 81, `compat` 53, `push` 89 (`push.test.js`: nomes iguais aos do app, `eventsOf`, texto, quem recebe, `admit`), `sw` 21 (`sw.test.js`: o `sw.js` real num ambiente simulado: push de amigo, lembrete que não mudou, toque, versão) e `files` 6 (`files.test.js`: as três listas de arquivos do app andam juntas: imports de `js/`, `CORE`/`EXTRA` do `sw.js` e a conferência do `pages.yml`).
+- `npm run test:rules` (emulador do Firestore, via `hidane`): **239** testes: `firestore.rules` 70, `social-cloud` 96, `friend-push` 39, `firebase-cloud` 15, `alerts-sync` 19. `friend-push.test.js` roda `notifyFriendship` e o **handler real do `index.js`** com o **Admin SDK de verdade contra o emulador** e um FCM de mentira (guarda o que recebeu, simula tokens mortos e falhas): pedido, aceite, pedido cruzado, acenos, repetição do mesmo evento (inclusive em paralelo), limites, chave desligada, sem aparelho, aparelhos mortos, documentos estranhos, nomes. `firebase-cloud.test.js` roda o **`firebase.js` real do app** contra o emulador (grava `social.push`, registra o aparelho, zera tudo ao apagar).
+- `npm run test:e2e` (Playwright): **1273 execuções** nos mesmos 13 perfis da Parte 6: **1268 passam e 5 são puladas de propósito** (o mesmo teste de registro de push no iOS, que só existe com o app instalado). São **156 testes por perfil** nos 8 perfis padrão (32 do app, **57 de amigos** e **67 de avisos**, em `tests/e2e-alerts.spec.js`) e só os 5 testes `layout:` nos 5 perfis extras (8 × 156 + 5 × 5). Os perfis de iPhone/iPad continuam **emulados no Chromium**; Safari real exige aparelho. A primeira rodada completa reprovou 8 execuções, todas do **mesmo teste antigo da 1.1.0** ("backup antigo (sem insígnias)…"), que comparava o cadastro de amigos sem a chave nova (`push: true`): o app estava certo e o teste foi atualizado; a rodada completa seguinte passou sem falhas.
+- **Teste de mutação** (scripts descartáveis, fora do repositório): **174 defeitos plantados** de propósito na lógica do servidor, na função, nas regras, no `alerts-sync`, no `sw.js` e na interface, um de cada vez; cada um tem que fazer **pelo menos um teste falhar**. De primeira, **154 foram pegos**. Dos **20 que sobreviveram**: **12 eram buracos reais nos testes** (reforçados: pedido aceito com `by` de fora do par; a fronteira exata de 12 h; `st` desconhecido no "antes"; ordem da poda de `t` com 110 envios; horários no futuro em `h` e `q`; aviso passado ao `waitUntil`; limpeza do `invalid-registration-token`; falha da limpeza depois do envio; nome do pedido vindo do pedido; "apagar tudo" zerar a memória do `alerts-sync`; botão fantasma em navegador sem suporte; permissão mudada fora do app), **5 eram erros do próprio script de mutação** (corrigidos) e **3 são equivalentes** (não mudam nada observável): `SP4f` (o `Math.abs` no "acenar de volta": o aceno novo é sempre o mais recente, porque as regras exigem `at == request.time`), `Ap14` (`!ob` ao receber `go`: com o app já configurado o onboarding não está na tela) e `V6b` (a assinatura da aba sem `tip_fpush`: dispensar o cartão já repinta a aba). Depois do reforço, todos os demais são pegos.
+- **Push com Service Worker de verdade:** `tests/e2e-alerts.spec.js` ("Service Worker de verdade") registra o `sw.js` real e injeta o push pelo protocolo do Chrome (`ServiceWorker.deliverPushMessage`) com **o mesmo pacote que o servidor monta** (`payloadOf`), e confere a notificação e o toque. No ambiente de teste, o Chrome sob carga **perdeu cerca de 1 em 50** dessas entregas (a notificação não aparecia), o que parecia defeito do app e não era: o helper `sw.push(data, done)` reenvia até 2 vezes antes de desistir (prova: 80 de 80 e 105 de 105 em repetições forçadas).
+- **Nada disso substitui o teste real em aparelhos** (ver "Não testado").
+
+### Para publicar (1.1.1): **há um passo novo, a função**
+O `git push` publica **só o site**. A função `onFriendship` e as regras novas são publicadas à parte. Passos, em ordem:
+1. **Site:** extrair o ZIP por cima do repositório, commit e push na `main`. O Actions confere a lista de arquivos (agora inclui `js/alerts-sync.js`) e publica em cerca de 1 minuto. `VERSION` (`sw.js`), `APP_VERSION` (`app.js`) e `package.json` estão em `1.1.1`.
+2. **Função e regras** (no Cloud Shell, https://shell.cloud.google.com/?project=mare-hidratacao, já logado e com o Firebase CLI):
+
+   ```bash
+   cd ~/mare && git pull && cd functions && npm install && cd ..
+   firebase deploy --only functions,firestore:rules --project mare-hidratacao
+   ```
+
+   (Primeira vez no Cloud Shell: `git clone https://github.com/chrismello0211/mare.git ~/mare` antes.) O comando cria `onFriendship`, reimplanta `sendReminders` (igual) e publica as regras.
+   - **Na primeira implantação de uma função com gatilho do Firestore**, o Google às vezes recusa dizendo que as permissões do Eventarc ainda estão se propagando. Não é erro do código: esperar 3 a 5 minutos e repetir o mesmo comando.
+   - Se o deploy perguntar sobre a política de limpeza de imagens do Artifact Registry, a resposta já adotada é aceitar (ver Parte 6).
+3. **Conferir:** Firebase → **Functions** deve listar `sendReminders` e `onFriendship` (Node 22, `southamerica-east1`). Depois de um pedido ou aceno de teste, os **Registros** da `onFriendship` dizem `aviso de amigos` (enviou) ou `aviso de amigos não enviado` com o motivo (`why`).
+4. **Opcional:** política de TTL no Firestore para o campo `exp` da coleção `pushlog` (Firestore → *Time to live* → coleção `pushlog`, campo `exp`), para os registros de limite se apagarem sozinhos. São documentos minúsculos (um por pessoa), então dá para ignorar.
+5. **A ordem do site e da função quase não importa:** o site novo sem a função só deixa de ter push; a função sem o site novo só avisa quem já tem aparelho registrado. Se o site sair **antes das regras**, só a gravação da escolha "desligar" é recusada (e tentada de novo a cada sincronização até as regras entrarem); nada mais é afetado. O que importa é publicar os dois.
+
+**Como a turma passa a receber** (cada pessoa, uma vez; vale avisar o grupo):
+1. Tocar em **Atualizar** quando aparecer "Nova versão disponível" (sem isso o aparelho continua na 1.1.0) e abrir o app.
+2. Aba **Amigos → Ativar avisos** no cartão (ou Ajustes → Amigos → **Avisos dos amigos**) e **permitir notificações**. No iPhone isso só existe com o app **instalado na Tela de Início** e iOS 16.4 ou mais novo (o cartão leva à explicação).
+3. Teste de ponta a ponta com dois aparelhos: um fecha o app de verdade (desliza para fora); o outro pede amizade, aceita e acena. O push chega em segundos no Android; no iPhone pode demorar mais. Tocar na notificação abre a aba Amigos.
+
+**Se não chegar push**, conferir nesta ordem: (1) a chave "Avisos dos amigos" do destinatário está ligada e a nota da linha não aponta falta de permissão? (2) o aparelho se registrou? (`users/{uid}.fcm` no Firestore precisa ter ao menos um item; sem aparelho o log diz `sem aparelho`); (3) o log da `onFriendship` mostra o evento? `repetido` e `limite` são normais quando o mesmo aviso se repete; (4) ajustes do sistema do celular: notificações do app desligadas, economia de bateria agressiva (Android) ou modo Foco/Não perturbar (iOS).
+
+### Compatibilidade e limitações (1.1.1)
+- **Aparelhos que ainda estão no `sw.js` da 1.1.0** (não tocaram em "Atualizar") mostram o push de amigo como se fosse um lembrete (com o botão "+250 ml") e o toque não leva à aba Amigos. Resolve-se tocando em **Atualizar**.
+- **Sem horário de silêncio:** o push chega a qualquer hora (um aceno às 3 da manhã toca). `users/{uid}` já tem `tz`, `wake` e `sleep`, então dá para segurar o aviso fora da janela de vigília do destinatário se virar incômodo.
+- **Sem retentativas:** se o FCM estiver fora do ar naquele instante, o push se perde (o pedido e o aceno continuam no app).
+- **Token velho** só sai do cadastro no próximo envio que falhar para ele.
+- **Quem não tem aparelho registrado não recebe:** é preciso ter dado a permissão com os amigos ligados (ou ter ligado os lembretes) depois de atualizar.
+- **Aviso repetido é segurado:** o mesmo tipo da mesma pessoa só chega de novo depois da janela (pedido 24 h, aceite 60 s, aceno 5 min) e há tetos por pessoa (20 por hora, 5 pedidos por hora).
+- **iOS:** push só no app instalado, 16.4+; a permissão só pode ser pedida num toque.
+- **Custo:** cada gravação em `friendships` (pedido, aceite, aceno, remoção, saída) é uma invocação de 256 MiB por poucos milissegundos; com o uso previsto fica dentro da faixa gratuita do Blaze. O alerta de orçamento recomendado na Parte 6 continua valendo.
+
+### Não testado (só um deploy e aparelhos reais mostram)
+- A **entrega real** do FCM no aparelho e o **gatilho real** do Firestore (Eventarc → função): o ambiente de teste não alcança o Firebase. O corpo da função foi exercitado contra o emulador com um FCM de mentira, e o `sw.js` real recebeu pacotes idênticos aos que o servidor monta. A conta de serviço é a mesma do `sendReminders`, que já falou com o FCM em produção (Parte 6).
+- iPhone/Safari de verdade (continuam emulados no Chromium) e o fluxo com **duas pessoas reais** no Firebase real (tarefa pendente desde a Parte 9).
+
+### Ideias para depois
+- **Horário de silêncio** pelo `wake`/`sleep`/`tz` do destinatário (a função já lê `users/{uid}` na transação).
+- **Retentativas** do envio com o `pushlog` (hoje um aviso que falha se perde, de propósito).
+- Aviso de "o amigo bateu a meta": **não construído de propósito**, porque é o que mais lembra competição; se vier, que seja opt-in e só para quem escolher.
+- Resumo semanal da turma por push (domingo 19h), reaproveitando a infraestrutura da `onFriendship`.

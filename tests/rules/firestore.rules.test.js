@@ -560,3 +560,55 @@ describe('fluxo completo, do convite ao fim', () => {
     await no(getDoc(doc(as(ANA), 'profiles', BRU)));
   });
 });
+
+describe('avisos dos amigos (1.1.1): a escolha em users/{uid}.social e o registro pushlog', () => {
+  const mine = (u) => doc(as(u || ANA), 'users', u || ANA);
+  test('o dono liga e desliga os avisos (social.push), criando o documento ou atualizando', async () => {
+    await ok(setDoc(mine(), { social: { push: false }, updatedAt: serverTimestamp() }, { merge: true })); // como o app grava (sem o documento ainda)
+    await ok(setDoc(mine(), { social: { push: true }, updatedAt: serverTimestamp() }, { merge: true }));
+    await ok(updateDoc(mine(), { 'social.push': false }));
+    const s = (await ok(getDoc(mine()))).data();
+    if (s.social.push !== false) throw new Error('o valor gravado deveria ser false');
+  });
+  test('só vale { push: true ou false }: nada de texto, número, vazio, campo a mais ou outro nome', async () => {
+    for (const bad of [{ push: 'sim' }, { push: 1 }, { push: 0 }, { push: null }, { push: [] }, {}, { push: true, extra: 1 }, { pushh: true }, { on: true }, true, 'push', 7, null, [true], [{ push: true }]]) {
+      await no(setDoc(mine(), { social: bad }, { merge: true }));
+    }
+    await no(updateDoc((await seed((d) => setDoc(doc(d, 'users', ANA), { goal: 2000 })), mine()), { 'social.push': 'nao' }));
+  });
+  test('o campo novo não afrouxa o resto: nenhum outro campo entra por ele', async () => {
+    await no(setDoc(mine(), { social: { push: true }, apelido: 'x' }, { merge: true }));
+    await no(setDoc(mine(), { social: { push: true }, goal: 99999 }, { merge: true })); // meta absurda continua recusada
+    await ok(setDoc(mine(), { social: { push: true }, goal: 2000, tz: 'America/Fortaleza' }, { merge: true }));
+  });
+  test('quem já tem a escolha gravada continua gravando o resto (fcm, lembretes, meta) sem tocar nela', async () => {
+    await seed((d) => setDoc(doc(d, 'users', ANA), { goal: 2000, social: { push: false } }));
+    await ok(setDoc(mine(), { fcm: { h1: { token: 'abc', ua: 'x', at: serverTimestamp() } }, updatedAt: serverTimestamp() }, { merge: true }));
+    await ok(setDoc(mine(), { reminder: { enabled: true, interval: 90 }, updatedAt: serverTimestamp() }, { merge: true }));
+    const s = (await ok(getDoc(mine()))).data();
+    if (s.social.push !== false) throw new Error('a escolha não podia mudar');
+  });
+  test('ninguém mexe nem lê a escolha de outra pessoa, nem um amigo aprovado', async () => {
+    await seedPair();
+    await seed((d) => setDoc(doc(d, 'users', ANA), { social: { push: true } }));
+    await no(setDoc(doc(as(BRU), 'users', ANA), { social: { push: false } }, { merge: true }));
+    await no(updateDoc(doc(as(BRU), 'users', ANA), { 'social.push': false }));
+    await no(getDoc(doc(as(BRU), 'users', ANA)));
+    await no(getDoc(doc(as(CAI), 'users', ANA)));
+    await no(getDoc(doc(anon(), 'users', ANA)));
+    await no(setDoc(doc(anon(), 'users', ANA), { social: { push: false } }, { merge: true }));
+  });
+  test('pushlog (o registro de limite do servidor) é fechado para o app: ninguém lê, grava, lista nem apaga', async () => {
+    await seed((d) => setDoc(doc(d, 'pushlog', ANA), { t: {}, h: [], q: [], exp: new Date() }));
+    for (const who of [as(ANA), as(BRU), as(CAI), anon()]) {
+      await no(getDoc(doc(who, 'pushlog', ANA)));
+      await no(setDoc(doc(who, 'pushlog', ANA), { t: {}, h: [], q: [] }));
+      await no(updateDoc(doc(who, 'pushlog', ANA), { h: [] }));
+      await no(deleteDoc(doc(who, 'pushlog', ANA)));
+      await no(getDocs(collection(who, 'pushlog')));
+      await no(setDoc(doc(who, 'pushlog', 'qualquer'), { t: {} }));
+    }
+    await seedPair();
+    await no(getDoc(doc(as(BRU), 'pushlog', ANA))); // nem um amigo aprovado
+  });
+});

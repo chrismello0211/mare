@@ -12,11 +12,11 @@ import { isNative, reducedMotion, onMedia, haptic, registerSW, applyUpdate, noti
 import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboardingView, OB_STEPS, tabbarHTML, othersSheet, otherNote,
   entrySheet, daySheet, installSheet, notifHelpSheet, dropOpts, dropOpts2, drop2Label, paceInfo, goalSumHTML, remNoteText, shareText,
   insigniaSheet, unlockSheet, newsSheet, fmtW } from './views.js';
-import { friendsView, friendSheet, profileSheet, codeSheet, aboutSheet, friendsSig, inviteInfo } from './friends-view.js';
+import { friendsView, friendSheet, profileSheet, codeSheet, aboutSheet, friendsSig, inviteInfo, alertsOn, alertsNote } from './friends-view.js';
 import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inviteLink, inviteText, fmtCode, profilePayload, liveOf, myLive, turma,
   waveFor, seenWaves, arrivals, errText } from './social.js';
 
-export const APP_VERSION = '1.1.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.1.1'; // aumente a cada deploy, junto com VERSION no sw.js
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'friends', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -383,6 +383,47 @@ function enableReminders() {
   });
 }
 function disableReminders() { S.reminders.enabled = false; planReminder(); toast('Lembretes desligados'); refreshUI(); }
+
+/* ---------- avisos dos amigos (1.1.1) ---------- */
+// A função onFriendship (servidor) manda um push quando alguém pede amizade, aceita ou acena. Usa o mesmo registro de aparelho dos lembretes
+// (cloud.enablePush), então basta ter os amigos ligados, não ter desligado a chave (S.social.push, começa ligada) e já ter a permissão de
+// notificação. Quem manda é o servidor; aqui só se registra o aparelho e se grava a escolha (cloud.syncMeta leva S.social.push junto).
+const wantsAlerts = () => S.social.on === true && S.social.push !== false;
+// quiet = não redesenhar a tela quando o registro terminar (o redesenho tira o foco de quem usa o teclado)
+function ensurePush(quiet) {
+  if ((S.reminders.enabled || wantsAlerts()) && notifStatus() === 'granted' && cloud && cloud.enablePush) cloud.enablePush().then(quiet ? () => {} : refreshUI, () => {});
+}
+function setAlerts(on) {
+  S.social.push = on; save(); haptic('light');
+  syncMeta();
+  if (on) ensurePush(true);
+}
+// Mostra o resultado: em Ajustes a chave e a nota mudam no lugar (como "Mostrar meu progresso": o foco do teclado fica onde estava);
+// na aba Amigos a tela se refaz (o cartão que convidava a ligar some)
+function paintAlerts() {
+  const on = alertsOn(), note = $('#frAlertNote');
+  $$('[data-action="fr-alerts"][role="switch"]').forEach((x) => { x.setAttribute('aria-checked', on ? 'true' : 'false'); });
+  if (note) note.textContent = alertsNote();
+  if (tab === 'friends') render(true);
+}
+function toggleAlerts() {
+  const st = notifStatus();
+  if (st === 'install' || st === 'denied') { openSheet(notifHelpSheet(st)); return; }
+  if (st === 'unsupported' || st === 'native') { toast('Este navegador só mostra os avisos com o Maré aberto.'); return; }
+  if (st === 'granted' && S.social.push !== false) { setAlerts(false); toast('Avisos dos amigos desligados'); paintAlerts(); return; }
+  // ligar: o pedido de permissão precisa sair direto do toque (exigência do Safari): nada assíncrono antes dele
+  requestNotifPermission().then((perm) => {
+    if (perm !== 'granted') { toast('Sem permissão, os avisos dos amigos ficam desligados.'); paintAlerts(); return; }
+    setAlerts(true);
+    toast('Avisos dos amigos ligados 🔔');
+    paintAlerts();
+  });
+}
+// Toque numa notificação com o Maré já aberto: o Service Worker manda abrir a aba (sem recarregar nada)
+function onSWMessage(m) {
+  if (m.type === 'inbox') pullInbox();
+  else if (m.type === 'go' && S.onboarded && !ob) { if (sheetIsOpen()) closeSheet(); go(String(m.tab)); }
+}
 function testNotif() {
   const st = notifStatus();
   if (st === 'default') { requestNotifPermission().then((p) => { if (p === 'granted') testNotif(); }); return; }
@@ -597,7 +638,7 @@ function initCloudLayer() {
       if (!c) { cloudDown(); return null; }
       cloud = c; syncState = 'on'; SOC.mode = 'ready';
       syncMeta();
-      if (S.reminders.enabled && notifStatus() === 'granted' && cloud.enablePush) cloud.enablePush().then(refreshUI, () => {});
+      ensurePush();
       startSocial();
       return c;
     })
@@ -785,6 +826,7 @@ async function joinFriends(el) {
     const s = await guard(getSoc(), 20000);
     const code = await guard(s.join({ payload: profilePayload(S, today()), code: S.social.code }), 25000);
     S.social.on = true; S.social.code = code; save();
+    ensurePush(); // com a permissão já dada, o aparelho passa a receber os avisos dos amigos
     SOC.st = s.state(); SOC.mode = 'ready'; frSig = '';
     s.start({ payload: socPayload });
     const inv = S.ui.invite;
@@ -991,7 +1033,7 @@ const A = {
   'entry-del': () => deleteEntry(),
   day: (el, d) => openDay(d.day),
   cal: (el, d) => { ym = shiftYm(ym || today().slice(0, 7), +d.n); render(true); },
-  'tip-x': (el, d) => { S.ui['tip_' + d.tip] = 1; save(); refreshPart('tTips'); },
+  'tip-x': (el, d) => { S.ui['tip_' + d.tip] = 1; save(); refreshPart('tTips'); if (tab === 'friends') render(true); },
   install: () => {
     if (!canInstall()) { openSheet(installSheet()); return; }
     promptInstall().then((ok) => { if (ok) toast('Maré instalado! 🎉'); refreshPart('tTips'); });
@@ -1064,6 +1106,7 @@ const A = {
   'fr-leave': () => confirmSheet('Sair dos amigos?', 'Seu perfil, seus convites e suas amizades serão apagados da nuvem. Seus registros de água continuam no aparelho. ' +
     'Para voltar, é só ativar de novo.', 'Sair', true, leaveFriends),
   'fr-retry': () => retrySocial(),
+  'fr-alerts': () => toggleAlerts(),
   'ob-next': () => obNext(),
   'ob-back': () => obBack(false),
   'ob-weight': (el, d) => {
@@ -1174,7 +1217,7 @@ function boot() {
   handleURL();
   registerSW({
     onUpdate: () => showBanner('Nova versão disponível', 'Atualizar', 'update'),
-    onMessage: (m) => { if (m.type === 'inbox') pullInbox(); },
+    onMessage: onSWMessage,
   });
   initInstall(() => { if (tab === 'today' && S.onboarded && !ob) refreshPart('tTips'); });
   pullInbox();

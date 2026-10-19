@@ -193,7 +193,7 @@ export function installSheet() {
     : ['Abra o menu <b>⋮</b> do navegador.', 'Toque em <b>Instalar app</b> ou <b>Adicionar à tela inicial</b>.', 'Confirme e abra o Maré pelo novo ícone.'];
   // No iPhone o app instalado NÃO enxerga os dados do Safari: avisar quem já tem registros
   const note = ios
-    ? (iosVersion() >= 1604 ? 'Depois de instalar, ative os lembretes em Ajustes.' : 'Notificações exigem iOS 16.4 ou mais recente; até lá, use os alarmes no calendário.') +
+    ? (iosVersion() >= 1604 ? 'Depois de instalar, ative os lembretes e os avisos dos amigos em Ajustes.' : 'Notificações exigem iOS 16.4 ou mais recente; até lá, use os alarmes no calendário.') +
       (Object.keys(S.days).length ? ' Atenção: no iPhone o app instalado começa vazio. Exporte um backup em Ajustes antes e importe no app instalado.' : '')
     : 'Instalado, o Maré funciona offline e os lembretes chegam com mais confiabilidade.';
   return sheetHead(ios ? 'Instalar no iPhone' : 'Instalar o Maré') + steps(list) + '<p class="note">' + note + '</p>' + btn('close-sheet', 'Entendi', 'block mt');
@@ -204,7 +204,7 @@ export function notifHelpSheet(st) {
     ? ['Abra os <b>Ajustes</b> do iPhone e toque em <b>Notificações</b>.', 'Encontre o <b>Maré</b> e ative <b>Permitir Notificações</b>.']
     : ['No app instalado: toque e segure o ícone do Maré → <b>Informações do app</b> → <b>Notificações</b>.',
        'No navegador: toque no ícone à esquerda do endereço → <b>Permissões</b> → <b>Notificações</b>.'];
-  list.push('Volte aqui e ative os lembretes de novo.');
+  list.push('Volte aqui e ative de novo.');
   return sheetHead(st === 'denied' ? 'Notificações bloqueadas' : 'Sem notificações neste navegador') + (st === 'denied' ? steps(list)
     : '<p class="sheet-text">Os lembretes funcionam enquanto o Maré estiver aberto. Para garantir, crie alarmes recorrentes no seu calendário.</p>') +
     '<div class="btns">' + btn('ics', 'Usar calendário', 'ghost') + btn('close-sheet', 'Entendi') + '</div>';

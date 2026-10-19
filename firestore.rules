@@ -7,10 +7,12 @@ service cloud.firestore {
     function isOwner(uid) {
       return request.auth != null && request.auth.uid == uid;
     }
-    // O servidor (Admin SDK) ignora estas regras; elas protegem só o que o app escreve
+    // O servidor (Admin SDK) ignora estas regras; elas protegem só o que o app escreve.
+    // "social" (1.1.1) guarda só a escolha "Avisos dos amigos" (push: true/false), que a função onFriendship consulta antes de avisar.
     function validUser(d) {
-      return d.keys().hasOnly(['tz', 'wake', 'sleep', 'unit', 'goal', 'today', 'reminder', 'fcm', 'stats', 'updatedAt'])
+      return d.keys().hasOnly(['tz', 'wake', 'sleep', 'unit', 'goal', 'today', 'reminder', 'fcm', 'stats', 'social', 'updatedAt'])
         && (!('fcm' in d) || (d.fcm is map && d.fcm.size() <= 10))
+        && (!('social' in d) || (d.social is map && d.social.keys().hasOnly(['push']) && 'push' in d.social && d.social.push is bool))
         && (!('goal' in d) || (d.goal is number && d.goal >= 0 && d.goal <= 10000))
         && (!('tz' in d) || (d.tz is string && d.tz.size() <= 64));
     }
@@ -151,6 +153,15 @@ service cloud.firestore {
       allow update: if signedIn() && request.auth.uid in resource.data.m
         && (acceptOk(resource.data, request.resource.data) || waveOk(resource.data, request.resource.data));
       allow delete: if signedIn() && request.auth.uid in resource.data.m;
+    }
+
+    /* ---------- avisos dos amigos (1.1.1) ----------
+       pushlog/{uid}       registro de limite da função onFriendship (quando cada pessoa foi avisada, para não repetir nem encher o
+                           celular de ninguém). Só o servidor (Admin SDK, que ignora estas regras) lê e escreve; para o app, fechado.
+                           Cada documento traz "exp" (daqui a 2 dias): com uma política de validade (TTL) em pushlog.exp, o Firestore
+                           apaga sozinho. Sem a política, nada quebra: cada documento é pequeno (o servidor guarda no máximo 100 entradas nele). */
+    match /pushlog/{uid} {
+      allow read, write: if false;
     }
   }
 }

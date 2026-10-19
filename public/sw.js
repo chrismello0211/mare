@@ -1,13 +1,13 @@
-// Maré — Service Worker (Parte 4): cache offline, atualização controlada, push e ação "+250 ml" da notificação.
+// Maré — Service Worker (Parte 4): cache offline, atualização controlada, push (lembretes e avisos dos amigos) e ação "+250 ml" da notificação.
 // A cada deploy, aumente VERSION (e APP_VERSION em js/app.js): é isso que dispara o aviso "Nova versão disponível".
 // Não use firebase-messaging-sw.js: o firebase.js registra o token FCM neste SW e o push chega aqui como "data".
-const VERSION = '1.1.0';
+const VERSION = '1.1.1';
 const CACHE = 'mare-' + VERSION, RUNTIME = 'mare-sdk', TAG = 'mare-lembrete';
 const SHELL = new URL('./', self.location).href, ROOT = new URL('./', self.location).pathname;
 const CORE = ['./', './manifest.webmanifest', './css/app.css', './js/app.js', './js/core.js', './js/store.js',
   './js/ui.js', './js/views.js', './js/platform.js', './js/art.js', './js/kit.js', './js/social.js', './js/friends-view.js'];
 // Opcionais: a instalação não falha se ainda não existirem (os PNGs vêm do script da Parte 5)
-const EXTRA = ['./js/firebase-config.js', './js/firebase.js', './js/social-cloud.js', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png',
+const EXTRA = ['./js/firebase-config.js', './js/firebase.js', './js/social-cloud.js', './js/alerts-sync.js', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png',
   './icons/maskable-512.png', './icons/apple-touch-icon.png', './icons/badge-72.png'];
 
 // Guarda o app no cache. Roda na instalação e de novo se o cache sumir: vários apps dividem esta mesma origem
@@ -65,6 +65,13 @@ self.addEventListener('push', (e) => {
   let p = {};
   try { p = e.data ? e.data.json() : {}; } catch (err) { p = { body: e.data ? e.data.text() : '' }; }
   const d = p.data || p; // o FCM entrega os campos dentro de "data"
+  if (d.kind === 'friend') { // avisos dos amigos (1.1.1: pedido, aceite, aceno): sem o botão "+250 ml", sem mexer no selo; o toque abre a aba Amigos
+    e.waitUntil(self.registration.showNotification(d.title || 'Maré 💧', {
+      body: d.body || 'Toque para ver seus amigos.', icon: 'icons/icon-192.png', badge: 'icons/badge-72.png',
+      tag: d.tag || 'mare-amigos', renotify: true, vibrate: [60, 40, 60], data: { url: d.url || './?tab=friends', go: 'friends' },
+    })); // o iOS exige que todo push mostre uma notificação: sempre chama showNotification
+    return;
+  }
   const jobs = [self.registration.showNotification(d.title || 'Hora de beber água 💧', {
     body: d.body || 'Toque para registrar no Maré.', icon: 'icons/icon-192.png', badge: 'icons/badge-72.png',
     tag: d.tag || TAG, renotify: true, vibrate: [80, 40, 80], data: { url: d.url || './?source=push' },
@@ -76,13 +83,17 @@ self.addEventListener('push', (e) => {
 });
 
 self.addEventListener('notificationclick', (e) => {
-  const n = e.notification, url = new URL((n.data && n.data.url) || './', self.location).href;
+  const n = e.notification, data = n.data || {}, url = new URL(data.url || './', self.location).href;
   n.close();
-  e.waitUntil(e.action === 'add250' ? quickLog(250) : focusOrOpen(url));
+  e.waitUntil(e.action === 'add250' ? quickLog(250) : focusOrOpen(url, data.go));
 });
-function focusOrOpen(url) {
+// go = aba que o app deve abrir (avisos dos amigos): o app já aberto recebe a mensagem e troca de aba; sem janela aberta, abre a URL (?tab=friends)
+function focusOrOpen(url, go) {
   return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-    for (let i = 0; i < list.length; i++) if (list[i].focus) return list[i].focus();
+    for (let i = 0; i < list.length; i++) if (list[i].focus) {
+      if (go) list[i].postMessage({ type: 'go', tab: go });
+      return list[i].focus();
+    }
     return self.clients.openWindow ? self.clients.openWindow(url) : null;
   });
 }

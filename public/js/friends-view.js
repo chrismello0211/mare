@@ -1,13 +1,14 @@
 // Maré — telas dos amigos (Parte 9). Só monta HTML a partir de S e SOC (store.js); nunca altera nada.
 // Quem muda o estado e conversa com a nuvem é o app.js. Contrato de cliques (data-action): fr-join, fr-share, fr-invite, fr-copy, fr-code,
 // fr-find, fr-send, fr-back, fr-accept, fr-decline, fr-decline-all, fr-cancel, fr-open, fr-wave, fr-remove, fr-profile, fr-mascot, fr-about,
-// fr-newcode, fr-leave, fr-retry, fr-intro. Campos: #frNick (entrada), #frNickIn (data-field="nick", no perfil), #frCode (código de convite).
+// fr-newcode, fr-leave, fr-retry, fr-intro, fr-alerts (avisos por notificação, 1.1.1). Campos: #frNick (entrada), #frNickIn (data-field="nick", no perfil), #frCode (código de convite).
 // Princípios (guardados por tests/social.test.js): sem ranking (lista em ordem alfabética), sem litros, textos sempre positivos.
 import { INSIGNIAS, mascotOf } from './core.js';
 import { S, SOC, esc, plural, today, shortDate } from './store.js';
 import { sheetHead } from './ui.js';
+import { notifStatus } from './platform.js';
 import { badge } from './art.js';
-import { btn, sbtn, sec, row, sw, empty, att, shareIco } from './kit.js';
+import { btn, sbtn, sec, row, sw, empty, att, shareIco, tip } from './kit.js';
 import { MAX_FRIENDS, NICK_MAX, fmtCode, liveOf, statusText, turma, waveFor, waveIn, WAVE_TEXT, myLive, ringOf, unseenWaves, firstNick,
   profilePayload, errText } from './social.js';
 
@@ -72,6 +73,20 @@ function reqCard(list, incoming) {
   return '<section class="card"><div class="card-h"><h2>' + (incoming ? 'Pedidos de amizade' : 'Convites enviados') + '</h2><small>' + list.length +
     '</small></div><ul class="fr-list">' + items + '</ul>' + all + '</section>';
 }
+// Convite para ligar os avisos (pedido, aceite e aceno chegam como notificação, até com o Maré fechado). Só aparece enquanto falta a permissão,
+// a pessoa não desligou os avisos e não dispensou o cartão. Bloqueado no navegador ou sem suporte: nada de insistir (Ajustes explica).
+function pushCard() {
+  if (S.ui.tip_fpush || mine().push === false) return '';
+  const st = notifStatus();
+  if (st === 'default') {
+    return tip('fpush', '🔔', 'Receba avisos dos amigos', 'Saiba na hora quando alguém pedir amizade, aceitar o seu pedido ou acenar para você, até com o Maré fechado.',
+      ['fr-alerts', 'Ativar avisos']);
+  }
+  if (st === 'install') {
+    return tip('fpush', '🔔', 'Avisos dos amigos no iPhone', 'Para receber avisos com o Maré fechado, instale o app na Tela de Início.', ['install-help', 'Como instalar']);
+  }
+  return '';
+}
 function friendsCard(t) {
   const fs = SOC.st.friends;
   return '<section class="card"><div class="card-h"><h2>Sua turma</h2><small>' + (fs.length ? plural(fs.length, 'amigo', 'amigos') : '') + '</small></div>' +
@@ -93,7 +108,7 @@ export function friendsView(ctx) {
   const st = SOC.st, t = today(), tm = turma(myLive(S, t), st.friends.map((f) => liveOf(f, t)));
   return '<header class="page-h fr-h"><div><h1 class="h1">Amigos</h1><p class="eyebrow">Cada gole conta, juntos</p></div>' +
     '<button class="chip fr-me" type="button" data-action="fr-profile" aria-label="Meu perfil">' + myAvatar(34) + '<span>Perfil</span></button></header>' +
-    notice() + (st.reqIn.length ? reqCard(st.reqIn, true) : '') + (st.friends.length ? tideCard(tm) : '') + friendsCard(t) + inviteCard() +
+    notice() + (st.reqIn.length ? reqCard(st.reqIn, true) : '') + pushCard() + (st.friends.length ? tideCard(tm) : '') + friendsCard(t) + inviteCard() +
     (st.reqOut.length ? reqCard(st.reqOut, false) : '') +
     '<p class="hint">Aqui ninguém compete: a lista é em ordem alfabética e ninguém vê os litros do outro. ' +
     '<button type="button" class="lnk" data-action="fr-about">Como funciona a privacidade</button></p>';
@@ -221,6 +236,21 @@ export function tabDots() {
   const st = SOC.st;
   return { friends: st.reqIn.length > 0 || unseenWaves(st.friends, S.ui.wv, today()).length > 0 };
 }
+// "Avisos dos amigos" em Ajustes: ligado só com a escolha ligada E a permissão dada (como os lembretes). Bloqueado ou iPhone sem instalar:
+// a chave fica desligada e o toque abre a ajuda. Sem suporte a push (ou app nativo): só o aviso, sem chave que não faria nada.
+export function alertsNote() {
+  const st = notifStatus(), on = mine().push !== false;
+  if (st === 'denied') return 'Bloqueados no navegador: toque no botão para ver como liberar';
+  if (st === 'install') return 'No iPhone, instale o Maré na Tela de Início para ativar';
+  if (st === 'unsupported' || st === 'native') return 'Este navegador só mostra os avisos com o Maré aberto';
+  if (st === 'granted' && on) return 'Pedido de amizade, aceite e acenos chegam como notificação';
+  return st === 'default' && on ? 'Desligados: ative para saber na hora de pedidos e acenos' : 'Desligados';
+}
+export const alertsOn = () => notifStatus() === 'granted' && mine().push !== false;
+function alertsRow() {
+  const st = notifStatus(), none = st === 'unsupported' || st === 'native';
+  return row('Avisos dos amigos', alertsNote(), none ? '' : sw('fr-alerts', alertsOn(), 'Avisos dos amigos'), 'frAlertNote');
+}
 // Grupo "Amigos" em Ajustes
 export function settingsFriendsHTML() {
   const sc = mine();
@@ -229,11 +259,12 @@ export function settingsFriendsHTML() {
     row('Meu perfil público', esc(sc.nick || 'Amigo') + ' · o que seus amigos veem', sbtn('fr-profile', 'Abrir')) +
     row('Mostrar meu progresso do dia', 'Porcentagem da meta e sequência. Desligado, seus amigos veem só o apelido e as insígnias.',
       sw('fr-share', sc.share !== false, 'Mostrar meu progresso do dia aos amigos')) +
+    alertsRow() +
     row('Novo código de convite', 'Quem tem o código antigo não consegue mais usá-lo. Seus amigos continuam.', sbtn('fr-newcode', 'Trocar')) +
     row('Sair dos amigos', 'Apaga seu perfil, convites e amizades da nuvem.', sbtn('fr-leave', 'Sair', 'ghost danger')) + '</div>';
 }
 // Assinatura do que a aba mostra: o app só redesenha quando ela muda (um amigo atualizar o perfil não faz a tela piscar à toa)
 export function friendsSig() {
   const st = SOC.st;
-  return JSON.stringify([SOC.mode, st.ready, st.err, st.code, st.friends, st.reqIn, st.reqOut, S.social, today(), mascotOf(S).id, myLive(S, today())]);
+  return JSON.stringify([SOC.mode, st.ready, st.err, st.code, st.friends, st.reqIn, st.reqOut, S.social, today(), mascotOf(S).id, myLive(S, today()), notifStatus(), !!S.ui.tip_fpush]);
 }

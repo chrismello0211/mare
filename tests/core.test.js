@@ -281,16 +281,24 @@ describe('insígnias (bichinhos do mar)', () => {
     const old = C.migrate({ profile: { name: 'Ana' } });
     expect(old.insignias).toEqual({});
     expect(old.profile.mascot).toBe('');
-    expect(old.social).toEqual({ on: false, nick: '', share: true, code: '' });
+    expect(old.social).toEqual({ on: false, nick: '', share: true, code: '', push: true });
     expect(C.migrate({ profile: { mascot: 'cavalo' } }).profile.mascot).toBe('cavalo');
     expect(C.migrate({ profile: { mascot: 'dragao' } }).profile.mascot).toBe('');
     expect(C.migrate({ insignias: [1, 2] }).insignias).toEqual({});
     expect(C.migrate({ insignias: 'x' }).insignias).toEqual({});
     expect(C.migrate({ insignias: { concha: 5 } }).insignias).toEqual({ concha: 5 });
     const so = C.migrate({ social: { on: 'sim', nick: 'N'.repeat(40), share: 0, code: 'abc' } }).social;
-    expect(so).toEqual({ on: false, nick: 'N'.repeat(20), share: true, code: '' }); // só "true" liga; código inválido some
-    expect(C.migrate({ social: { on: true, nick: 'Bia', share: false, code: 'ABCD2345' } }).social).toEqual({ on: true, nick: 'Bia', share: false, code: 'ABCD2345' });
+    expect(so).toEqual({ on: false, nick: 'N'.repeat(20), share: true, code: '', push: true }); // só "true" liga; código inválido some
+    expect(C.migrate({ social: { on: true, nick: 'Bia', share: false, code: 'ABCD2345' } }).social).toEqual({ on: true, nick: 'Bia', share: false, code: 'ABCD2345', push: true });
     expect(C.migrate({ social: { nick: 42 } }).social.nick).toBe('');
+  });
+  it('avisos dos amigos (1.1.1): social.push começa ligado, e só um false de verdade desliga', () => {
+    expect(C.defaults().social.push).toBe(true);
+    expect(C.migrate({}).social.push).toBe(true); // estado de antes da 1.1.1 (sem o campo): ligado
+    expect(C.migrate({ social: { on: true, nick: 'Ana' } }).social.push).toBe(true); // quem já usava os amigos na 1.1.0 passa a receber os avisos
+    expect(C.migrate({ social: { push: false } }).social.push).toBe(false);
+    ['no', 0, null, '', 'false', [], {}].forEach((v) => expect(C.migrate({ social: { push: v } }).social.push).toBe(true)); // lixo não desliga nada
+    expect(C.migrate({ social: { push: true } }).social.push).toBe(true);
   });
   it('a medalha "Dez na meta" (10 dias, seguidos ou não) substituiu a de 100 L, que agora é insígnia', () => {
     expect(C.ACHIEVEMENTS.some((a) => a.id === 'l100')).toBe(false);

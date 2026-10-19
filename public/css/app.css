@@ -224,7 +224,8 @@ body.no-tabs .wrap { padding-bottom: 20px; padding-bottom: calc(20px + env(safe-
 .tip-b b { display: block; }
 .tip-b p { margin-top: 4px; font-size: 14px; color: var(--muted); }
 .tip-b .btn { margin-top: 10px; }
-.tip-x { flex-shrink: 0; margin: -6px -6px 0 6px; padding: 6px 8px; color: var(--faint); font-size: 18px; line-height: 1; }
+/* o × ocupa o mesmo lugar de sempre; a área de toque é maior (cerca de 40 px), porque o margin negativo devolve o que o padding tomou */
+.tip-x { flex-shrink: 0; margin: -12px -12px 0 0; padding: 12px 14px; color: var(--faint); font-size: 18px; line-height: 1; }
 
 /* missão do dia */
 .mission { display: flex; align-items: center; }

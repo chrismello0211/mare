@@ -152,7 +152,7 @@ export async function initCloud() {
   if (window.__cloudInit <= ((window.__fakeSeed && window.__fakeSeed.initFail) || 0)) throw new Error('sem rede (simulado)');
   const W = window.__fake || (window.__fake = makeWorld());
   return {
-    uid: ME, push: false, syncDays() {}, syncMeta() {},
+    uid: ME, push: false, syncDays() {}, syncMeta() { window.__metaSynced = (window.__metaSynced || 0) + 1; },
     enablePush: async () => { window.__pushEnabled = (window.__pushEnabled || 0) + 1; return true; },
     // wipeHang (teste): o apagar da nuvem nunca responde (sem internet). O app não pode depender dele para largar as escutas do aparelho
     wipe: async () => { if (W.wipeHang) await new Promise(() => {}); try { await W.api.leave(); } catch (e) { /* como o firebase.js real */ } },

@@ -2,8 +2,10 @@
 // O app.js só carrega este arquivo se FIREBASE_ENABLED = true. Qualquer falha aqui deixa o app 100% local.
 // Contrato: initCloud(hooks) → Promise<cloud>; hooks = { state, onRemote, onStatus } (ver adendo da Parte 3 no HANDOFF).
 // cloud = { uid, social(cache), push, syncDays, syncMeta, enablePush, wipe }; cloud.social() devolve a camada de amigos (social-cloud.js).
+// syncMeta() também leva a escolha "Avisos dos amigos" (S.social.push) para users/{uid}.social.push, que a função onFriendship consulta (alerts-sync.js).
 import { firebaseConfig, VAPID_KEY, USE_EMULATORS } from './firebase-config.js';
 import { dayKey, dayTotal, dayWater, goalToday, streak, bestStreak, levelFor, hash } from './core.js';
+import { createAlertsSync } from './alerts-sync.js';
 
 // Confirme a versão mais recente nas notas de versão do Firebase JS SDK e teste antes de trocar. Versões novas podem
 // exigir navegadores mais recentes: se o import falhar num aparelho antigo, a nuvem só fica desligada nele.
@@ -79,6 +81,10 @@ export async function initCloud(hooks) {
       updatedAt: FS.serverTimestamp(),
     }, { merge: true }).catch(report);
   }
+  // "Avisos dos amigos" (1.1.1): a função onFriendship só avisa quem não desligou a chave (users/{uid}.social.push). Gravada À PARTE de pushMeta
+  // e só quando a escolha difere do que o servidor já assume (ligado): ver alerts-sync.js, onde estão as regras e os testes.
+  const alerts = createAlertsSync({ FS: FS, uref: uref, state: () => hooks.state(), mark: () => mark, saveMark: saveMark,
+    warn: (e) => { console.warn('[nuvem] avisos dos amigos:', e && e.message ? e.message : e); } });
   // Traz só os dias alterados na nuvem desde a última vez (por enquanto, cada aparelho é uma conta anônima)
   async function pull() {
     const q = mark.pullAt ? FS.query(days, FS.where('updatedAt', '>', FS.Timestamp.fromMillis(mark.pullAt))) : days;
@@ -98,7 +104,7 @@ export async function initCloud(hooks) {
     const keys = Object.keys(pending);
     pending = {};
     if (keys.length) pushDays(keys);
-    if (metaDirty) { metaDirty = false; pushMeta(); }
+    if (metaDirty) { metaDirty = false; pushMeta(); alerts.push(); }
   }
   const later = () => { clearTimeout(timer); timer = setTimeout(flush, 1500); };
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); }); // o app pode ser fechado
@@ -129,7 +135,7 @@ export async function initCloud(hooks) {
     return socialP;
   }
   async function wipe() {
-    wiping = true; clearTimeout(timer); pending = {}; metaDirty = false;
+    wiping = true; clearTimeout(timer); pending = {}; metaDirty = false; alerts.reset();
     try {
       // Antes de tudo, sai da rede de amigos (perfil, convites, amizades). Quem tem os amigos ligados já saiu pelo app (resetAll não apaga
       // nada se isso falhar); aqui fica a garantia para quem nunca entrou ou ainda não tem as regras publicadas: se falhar, o resto segue.

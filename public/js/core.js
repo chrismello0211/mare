@@ -336,7 +336,8 @@ export const uid = () => Date.now().toString(36) + Math.random().toString(36).sl
 // profile.others: mostra a segunda gota (outros líquidos). profile.mix: soma os outros líquidos na meta (até metade dela; só vale
 // com others ligado). profile.mascot: insígnia do perfil ('' = a mais alta). last = água dos copos rápidos; lastO = bebida de "outros líquidos".
 // insignias: { id: ms } das conquistadas. social: amigos, DESTE aparelho (o login é por aparelho, então não vai para o backup):
-// on = ativou os amigos; nick = nome que os amigos veem; share = mostra o progresso do dia; code = código de convite atual.
+// on = ativou os amigos; nick = nome que os amigos veem; share = mostra o progresso do dia; code = código de convite atual;
+// push = "Avisos dos amigos" (pedido, aceite e aceno chegam como notificação; começa ligado, mas só vale com a permissão de notificação).
 export function defaults(createdAt) {
   return {
     v: 1, onboarded: false, createdAt: createdAt || Date.now(),
@@ -344,7 +345,7 @@ export function defaults(createdAt) {
     goal: { mode: 'auto', manual: 2500, climate: false, bonus: 0, temp: null, day: '' },
     cups: [150, 250, 350, 500], last: 'water', lastO: 'coffee',
     reminders: { enabled: false, interval: 90, smart: true, nextAt: 0 },
-    days: {}, achievements: {}, missions: {}, insignias: {}, social: { on: false, nick: '', share: true, code: '' }, ui: {},
+    days: {}, achievements: {}, missions: {}, insignias: {}, social: { on: false, nick: '', share: true, code: '', push: true }, ui: {},
   };
 }
 export function migrate(s) {
@@ -360,6 +361,7 @@ export function migrate(s) {
   sc.on = sc.on === true;
   sc.nick = typeof sc.nick === 'string' ? sc.nick.slice(0, 20) : '';
   sc.share = sc.share !== false;
+  sc.push = sc.push !== false;
   sc.code = typeof sc.code === 'string' && /^[A-Z0-9]{8}$/.test(sc.code) ? sc.code : '';
   // Bebida dos copos rápidos: só água ou água com gás. Quem deixou café, chá etc. como padrão passa a tê-lo em "outros líquidos".
   const l = byId(o.last);

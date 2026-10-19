@@ -1,11 +1,16 @@
-// Maré — Cloud Functions (Parte 4): a cada 15 min, envia o lembrete a quem tem reminder.nextAt vencido.
-// Reproduz core.js (dayWindow, expectedBy, nextReminderAt) no fuso de cada pessoa (campo tz). Exige plano Blaze.
+// Maré — Cloud Functions. Exige plano Blaze. Duas funções, ambas em southamerica-east1 (a região do Firestore):
+//   sendReminders  (Parte 4)  a cada 15 min, envia o lembrete a quem tem reminder.nextAt vencido. Reproduz core.js (dayWindow,
+//                             expectedBy, nextReminderAt) no fuso de cada pessoa (campo tz).
+//   onFriendship   (1.1.1)    quando uma amizade é criada ou muda (pedido, aceite, aceno), avisa o outro lado por push.
+//                             A lógica está em friend-push.js e social-push.js; aqui só se liga o gatilho ao Admin SDK.
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import * as logger from 'firebase-functions/logger';
+import { notifyFriendship } from './friend-push.js';
 
 initializeApp();
 setGlobalOptions({ region: 'southamerica-east1', maxInstances: 1 }); // mesma região do Firestore
@@ -29,6 +34,15 @@ export const sendReminders = onSchedule({ schedule: 'every 15 minutes', timeoutS
     last = snap.docs[snap.docs.length - 1];
   }
   logger.info('lembretes', { seen, sent });
+});
+
+// Avisos dos amigos: roda a cada gravação em friendships/{par} (criar, aceitar, acenar, apagar). Não grava nada nessa coleção: sem laço.
+// O Firestore pode entregar o mesmo evento mais de uma vez; o limite em friend-push.js (pushlog) garante um aviso só.
+export const onFriendship = onDocumentWritten({ document: 'friendships/{pair}', memory: '256MiB', timeoutSeconds: 60 }, async (event) => {
+  const ch = event.data;
+  if (!ch) return;
+  await notifyFriendship({ before: ch.before.exists ? ch.before.data() : null, after: ch.after.exists ? ch.after.data() : null },
+    { db, FieldValue, messaging: getMessaging(), now: Date.now, log: logger });
 });
 
 async function handle(doc, now) {
