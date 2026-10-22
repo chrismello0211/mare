@@ -486,14 +486,15 @@ suite('o gatilho onFriendship de verdade (functions/index.js)', () => {
     m.messagingRequestHandler.invokeHttpRequestHandlerForSendResponse = async (host, p, request) => { sent.push(request.message); return { success: true, messageId: 'projects/demo/messages/' + sent.length }; };
   });
   const run = (before, after) => mod.onFriendship.run({ data: { before: snapOf(before), after: snapOf(after) }, params: { pair: pid(ANA, BRU) } });
+  // O gatilho de verdade usa o relógio de verdade (Date.now): para o teste não depender da hora em que roda, quem recebe nunca dorme
+  // (wake igual a sleep = sempre acordada). O horário de silêncio tem os seus testes, com o relógio nosso.
+  const AWAKE = { wake: '00:00', sleep: '00:00' };
 
-  test('declara os dois gatilhos', () => {
-    expect(typeof mod.onFriendship).toBe('function');
-    expect(typeof mod.onFriendship.run).toBe('function');
-    expect(typeof mod.sendReminders).toBe('function');
+  test('declara todos os gatilhos', () => {
+    ['onFriendship', 'onProfile', 'sendReminders', 'flushHeld', 'weeklyCrew', 'reconcileNetworks'].forEach((k) => { expect(typeof mod[k]).toBe('function'); expect(typeof mod[k].run).toBe('function'); });
   });
   test('pedido novo: o aviso sai para o aparelho de quem recebeu, com o texto e o pacote certos', async () => {
-    await phone(ANA);
+    await phone(ANA, 1, AWAKE);
     await run(null, pairDoc(BRU, ANA, { nm: 'Bruno' }));
     expect(sent).toHaveLength(1);
     expect(sent[0]).toEqual({ token: tokenOf(ANA, 1), data: { kind: 'friend', ev: 'request', tag: 'mare-amigo-request-' + BRU, url: './?tab=friends',
@@ -501,8 +502,8 @@ suite('o gatilho onFriendship de verdade (functions/index.js)', () => {
     expect((await pushlog(ANA)).t).toHaveProperty('request_' + BRU); // o limite foi anotado no Firestore de verdade
   });
   test('aceite e aceno também saem; o mesmo evento entregue duas vezes não avisa duas vezes', async () => {
-    await phone(BRU);
-    await phone(ANA);
+    await phone(BRU, 1, AWAKE);
+    await phone(ANA, 1, AWAKE);
     await run(pairDoc(BRU, ANA), activeDoc(BRU, ANA)); // Ana aceitou: avisa Bruno
     expect(sent).toHaveLength(1);
     expect(sent[0].token).toBe(tokenOf(BRU, 1));
@@ -533,7 +534,7 @@ suite('o gatilho onFriendship de verdade (functions/index.js)', () => {
 /* ============================== o pacote que vai para a nuvem ============================== */
 const freePort = () => new Promise((res, rej) => { const s = net.createServer(); s.on('error', rej); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
 suite('o pacote das funções (o que o firebase deploy vai ler)', () => {
-  test('carrega sem erro e declara onFriendship (gatilho em friendships, na região do banco) e sendReminders', async () => {
+  test('carrega sem erro e declara os seis (dois gatilhos de documento e quatro agendados), todos na região do banco', async () => {
     const port = await freePort();
     const env2 = { PATH: process.env.PATH, HOME: process.env.HOME || process.env.USERPROFILE || '', SystemRoot: process.env.SystemRoot || '', FUNCTIONS_CONTROL_API: 'true', GCLOUD_PROJECT: 'mare-hidratacao', PORT: String(port) };
     // o carregador do Firebase lê a pasta ATUAL como a das funções (o argumento só vale com dois ou mais), por isso o cwd
@@ -546,12 +547,21 @@ suite('o pacote das funções (o que o firebase deploy vai ler)', () => {
         if (!man) await sleep(200);
       }
       expect(man).not.toBeNull();
-      const ep = man.endpoints;
-      expect(Object.keys(ep).sort()).toEqual(['onFriendship', 'sendReminders']);
-      expect(ep.onFriendship).toMatchObject({ platform: 'gcfv2', region: ['southamerica-east1'], maxInstances: 1, availableMemoryMb: 256, timeoutSeconds: 60 });
-      expect(ep.onFriendship.eventTrigger).toMatchObject({ eventType: 'google.cloud.firestore.document.v1.written', retry: false,
-        eventFilters: { database: '(default)', namespace: '(default)' }, eventFilterPathPatterns: { document: 'friendships/{pair}' } });
-      expect(ep.sendReminders).toMatchObject({ platform: 'gcfv2', region: ['southamerica-east1'], scheduleTrigger: { schedule: 'every 15 minutes' } });
+      const ep = man.endpoints, base = { platform: 'gcfv2', region: ['southamerica-east1'], maxInstances: 1, availableMemoryMb: 256 };
+      expect(Object.keys(ep).sort()).toEqual(['flushHeld', 'onFriendship', 'onProfile', 'reconcileNetworks', 'sendReminders', 'weeklyCrew']);
+      const written = { eventType: 'google.cloud.firestore.document.v1.written', retry: false, eventFilters: { database: '(default)', namespace: '(default)' } };
+      // amizades: juntar duas turmas grandes lê e grava dezenas de documentos: 120 s
+      expect(ep.onFriendship).toMatchObject(Object.assign({ timeoutSeconds: 120 }, base));
+      expect(ep.onFriendship.eventTrigger).toMatchObject(Object.assign({ eventFilterPathPatterns: { document: 'friendships/{pair}' } }, written));
+      // perfis: a imensa maioria sai sem tocar no banco
+      expect(ep.onProfile).toMatchObject(Object.assign({ timeoutSeconds: 60 }, base));
+      expect(ep.onProfile.eventTrigger).toMatchObject(Object.assign({ eventFilterPathPatterns: { document: 'profiles/{uid}' } }, written));
+      // agendadas: lembretes e fila do silêncio de 15 em 15 minutos; resumo da semana de hora em hora; conferência das turmas às 03:30 de Brasília
+      expect(ep.sendReminders).toMatchObject(Object.assign({ scheduleTrigger: { schedule: 'every 15 minutes' } }, base));
+      expect(ep.flushHeld).toMatchObject(Object.assign({ timeoutSeconds: 120, scheduleTrigger: { schedule: 'every 15 minutes' } }, base));
+      expect(ep.weeklyCrew).toMatchObject(Object.assign({ scheduleTrigger: { schedule: '0 * * * *' } }, base));
+      expect(ep.reconcileNetworks).toMatchObject(Object.assign({ scheduleTrigger: { schedule: '30 3 * * *', timeZone: 'America/Sao_Paulo' } }, base));
+      ['sendReminders', 'flushHeld', 'weeklyCrew', 'reconcileNetworks'].forEach((k) => expect(ep[k].scheduleTrigger.retryConfig).toEqual({ retryCount: 0 }));
     } finally { child.kill(); }
   }, 45000);
 });

@@ -147,7 +147,7 @@ describe('profiles: o perfil que os amigos veem', () => {
     await ok(deleteDoc(doc(as(BRU), 'friendships', AB)));
     await no(getDoc(doc(as(ANA), 'profiles', BRU)));
   });
-  test('o que o amigo enxerga no perfil é só o combinado: nada de volumes, peso, meta em ml, horário ou localização', async () => {
+  test('o que o amigo enxerga no perfil é só o combinado: nada de volumes, peso, horário ou localização (a meta em ml só no campo opcional gl)', async () => {
     await seedPair();
     await ok(setDoc(doc(as(BRU), 'profiles', BRU), prof({ nm: 'Bruno', mc: 'polvo' })));
     const s = await ok(getDoc(doc(as(ANA), 'profiles', BRU)));
@@ -157,6 +157,34 @@ describe('profiles: o perfil que os amigos veem', () => {
     for (const extra of [{ ml: 1800 }, { total: 1800 }, { goal: 2000 }, { peso: 70 }, { tz: 'America/Sao_Paulo' }, { loc: 'SP' }, { u: serverTimestamp() }, { e: [] }]) {
       await no(setDoc(doc(as(BRU), 'profiles', BRU), prof(extra)), JSON.stringify(Object.keys(extra)));
     }
+  });
+  test('com a meta em ml (gl) e os 7 dias (wm): inteiros dentro dos limites, null ou ausentes; qualquer outra coisa é recusada', async () => {
+    const good = [['sem gl nem wm', prof()], ['gl 0', prof({ gl: 0 })], ['gl 1800', prof({ gl: 1800 })], ['gl 10000 (o teto)', prof({ gl: 10000 })], ['gl null', prof({ gl: null })],
+      ['wm 0', prof({ wm: 0 })], ['wm 1', prof({ wm: 1 })], ['wm 127 (os sete dias)', prof({ wm: 127 })], ['wm null (em pausa)', prof({ wm: null })], ['os dois juntos', prof({ gl: 2500, wm: 85 })],
+      ['em pausa: sem pct, sem gl, sem os 7 dias', prof({ sh: false, pct: null, gl: null, wm: null })]];
+    for (const [nome, d] of good) await ok(setDoc(doc(as(ANA), 'profiles', ANA), d), nome);
+    const bad = [['gl 10001', prof({ gl: 10001 })], ['gl negativo', prof({ gl: -1 })], ['gl decimal', prof({ gl: 1800.5 })], ['gl texto', prof({ gl: '1800' })], ['gl booleano', prof({ gl: true })],
+      ['gl lista', prof({ gl: [1800] })], ['gl mapa', prof({ gl: { ml: 1800 } })], ['gl NaN', prof({ gl: NaN })], ['gl infinito', prof({ gl: Infinity })],
+      ['wm 128', prof({ wm: 128 })], ['wm negativo', prof({ wm: -1 })], ['wm decimal', prof({ wm: 3.5 })], ['wm texto', prof({ wm: '7' })], ['wm booleano', prof({ wm: true })],
+      ['wm lista', prof({ wm: [1] })], ['wm mapa', prof({ wm: { d: 1 } })], ['wm NaN', prof({ wm: NaN })], ['wm infinito', prof({ wm: Infinity })]];
+    for (const [nome, d] of bad) await no(setDoc(doc(as(ANA), 'profiles', ANA), d), nome);
+  });
+  test('compartilhando a meta em ml e os 7 dias, o amigo lê os dois; quem não é amigo não; o dono tira a meta (ou muda os dias) quando quiser; o amigo não mexe em nada', async () => {
+    await seedPair();
+    await ok(setDoc(doc(as(BRU), 'profiles', BRU), prof({ nm: 'Bruno', mc: 'polvo', gl: 2400, wm: 93 })));
+    const s = await ok(getDoc(doc(as(ANA), 'profiles', BRU)));
+    const keys = Object.keys(s.data()).sort().join();
+    if (keys !== 'day,gl,ins,mc,met,nm,pct,sh,st,v,wm') throw new Error('o perfil compartilhado deveria ter exatamente os campos combinados: ' + keys);
+    if (s.data().gl !== 2400 || s.data().wm !== 93) throw new Error('o amigo deveria ler a meta e os 7 dias');
+    await no(getDoc(doc(as(CAI), 'profiles', BRU)));
+    await ok(updateDoc(doc(as(BRU), 'profiles', BRU), { gl: deleteField() })); // "mostrar minha meta" desligado: o campo some
+    const t = (await ok(getDoc(doc(as(ANA), 'profiles', BRU)))).data();
+    if ('gl' in t) throw new Error('sem a escolha da pessoa, a meta em ml não pode ficar no perfil');
+    await ok(updateDoc(doc(as(BRU), 'profiles', BRU), { wm: 127 }));
+    await no(updateDoc(doc(as(BRU), 'profiles', BRU), { gl: 10001 }));
+    await no(updateDoc(doc(as(BRU), 'profiles', BRU), { wm: 128 }));
+    await no(updateDoc(doc(as(ANA), 'profiles', BRU), { gl: 1 })); // o amigo não escreve no perfil do outro
+    await no(updateDoc(doc(as(ANA), 'profiles', BRU), { wm: 0 }));
   });
   test('ser amigo de alguém não dá acesso ao perfil dos amigos dele', async () => {
     await seedPair(); // ANA e BRU
@@ -517,6 +545,71 @@ describe('friendships: pedido, aceite e fim', () => {
   });
 });
 
+describe('turma única (1.2.0): amizades automáticas, criadas só pelo servidor', () => {
+  beforeEach(seedCodes);
+  const autoDoc = (o) => without(friendDoc(Object.assign({ auto: true }, o)), 'cd'); // como o servidor grava: sem "cd", com "auto: true"
+  const seedAuto = (o) => seed((d) => setDoc(doc(d, 'friendships', AB), autoDoc(o)));
+  const w = (o) => Object.assign({ k: 'hi', d: '2026-10-18', at: serverTimestamp() }, o);
+  test('o app nunca cria amizade com "auto": nem como pedido, nem já ativa, nem em nome de outra pessoa (o pedido sem a marca passa)', async () => {
+    await no(setDoc(doc(as(ANA), 'friendships', AB), req(ANA, { auto: true })));
+    await no(setDoc(doc(as(ANA), 'friendships', AB), req(ANA, { auto: false })));
+    await no(setDoc(doc(as(ANA), 'friendships', AB), autoDoc({ by: ANA })));
+    await no(setDoc(doc(as(BRU), 'friendships', AB), autoDoc({ by: ANA })));
+    await no(setDoc(doc(as(BRU), 'friendships', AB), autoDoc({ by: BRU })));
+    await no(setDoc(doc(as(CAI), 'friendships', AB), autoDoc())); // um terceiro forjando
+    await no(setDoc(doc(as(ANA), 'friendships', AB), friendDoc())); // ativa, mesmo sem a marca
+    await ok(setDoc(doc(as(ANA), 'friendships', AB), req(ANA))); // o controle: o pedido de verdade entra, então as recusas acima eram por causa da marca
+  });
+  test('ninguém põe "auto" ao aceitar ou acenar, nem tira ou muda a marca de uma amizade automática', async () => {
+    await seed((d) => setDoc(doc(d, 'friendships', AB), without(friendDoc({ st: 'pending' }), 'ok')));
+    await no(updateDoc(doc(as(BRU), 'friendships', AB), { st: 'active', ok: serverTimestamp(), auto: true })); // aceitar com a marca
+    await ok(updateDoc(doc(as(BRU), 'friendships', AB), { st: 'active', ok: serverTimestamp() })); // controle: o aceite sem ela passa
+    await no(updateDoc(doc(as(ANA), 'friendships', AB), { ['w.' + ANA]: w(), auto: true })); // acenar com a marca
+    await env.clearFirestore();
+    await seedAuto();
+    await no(updateDoc(doc(as(ANA), 'friendships', AB), { auto: deleteField() }));
+    await no(updateDoc(doc(as(ANA), 'friendships', AB), { auto: false }));
+    await no(updateDoc(doc(as(BRU), 'friendships', AB), { auto: deleteField(), ['w.' + BRU]: w() })); // nem escondida dentro de um aceno
+    const s = (await ok(getDoc(doc(as(ANA), 'friendships', AB)))).data();
+    if (s.auto !== true) throw new Error('a marca "auto" deveria seguir intacta');
+  });
+  test('amizade automática vale como qualquer outra: os dois leem, o perfil abre nos dois sentidos, o aceno funciona e qualquer um desfaz', async () => {
+    await seedAuto();
+    await seedProfile(ANA);
+    await seedProfile(BRU, { nm: 'Bruno', mc: 'polvo' });
+    await ok(getDoc(doc(as(ANA), 'friendships', AB)));
+    await ok(getDoc(doc(as(BRU), 'friendships', AB)));
+    await no(getDoc(doc(as(CAI), 'friendships', AB)));
+    const mine = await ok(getDocs(query(collection(as(BRU), 'friendships'), where('m', 'array-contains', BRU))));
+    if (mine.size !== 1) throw new Error('a lista do BRU deveria trazer a amizade automática');
+    await ok(getDoc(doc(as(BRU), 'profiles', ANA)));
+    await ok(getDoc(doc(as(ANA), 'profiles', BRU)));
+    await no(getDoc(doc(as(CAI), 'profiles', ANA)));
+    await ok(updateDoc(doc(as(BRU), 'friendships', AB), { ['w.' + BRU]: w() }));
+    await ok(updateDoc(doc(as(ANA), 'friendships', AB), { ['w.' + ANA]: w({ k: 'cheer' }) }));
+    await no(updateDoc(doc(as(CAI), 'friendships', AB), { ['w.' + CAI]: w() }));
+    await no(deleteDoc(doc(as(CAI), 'friendships', AB)));
+    await ok(deleteDoc(doc(as(ANA), 'friendships', AB)));
+    await no(getDoc(doc(as(BRU), 'profiles', ANA)));
+    await no(getDoc(doc(as(ANA), 'profiles', BRU)));
+  });
+  test('turma de três (duas amizades feitas à mão, uma automática): todos leem todos; quem sai apaga as suas e deixa de ler e de ser lido, os outros dois seguem', async () => {
+    const AC = pid(ANA, CAI), BC = pid(BRU, CAI);
+    await seed(async (d) => {
+      await setDoc(doc(d, 'friendships', AB), friendDoc()); // a mão
+      await setDoc(doc(d, 'friendships', BC), friendDoc({ m: [BRU, CAI], by: BRU, tn: 'Caio' })); // a mão
+      await setDoc(doc(d, 'friendships', AC), autoDoc({ m: [ANA, CAI], by: ANA, tn: 'Caio' })); // fechada pelo servidor
+    });
+    for (const u of [ANA, BRU, CAI]) await seedProfile(u, { nm: u.slice(0, 3) });
+    for (const [a, b] of [[ANA, BRU], [BRU, ANA], [ANA, CAI], [CAI, ANA], [BRU, CAI], [CAI, BRU]]) await ok(getDoc(doc(as(a), 'profiles', b)), a.slice(0, 3) + ' lê ' + b.slice(0, 3));
+    await ok(deleteDoc(doc(as(CAI), 'friendships', AC))); // Caio sai da turma: apaga as duas amizades dele
+    await ok(deleteDoc(doc(as(CAI), 'friendships', BC)));
+    for (const [a, b] of [[ANA, CAI], [CAI, ANA], [BRU, CAI], [CAI, BRU]]) await no(getDoc(doc(as(a), 'profiles', b)), a.slice(0, 3) + ' não lê ' + b.slice(0, 3));
+    await ok(getDoc(doc(as(ANA), 'profiles', BRU)));
+    await ok(getDoc(doc(as(BRU), 'profiles', ANA)));
+  });
+});
+
 describe('ids com maiúsculas e minúsculas (como os do login anônimo de verdade)', () => {
   // 'Zed…' < 'ada…' pela tabela ASCII, mas 'ada…' < 'zed…' em minúsculas: o app e as regras precisam concordar na segunda
   const ZED = 'Zed' + 'x'.repeat(25), ADA = 'ada' + 'x'.repeat(25), N9 = '9nine' + 'x'.repeat(23);
@@ -570,11 +663,23 @@ describe('avisos dos amigos (1.1.1): a escolha em users/{uid}.social e o registr
     const s = (await ok(getDoc(mine()))).data();
     if (s.social.push !== false) throw new Error('o valor gravado deveria ser false');
   });
-  test('só vale { push: true ou false }: nada de texto, número, vazio, campo a mais ou outro nome', async () => {
-    for (const bad of [{ push: 'sim' }, { push: 1 }, { push: 0 }, { push: null }, { push: [] }, {}, { push: true, extra: 1 }, { pushh: true }, { on: true }, true, 'push', 7, null, [true], [{ push: true }]]) {
-      await no(setDoc(mine(), { social: bad }, { merge: true }));
-    }
-    await no(updateDoc((await seed((d) => setDoc(doc(d, 'users', ANA), { goal: 2000 })), mine()), { 'social.push': 'nao' }));
+  test('social é um mapa só com push, hit e week, cada um true ou false (qualquer um pode faltar): nada de texto, número, nulo, campo a mais ou outro nome', async () => {
+    const bads = [{ push: 'sim' }, { push: 1 }, { push: 0 }, { push: null }, { push: [] }, { hit: 'sim' }, { hit: 1 }, { hit: 0 }, { hit: null }, { hit: {} }, { week: 'sim' }, { week: 1 }, { week: null }, { week: [] },
+      { push: true, hit: false, week: 'sim' }, { push: true, extra: 1 }, { hit: true, outro: false }, { week: true, push: false, hit: true, quarto: true }, { pushh: true }, { on: true }, { Hit: true }, { weekly: true },
+      true, 'push', 7, null, [true], [{ push: true }]];
+    for (const bad of bads) await no(setDoc(mine(), { social: bad }, { merge: true }), JSON.stringify(bad));
+    await seed((d) => setDoc(doc(d, 'users', ANA), { goal: 2000 }));
+    for (const [k, v] of [['social.push', 'nao'], ['social.hit', 'nao'], ['social.week', 1], ['social.hit', null], ['social.extra', true]]) await no(updateDoc(mine(), { [k]: v }), k);
+  });
+  test('as três escolhas (push, hit e week), juntas ou em separado, entram: é assim que o app grava (e o mapa vazio também vale)', async () => {
+    await ok(setDoc(mine(), { social: { push: true, hit: false, week: true }, updatedAt: serverTimestamp() }, { merge: true })); // o padrão que o servidor assume
+    await ok(setDoc(mine(), { social: { push: false, hit: true, week: false }, updatedAt: serverTimestamp() }, { merge: true }));
+    await ok(updateDoc(mine(), { 'social.hit': false }));
+    await ok(updateDoc(mine(), { 'social.week': true }));
+    await ok(updateDoc(mine(), { 'social.push': true }));
+    const s = (await ok(getDoc(mine()))).data();
+    if (s.social.push !== true || s.social.hit !== false || s.social.week !== true) throw new Error('as três escolhas deveriam estar gravadas: ' + JSON.stringify(s.social));
+    for (const part of [{ hit: true }, { week: false }, { push: false }, { hit: true, week: true }, {}]) await ok(setDoc(mine(), { social: part }), JSON.stringify(part)); // cada uma pode vir sozinha
   });
   test('o campo novo não afrouxa o resto: nenhum outro campo entra por ele', async () => {
     await no(setDoc(mine(), { social: { push: true }, apelido: 'x' }, { merge: true }));
@@ -610,5 +715,18 @@ describe('avisos dos amigos (1.1.1): a escolha em users/{uid}.social e o registr
     }
     await seedPair();
     await no(getDoc(doc(as(BRU), 'pushlog', ANA))); // nem um amigo aprovado
+  });
+  test('pushq (a fila do horário de silêncio) também é fechada para o app: ninguém lê, grava, lista nem apaga', async () => {
+    await seed((d) => setDoc(doc(d, 'pushq', ANA), { items: [], due: 1, exp: new Date() }));
+    for (const who of [as(ANA), as(BRU), as(CAI), anon()]) {
+      await no(getDoc(doc(who, 'pushq', ANA)));
+      await no(setDoc(doc(who, 'pushq', ANA), { items: [], due: 1 }));
+      await no(updateDoc(doc(who, 'pushq', ANA), { due: 2 }));
+      await no(deleteDoc(doc(who, 'pushq', ANA)));
+      await no(getDocs(collection(who, 'pushq')));
+      await no(setDoc(doc(who, 'pushq', 'qualquer'), { items: [] }));
+    }
+    await seedPair();
+    await no(getDoc(doc(as(BRU), 'pushq', ANA))); // nem um amigo aprovado
   });
 });

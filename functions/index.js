@@ -1,8 +1,13 @@
-// Maré — Cloud Functions. Exige plano Blaze. Duas funções, ambas em southamerica-east1 (a região do Firestore):
-//   sendReminders  (Parte 4)  a cada 15 min, envia o lembrete a quem tem reminder.nextAt vencido. Reproduz core.js (dayWindow,
-//                             expectedBy, nextReminderAt) no fuso de cada pessoa (campo tz).
-//   onFriendship   (1.1.1)    quando uma amizade é criada ou muda (pedido, aceite, aceno), avisa o outro lado por push.
-//                             A lógica está em friend-push.js e social-push.js; aqui só se liga o gatilho ao Admin SDK.
+// Maré — Cloud Functions. Exige plano Blaze. Todas em southamerica-east1 (a região do Firestore):
+//   sendReminders     (Parte 4)  a cada 15 min, envia o lembrete a quem tem reminder.nextAt vencido. Reproduz core.js (dayWindow,
+//                                expectedBy, nextReminderAt) no fuso de cada pessoa (campo tz); a conta está em clock.js.
+//   onFriendship      (1.1.1)    quando uma amizade é criada ou muda (pedido, aceite, aceno), avisa o outro lado por push. Desde a 1.2.0 também
+//                                junta as turmas quando um pedido vira amizade (a turma é uma só) e avisa quem já estava nela.
+//   onProfile         (1.2.0)    quando o perfil de alguém mostra a meta batida, avisa os amigos que ligaram esse aviso (opcional).
+//   flushHeld         (1.2.0)    a cada 15 min, entrega os avisos que esperaram a pessoa acordar (horário de silêncio).
+//   weeklyCrew        (1.2.0)    de hora em hora, manda o resumo da semana da turma a quem está no domingo, 19h (no relógio de cada um).
+//   reconcileNetworks (1.2.0)    uma vez por dia, completa as turmas que ficaram pela metade (e apaga amizades automáticas de quem saiu).
+// A lógica está em friend-push.js, network.js, crew-push.js, quiet.js, social-push.js e clock.js; aqui só se ligam os gatilhos ao Admin SDK.
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
@@ -10,14 +15,19 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import * as logger from 'firebase-functions/logger';
-import { notifyFriendship } from './friend-push.js';
+import { flushDue } from './friend-push.js';
+import { handleFriendship, reconcileAll } from './network.js';
+import { hitOf, notifyHit, sendWeekly } from './crew-push.js';
+import { MIN, local, windowOf, expectedAt, nextAt, vol } from './clock.js';
 
 initializeApp();
 setGlobalOptions({ region: 'southamerica-east1', maxInstances: 1 }); // mesma região do Firestore
 const db = getFirestore();
-const PAGE = 300, MIN = 60000;
+const PAGE = 300;
 const TITLES = ['Hora de um gole 💧', 'Pausa para a água 🌊', 'Seu corpo agradece 💙', 'Bora hidratar? 🥤']; // iguais ao app
 const DEAD = ['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'];
+// Tudo o que as partes de friend-push.js, network.js e crew-push.js precisam do mundo de fora (nos testes entram o emulador e um FCM de mentira)
+const deps = () => ({ db, FieldValue, Timestamp, messaging: getMessaging(), now: Date.now, log: logger });
 
 export const sendReminders = onSchedule({ schedule: 'every 15 minutes', timeoutSeconds: 300, memory: '256MiB', retryCount: 0 }, async () => {
   const now = Date.now();
@@ -36,13 +46,34 @@ export const sendReminders = onSchedule({ schedule: 'every 15 minutes', timeoutS
   logger.info('lembretes', { seen, sent });
 });
 
-// Avisos dos amigos: roda a cada gravação em friendships/{par} (criar, aceitar, acenar, apagar). Não grava nada nessa coleção: sem laço.
-// O Firestore pode entregar o mesmo evento mais de uma vez; o limite em friend-push.js (pushlog) garante um aviso só.
-export const onFriendship = onDocumentWritten({ document: 'friendships/{pair}', memory: '256MiB', timeoutSeconds: 60 }, async (event) => {
+// Avisos dos amigos: roda a cada gravação em friendships/{par} (criar, aceitar, acenar, apagar). O Firestore pode entregar o mesmo evento mais de
+// uma vez; o limite em friend-push.js (pushlog) garante um aviso só. Quando um pedido vira amizade, growNetwork (network.js) junta as turmas: as
+// amizades que ele cria levam "auto: true" e não disparam nada de novo (nem aviso nem outra junção), então não há laço. O tempo é folgado
+// (120 s) porque juntar duas turmas grandes lê e grava dezenas de documentos e avisa dezenas de pessoas.
+export const onFriendship = onDocumentWritten({ document: 'friendships/{pair}', memory: '256MiB', timeoutSeconds: 120 }, async (event) => {
   const ch = event.data;
   if (!ch) return;
-  await notifyFriendship({ before: ch.before.exists ? ch.before.data() : null, after: ch.after.exists ? ch.after.data() : null },
-    { db, FieldValue, messaging: getMessaging(), now: Date.now, log: logger });
+  await handleFriendship({ before: ch.before.exists ? ch.before.data() : null, after: ch.after.exists ? ch.after.data() : null }, deps()); // avisa e, se for o caso, junta as turmas
+});
+
+// Meta batida (opcional): roda a cada gravação em profiles/{uid}. A grande maioria não é meta batida e sai logo, sem tocar no banco.
+export const onProfile = onDocumentWritten({ document: 'profiles/{uid}', memory: '256MiB', timeoutSeconds: 60 }, async (event) => {
+  const ch = event.data;
+  if (!ch) return;
+  const before = ch.before.exists ? ch.before.data() : null, after = ch.after.exists ? ch.after.data() : null;
+  if (!hitOf(before, after)) return;
+  await notifyHit({ uid: event.params.uid, before: before, after: after }, deps());
+});
+
+// Horário de silêncio: entrega o que esperou a pessoa acordar. Cada fila é de uma pessoa (pushq/{uid}); só olha as que já podem sair (due vencido).
+export const flushHeld = onSchedule({ schedule: 'every 15 minutes', timeoutSeconds: 120, memory: '256MiB', retryCount: 0 }, async () => { await flushDue(deps()); });
+
+// Resumo da semana da turma: toda hora cheia; só quem está no domingo, 19h, no relógio dele recebe (e só uma vez: o limite em pushlog segura repetições).
+export const weeklyCrew = onSchedule({ schedule: '0 * * * *', timeoutSeconds: 300, memory: '256MiB', retryCount: 0 }, async () => { await sendWeekly(deps()); });
+
+// Confere as turmas uma vez por dia (de madrugada no Brasil): completa o que faltar e apaga amizades automáticas de quem já saiu.
+export const reconcileNetworks = onSchedule({ schedule: '30 3 * * *', timeZone: 'America/Sao_Paulo', timeoutSeconds: 300, memory: '256MiB', retryCount: 0 }, async () => {
+  await reconcileAll(deps());
 });
 
 async function handle(doc, now) {
@@ -51,8 +82,8 @@ async function handle(doc, now) {
   if (!r.enabled || !hs.length) { await doc.ref.update({ 'reminder.nextAt': null }); return 0; }
   const L = local(now, u.tz), w = windowOf(u.wake, u.sleep), goal = +u.goal || 2000;
   const total = u.today && u.today.day === L.day ? +u.today.ml || 0 : 0; // o "today" de ontem não vale
-  const expected = L.min < w.start ? 0 : Math.round(goal * Math.pow(Math.min(1, (L.min - w.start) / (w.end - w.start)), 0.85));
-  const next = nextAt(now, L, w, { interval: +r.interval || 90, smart: !!r.smart, total, goal, expected });
+  const expected = expectedAt(L, w, goal);
+  const next = nextAt(now, u.tz, w, { interval: +r.interval || 90, smart: !!r.smart, total, goal, expected });
   const awake = L.min >= w.start && L.min <= Math.min(w.end, 1439);
   const recent = r.lastSentAt && now - r.lastSentAt.toMillis() < 20 * MIN; // trava contra envios em sequência
   if (total >= goal || !awake || recent) { await doc.ref.update({ 'reminder.nextAt': Timestamp.fromMillis(next) }); return 0; }
@@ -61,7 +92,7 @@ async function handle(doc, now) {
     tokens: hs.map((h) => fcm[h].token),
     // Só "data": quem monta a notificação (com o botão +250 ml) é o sw.js do app
     data: {
-      kind: 'reminder', tag: 'mare-lembrete', url: './?source=push', badge: String(Math.ceil(left / 250)),
+      kind: 'reminder', tag: 'mare-lembrete', url: './?source=push', // sem "badge": o selo do ícone saiu na 1.2.0 (parecia um contador de notificações)
       title: TITLES[Math.floor(L.min / 60) % TITLES.length], action: u.unit === 'oz' ? '+8 oz' : '+250 ml',
       body: behind > 100 ? 'Você está ' + vol(behind, u.unit) + ' abaixo do ritmo. Um copo agora te coloca de volta no ritmo.'
         : 'Faltam ' + vol(left, u.unit) + ' para a meta de hoje.',
@@ -73,41 +104,3 @@ async function handle(doc, now) {
   await doc.ref.update(upd);
   return res.successCount;
 }
-
-// Igual a core.nextReminderAt, usando o relógio local da pessoa (L) em vez do relógio do servidor
-function nextAt(now, L, w, o) {
-  const at = (dayOff, min) => now + (dayOff * 1440 + min - L.min) * MIN - L.sec * 1000;
-  if (o.total >= o.goal) return at(1, w.start + 30);
-  let gap = o.interval;
-  if (o.smart) {
-    const diff = o.total - o.expected;
-    if (diff < -0.15 * o.goal) gap = Math.round(gap * 0.66); else if (diff > 0.1 * o.goal) gap = Math.round(gap * 1.5);
-  }
-  const t = L.min + gap;
-  if (t < w.start) return at(0, w.start + 30);
-  if (t > w.end) return at(1, w.start + 30);
-  return now + gap * MIN;
-}
-const FMT = {};
-function local(now, tz) {
-  let f = FMT[tz];
-  if (!f) {
-    const o = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' };
-    try { f = new Intl.DateTimeFormat('en-CA', Object.assign({ timeZone: tz || 'America/Sao_Paulo' }, o)); }
-    catch (e) { f = new Intl.DateTimeFormat('en-CA', Object.assign({ timeZone: 'America/Sao_Paulo' }, o)); } // fuso inválido
-    FMT[tz] = f;
-  }
-  const p = {};
-  f.formatToParts(new Date(now)).forEach((x) => { p[x.type] = x.value; });
-  return { day: p.year + '-' + p.month + '-' + p.day, min: +p.hour * 60 + +p.minute, sec: +p.second };
-}
-const hm = (s) => { const p = String(s || '0:0').split(':'); return (+p[0] || 0) * 60 + (+p[1] || 0); };
-function windowOf(wake, sleep) { // igual a core.dayWindow
-  const start = hm(wake || '07:00');
-  let end = hm(sleep || '23:00');
-  if (end <= start) end += 1440;
-  end -= 60;
-  if (end - start < 120) end = start + 120;
-  return { start, end };
-}
-const vol = (ml, unit) => (unit === 'oz' ? Math.round(ml / 29.5735) + ' oz' : Math.round(ml).toLocaleString('pt-BR') + ' ml');

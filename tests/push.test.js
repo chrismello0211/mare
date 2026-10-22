@@ -1,8 +1,10 @@
 // Maré — testes da lógica pura dos avisos de amigos (functions/social-push.js). Rodar: npm test
 // O que o servidor decide sem tocar no Firebase: que mudanças numa amizade viram aviso (e para quem), o texto, quem recebe e o limite
-// contra repetição e spam. A parte que fala com o Firestore e com o FCM é testada em tests/rules/friend-push.test.js (npm run test:rules).
+// contra repetição e spam. A parte que fala com o Firestore e com o FCM é testada em tests/rules/friend-push.test.js e tests/rules/network.test.js
+// (npm run test:rules). O relógio e o horário de silêncio estão em tests/clock.test.js, a fila do silêncio em tests/quiet.test.js e a conta da
+// turma (meta batida, semana) em tests/crew.test.js.
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import * as P from '../functions/social-push.js';
 import * as SO from '../public/js/social.js';
 
@@ -37,9 +39,13 @@ describe('nomes: a mesma limpeza do app', () => {
     expect(P.WAVE_KINDS).toEqual(SO.WAVE_KINDS);
     [0, 1, 1.5, -3, NaN, null, undefined, 'x', {}, { toMillis: () => 7 }, { toMillis: 3 }, { toMillis: () => NaN }].forEach((v) => expect(P.tsMs(v)).toBe(SO.tsMs(v)));
   });
-  it('nenhum caractere invisível solto no arquivo do servidor (só escapes \\uXXXX): o que o editor ou o zip mexerem não muda o código', () => {
-    // eslint-disable-next-line no-control-regex
-    expect(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00A0\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2000-\u200F\u202A-\u202F\u205F-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB]/.test(read('../functions/social-push.js'))).toBe(false);
+  it('nenhum caractere invisível solto nos arquivos do servidor (só escapes \\uXXXX): o que o editor ou o zip mexerem não muda o código', () => {
+    const files = readdirSync(new URL('../functions/', import.meta.url)).filter((f) => f.endsWith('.js'));
+    expect(files.sort()).toEqual(expect.arrayContaining(['clock.js', 'crew-push.js', 'friend-push.js', 'index.js', 'network.js', 'quiet.js', 'social-push.js']));
+    files.forEach((f) => {
+      // eslint-disable-next-line no-control-regex
+      expect([f, /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00A0\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2000-\u200F\u202A-\u202F\u205F-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB]/.test(read('../functions/' + f))]).toEqual([f, false]);
+    });
   });
   const NOMES = ['Chris', 'Marianne', '  Ana   Paula  ', 'João', 'Zé 🐢', 'Fê', 'A'.repeat(40), 'Nome\u200Bcom\u200Dinvisível', '\u202Eabc\u202C',
     'texto\u0300\u0301\u0302\u0303\u0304\u0305 zalgo', '<b>negrito</b>', 'linha\nquebrada\ttab', '\u0000nulo\u0007', '', '   ', '\u200B\u200B', '\u0301\u0302',
@@ -225,8 +231,9 @@ describe('messageOf: o texto do aviso', () => {
   it('todo valor do push é texto (o FCM só aceita texto em "data") e cabe no limite com folga', () => {
     [rq, ac, hi(), ch()].forEach((e) => Object.values(P.messageOf(e, 'N'.repeat(99))).forEach((v) => { expect(typeof v).toBe('string'); expect(v.length).toBeLessThan(200); }));
   });
-  it('a duração do push: pedidos e aceites esperam 2 dias; acenos, 6 horas', () => {
-    expect(P.TTL).toEqual({ request: 172800, accepted: 172800, wave: 21600 });
+  it('a duração do push: pedidos e aceites esperam 2 dias; acenos, 6 horas; entradas na turma, 1 dia; meta batida, 3 horas; resumos, 12 e 6 horas', () => {
+    expect(P.TTL).toEqual({ request: 172800, accepted: 172800, wave: 21600, joined: 86400, hit: 10800, week: 43200, digest: 21600 });
+    P.KINDS.forEach((k) => { expect(P.TTL[k]).toBeGreaterThan(0); expect(P.TTL[k]).toBeLessThanOrEqual(2419200); }); // o FCM aceita até 28 dias
   });
   it('payloadOf: o pacote que vai ao FCM (só "data", tudo texto, kind "friend" para o sw.js)', () => {
     [rq, ac, hi(), ch(true)].forEach((e) => {
@@ -364,8 +371,157 @@ describe('admit: limite contra repetição e spam', () => {
     expect(log).toEqual(copia);
   });
   it('as janelas e tetos combinados', () => {
-    expect(P.WINDOW).toEqual({ request: 24 * HOUR, accepted: 60e3, wave: 5 * MIN });
+    expect(P.WINDOW).toEqual({ request: 24 * HOUR, accepted: 60e3, wave: 5 * MIN, joined: 5 * MIN, hit: 12 * HOUR, week: 20 * HOUR });
     expect(P.CAP).toEqual({ all: 20, request: 5 });
     expect(P.KEEP).toBe(100);
+    P.KINDS.forEach((k) => { expect(P.WINDOW[k]).toBeGreaterThan(0); expect(P.WINDOW[k]).toBeLessThanOrEqual(24 * HOUR); }); // o registro só guarda 24 h
+  });
+  it('os tipos novos (entrada na turma, meta batida, resumo) têm a sua janela e entram nos tetos', () => {
+    const j = (from) => ({ kind: 'joined', from: from || ANA, to: BRU }), h = (from) => ({ kind: 'hit', from: from || ANA, to: BRU }), w = { kind: 'week', from: 'crew', to: BRU };
+    expect(run([[T0, j()], [T0 + 4 * MIN, j()], [T0 + 5 * MIN, j()], [T0 + 5 * MIN, j(CAI)]]).out).toEqual([true, false, true, true]);
+    expect(run([[T0, h()], [T0 + 11 * HOUR, h()], [T0 + 12 * HOUR, h()], [T0 + 12 * HOUR, h(CAI)]]).out).toEqual([true, false, true, true]);
+    expect(run([[T0, w], [T0 + 19 * HOUR, w], [T0 + 20 * HOUR, w]]).out).toEqual([true, false, true]);
+    const seq = []; for (let i = 0; i < 12; i++) seq.push([T0 + i, h(U('hit' + i))]); for (let i = 0; i < 10; i++) seq.push([T0 + 100 + i, j(U('jn' + i))]);
+    expect(run(seq).out.filter(Boolean)).toHaveLength(20); // entram no teto geral de 20 por hora, e não no de pedidos
+    expect(P.admit(null, h(), T0).log.q).toEqual([]);
+  });
+});
+
+describe('1.2.0: a turma única, a meta batida e o resumo da semana', () => {
+  const joined = (names, n, from) => ({ kind: 'joined', from: from || ANA, to: BRU, names: names, n: n });
+  it('quem o servidor aceita sozinho para fechar a turma ("auto") não gera aviso de aceite nem de pedido', () => {
+    expect(P.eventsOf(pair(), active({ auto: true }))).toEqual([]);
+    expect(P.eventsOf(pair({ by: BRU }), active({ by: BRU, auto: true }))).toEqual([]);
+    expect(P.eventsOf(pair(), active())).toEqual([{ kind: 'accepted', from: BRU, to: ANA }]); // aceite de gente de verdade continua avisando
+    expect(P.eventsOf(pair(), active({ auto: false }))).toHaveLength(1);
+    expect(P.eventsOf(null, active({ auto: true }))).toEqual([]); // nasceu pronta: nada
+  });
+  it('acenos dentro de uma amizade automática avisam como em qualquer outra', () => {
+    const w = { [ANA]: wave('hi', T0 + 5000) };
+    expect(P.eventsOf(active({ auto: true }), active({ auto: true, w: w }))).toEqual([{ kind: 'wave', from: ANA, to: BRU, wave: 'hi', again: false }]);
+  });
+  it('joinedText: as mesmas palavras do app (public/js/social.js) para 1, 2, 3 e muitos nomes', () => {
+    [['Ana'], ['Ana', 'Bia'], ['Ana', 'Bia', 'Caio'], ['Ana', 'Bia', 'Caio', 'Duda'], ['Ana', 'Bia', 'Caio', 'Duda', 'Edu', 'Fê', 'Gabi']].forEach((l) => {
+      expect(P.joinedText(l, l.length)).toBe(SO.joinedText(l.map((nm) => ({ nm: nm }))));
+    });
+  });
+  it('joinedText: o total pode ser maior que os nomes que vieram; nome vazio vira "Alguém"; nunca quebra', () => {
+    expect(P.joinedText(['Ana', 'Bia'], 5)).toBe('Ana, Bia e mais 3 pessoas entraram na turma');
+    expect(P.joinedText(['Ana', 'Bia'], 3)).toBe('Ana, Bia e mais 1 pessoa entraram na turma'.replace('1 pessoa entraram', '1 pessoa entraram'));
+    expect(P.joinedText(['Ana'], 2)).toBe('Ana e Alguém entraram na turma');
+    expect(P.joinedText([], 0)).toBe('Alguém entrou na turma');
+    expect(P.joinedText(['\u200B', '  '], 2)).toBe('Alguém e Alguém entraram na turma');
+    expect(P.joinedText(null, undefined)).toBe('Alguém entrou na turma');
+    expect(P.joinedText(['<b>Ana</b>'], 1)).toBe('bAna/b entrou na turma');
+  });
+  it('joined: o título diz quem chegou, o corpo convida (1 pessoa: a um aceno; várias: a ver a turma), o tag é de quem trouxe', () => {
+    expect(P.messageOf(joined(['Bia'], 1, CAI))).toEqual({ title: 'Bia entrou na turma\u00A0🌊', body: 'Que tal dar as boas-vindas com um aceno?', tag: 'mare-amigo-joined-' + CAI, url: './?tab=friends' });
+    expect(P.messageOf(joined(['Bia', 'Caio'], 2))).toMatchObject({ title: 'Bia e Caio entraram na turma\u00A0🌊', body: 'Toque para ver a turma.' });
+    expect(P.messageOf(joined(['Bia', 'Caio', 'Duda', 'Edu'], 4)).title).toBe('Bia, Caio e mais 2 pessoas entraram na turma\u00A0🌊');
+    expect(P.messageOf(joined(['Bia'], undefined)).body).toBe('Que tal dar as boas-vindas com um aceno?'); // sem "n", conta os nomes
+    expect(P.messageOf(joined([], undefined)).title).toBe('Alguém entrou na turma\u00A0🌊');
+  });
+  it('hit: o título diz quem bateu a meta; o corpo sugere um parabéns; um tag só para todos (vários amigos na mesma noite não enchem a tela)', () => {
+    const a = P.messageOf({ kind: 'hit', from: ANA, to: BRU }, 'Bia'), b = P.messageOf({ kind: 'hit', from: CAI, to: BRU }, 'Caio');
+    expect(a).toEqual({ title: 'Bia bateu a meta de hoje\u00A0🎉', body: 'Que tal mandar um parabéns? Toque para ver a turma.', tag: 'mare-turma-meta', url: './?tab=friends' });
+    expect(b.tag).toBe(a.tag);
+    expect(P.messageOf({ kind: 'hit', from: ANA, to: BRU }, '\u200B').title).toBe('Alguém bateu a meta de hoje\u00A0🎉');
+    expect(a.title + a.body).not.toMatch(/\d+ ?ml|litros|\d+%/); // nunca revela volume nem porcentagem
+  });
+  it('weekMessage: positivo, sem placar nem nomes; "semana perfeita" quando todos bateram todos os dias; o dia da pessoa só aparece se ela bateu algum', () => {
+    expect(P.weekMessage({ hits: 23, total: 35, mine: 5 })).toEqual({ title: 'Resumo da semana da turma\u00A0🌊',
+      body: 'A turma bateu a meta 23 vezes nos últimos 7 dias. Você bateu em 5 dias. Toque para ver a turma.', tag: 'mare-turma-semana', url: './?tab=friends' });
+    expect(P.weekMessage({ hits: 1, total: 14, mine: 1 }).body).toBe('A turma bateu a meta 1 vez nos últimos 7 dias. Você bateu em 1 dia. Toque para ver a turma.');
+    expect(P.weekMessage({ hits: 9, total: 21, mine: 0 }).body).toBe('A turma bateu a meta 9 vezes nos últimos 7 dias. Toque para ver a turma.');
+    expect(P.weekMessage({ hits: 9, total: 21, mine: null }).body).toBe('A turma bateu a meta 9 vezes nos últimos 7 dias. Toque para ver a turma.');
+    expect(P.weekMessage({ hits: 21, total: 21, mine: 7 }).body).toBe('Semana perfeita! Todo mundo bateu a meta todos os dias.');
+    expect(P.weekMessage({ hits: 0, total: 0, mine: null }).body).not.toContain('Semana perfeita'); // sem ninguém para contar não é "perfeita"
+    expect(JSON.stringify(P.weekMessage({ hits: 4, total: 14, mine: 2 }))).not.toMatch(/undefined|null|NaN|ranking| (último|última|perdeu|menos) /);
+  });
+  it('weekMessage nunca quebra com números estranhos', () => {
+    [{}, { hits: 'x', total: NaN, mine: 'y' }, { hits: -4, total: -1, mine: 99 }, { hits: 1e9, total: 1e9, mine: 7.9 }].forEach((w) => {
+      const m = P.weekMessage(w);
+      expect(JSON.stringify(m)).not.toMatch(/undefined|null|NaN|Infinity/);
+      expect(typeof m.body).toBe('string');
+    });
+  });
+  it('digestMessage: a conta de cada coisa, na ordem pedidos, aceites, entradas, acenos, metas, resumo; o primeiro texto em maiúscula', () => {
+    const d = (l) => P.digestMessage(l.map((k) => (typeof k === 'string' ? { k: k } : k)));
+    expect(d(['wave', 'wave', 'request', 'hit']).body).toBe('1 pedido de amizade, 2 acenos e 1 meta batida. Toque para ver a turma.');
+    expect(d(['request', 'request']).body).toBe('2 pedidos de amizade. Toque para ver a turma.');
+    expect(d(['wave', 'accepted']).body).toBe('1 pedido aceito e 1 aceno. Toque para ver a turma.');
+    expect(d([{ k: 'joined', n: 3 }, { k: 'joined', n: 1 }, 'wave']).body).toBe('4 pessoas novas na turma e 1 aceno. Toque para ver a turma.');
+    expect(d([{ k: 'joined', n: 1 }, 'hit']).body).toBe('1 pessoa nova na turma e 1 meta batida. Toque para ver a turma.');
+    expect(d(['week', 'wave']).body).toBe('1 aceno e o resumo da semana. Toque para ver a turma.');
+    expect(d(['request', 'accepted', { k: 'joined', n: 2 }, 'wave', 'hit', 'week']).body).toBe(
+      '1 pedido de amizade, 1 pedido aceito, 2 pessoas novas na turma, 1 aceno, 1 meta batida e o resumo da semana. Toque para ver a turma.');
+    expect(d(['wave', 'wave']).title).toBe('Novidades da turma\u00A0🌊');
+    expect(d(['wave', 'wave']).tag).toBe('mare-turma-novidades');
+    expect(d(['wave', 'wave']).url).toBe('./?tab=friends');
+  });
+  it('digestMessage ignora o que não é aviso e nunca quebra', () => {
+    [null, undefined, [], 'x', [null, 7, {}, { k: 'fogo' }, { k: '__proto__' }, { k: 'constructor' }]].forEach((l) => {
+      const m = P.digestMessage(l);
+      expect(JSON.stringify(m)).not.toMatch(/undefined|null|NaN|\[object/);
+      expect(typeof m.title).toBe('string');
+    });
+    expect(P.digestMessage([{ k: 'joined', n: 'x' }]).body).toContain('1 pessoa nova na turma');
+  });
+  it('payloadOf com os tipos novos e com o resumo de avisos: só texto, ev diz o tipo', () => {
+    const evs = [joined(['Bia'], 1), { kind: 'hit', from: ANA, to: BRU }, { kind: 'week', from: 'crew', to: BRU }, { kind: 'digest' }];
+    const ms = [P.messageOf(evs[0]), P.messageOf(evs[1], 'Bia'), P.weekMessage({ hits: 3, total: 14, mine: 1 }), P.digestMessage([{ k: 'wave' }, { k: 'hit' }])];
+    evs.forEach((e, i) => {
+      const d = P.payloadOf(e, ms[i]);
+      expect(Object.keys(d).sort()).toEqual(['body', 'ev', 'kind', 'tag', 'title', 'url']);
+      expect(d.kind).toBe('friend');
+      expect(d.ev).toBe(e.kind);
+      Object.values(d).forEach((v) => { expect(typeof v).toBe('string'); expect(v.length).toBeLessThan(300); });
+    });
+  });
+  it('todos os textos novos usam espaço que não quebra antes do emoji', () => {
+    [P.messageOf(joined(['Bia'], 1)), P.messageOf({ kind: 'hit', from: ANA, to: BRU }, 'Bia'), P.weekMessage({ hits: 3, total: 14 }), P.digestMessage([{ k: 'wave' }, { k: 'hit' }])]
+      .forEach((m) => expect(m.title).toMatch(/\u00A0\S+$/u));
+  });
+  it('wantsKind: "Avisos dos amigos" desliga tudo; o aviso de meta só liga com um true; o resumo vale ligado até um false', () => {
+    const u = (social) => ({ social: social });
+    P.KINDS.filter((k) => k !== 'hit' && k !== 'week').forEach((k) => {
+      expect(P.wantsKind({}, k)).toBe(true);
+      expect(P.wantsKind(u({ push: true, hit: false, week: false }), k)).toBe(true);
+      expect(P.wantsKind(u({ push: false }), k)).toBe(false);
+    });
+    expect(P.wantsKind({}, 'hit')).toBe(false);
+    expect(P.wantsKind(null, 'hit')).toBe(false);
+    expect(P.wantsKind(u({}), 'hit')).toBe(false);
+    expect(P.wantsKind(u({ hit: 'true' }), 'hit')).toBe(false);
+    expect(P.wantsKind(u({ hit: 1 }), 'hit')).toBe(false);
+    expect(P.wantsKind(u({ hit: true }), 'hit')).toBe(true);
+    expect(P.wantsKind(u({ push: false, hit: true }), 'hit')).toBe(false);
+    expect(P.wantsKind({}, 'week')).toBe(true);
+    expect(P.wantsKind(null, 'week')).toBe(true);
+    expect(P.wantsKind(u({ week: 'false' }), 'week')).toBe(true);
+    expect(P.wantsKind(u({ week: 0 }), 'week')).toBe(true);
+    expect(P.wantsKind(u({ week: false }), 'week')).toBe(false);
+    expect(P.wantsKind(u({ push: false, week: true }), 'week')).toBe(false);
+  });
+  it('wantsKind concorda com o que o app grava (ASSUME e wantOf em public/js/alerts-sync.js)', async () => {
+    const AS = await import('../public/js/alerts-sync.js');
+    [{}, { push: false }, { hit: true }, { week: false }, { push: false, hit: true, week: false }, { push: true, hit: false, week: true }].forEach((sc) => {
+      const w = AS.wantOf(sc), u = { social: { push: w.push, hit: w.hit, week: w.week } };
+      expect(P.wantsKind(u, 'request')).toBe(sc.push !== false);
+      expect(P.wantsKind(u, 'hit')).toBe(sc.push !== false && sc.hit === true);
+      expect(P.wantsKind(u, 'week')).toBe(sc.push !== false && sc.week !== false);
+      // quem nunca gravou nada (nada difere do que o servidor assume) é lido pelo servidor como o app o assume
+      if (w.push === AS.ASSUME.push && w.hit === AS.ASSUME.hit && w.week === AS.ASSUME.week) {
+        expect([P.wantsKind({}, 'request'), P.wantsKind({}, 'hit'), P.wantsKind({}, 'week')]).toEqual([AS.ASSUME.push, AS.ASSUME.hit, AS.ASSUME.push && AS.ASSUME.week]);
+      }
+    });
+  });
+  it('pairId do servidor = pairId do app, em centenas de pares (inclusive maiúsculas e minúsculas misturadas)', () => {
+    const abc = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const uid = () => { let o = ''; const n = 10 + Math.floor(rnd() * 20); for (let i = 0; i < n; i++) o += abc[Math.floor(rnd() * abc.length)]; return o; };
+    for (let i = 0; i < 500; i++) { const a = uid(), b = uid(); expect(P.pairId(a, b)).toBe(SO.pairId(a, b)); expect(P.pairId(a, b)).toBe(P.pairId(b, a)); }
+    expect(P.pairId('Abcdefghij', 'abcdefghij')).toBe(SO.pairId('Abcdefghij', 'abcdefghij')); // só a caixa difere
+    expect(P.pairId('Abcdefghij', 'abcdefghij')).toBe(P.pairId('abcdefghij', 'Abcdefghij'));
   });
 });

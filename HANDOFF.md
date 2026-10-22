@@ -1,6 +1,6 @@
 # Maré — PWA de hidratação · Handoff para o Claude Code
 
-Leia este arquivo inteiro antes de alterar o código. Ele explica o que está pronto, as decisões tomadas e o que falta. O código foi entregue em 5 partes numa conversa. **O estado real hoje (Firebase criado, GitHub Pages, correções feitas e o que falta) está no "Adendo — Parte 6", as bebidas da versão 1.0.2 (água na meta, outros líquidos à parte) estão no "Adendo — Parte 7" o interruptor opcional "Somar outros líquidos na meta" da versão 1.0.3 está no "Adendo — Parte 8", as insígnias do mar e o sistema de amigos da versão 1.1.0 estão no "Adendo — Parte 9", e os avisos por push dos amigos da versão 1.1.1 (inclusive o passo novo de publicar a função) estão no "Adendo — Parte 10", todos no final.** Onde as seções antigas dizem "ainda não foi executado", "criar o projeto" ou falam de fatores de hidratação, vale o adendo.
+Leia este arquivo inteiro antes de alterar o código. Ele explica o que está pronto, as decisões tomadas e o que falta. O código foi entregue em 5 partes numa conversa. **O estado real hoje (Firebase criado, GitHub Pages, correções feitas e o que falta) está no "Adendo — Parte 6", as bebidas da versão 1.0.2 (água na meta, outros líquidos à parte) estão no "Adendo — Parte 7" o interruptor opcional "Somar outros líquidos na meta" da versão 1.0.3 está no "Adendo — Parte 8", as insígnias do mar e o sistema de amigos da versão 1.1.0 estão no "Adendo — Parte 9", e os avisos por push dos amigos da versão 1.1.1 (inclusive o passo novo de publicar a função) estão no "Adendo — Parte 10", e a turma única com ranking, a meta em ml, o horário de silêncio e os avisos opcionais da versão 1.2.0 (inclusive o passo de publicar regras e funções e a conferência diária das turmas) estão no "Adendo — Parte 11", todos no final.** Onde as seções antigas dizem "ainda não foi executado", "criar o projeto" ou falam de fatores de hidratação, vale o adendo.
 
 ## O que é
 
@@ -14,11 +14,11 @@ PWA de hidratação em pt-BR, pensado para ir às lojas depois (via Capacitor). 
 - Meta: peso × 35 ml + atividade + clima do dia (opcional, Open-Meteo, 1 consulta/dia, coordenadas arredondadas).
 - Só água e água com gás contam na meta. Café, chá, suco, leite, coco e isotônico ficam numa segunda gota (âmbar), em contagem à parte e opcional; refrigerante e álcool não existem mais no app (ver Parte 7). Quem preferir a meta de hidratação liga, só em Ajustes, "Somar outros líquidos na meta" (desligado de fábrica; os outros líquidos contam até metade da meta, ver Parte 8).
 - Registro retroativo, missões diárias, 12 medalhas, 10 insígnias de bichinhos do mar (da concha ao narval, por litros de água acumulados; ver Parte 9), sequência de dias.
-- Amigos (1.1.0, opcional): convite por código, perfil público mínimo (apelido, mascote, insígnias, % da meta de hoje e sequência) visto só por amigos aprovados, acenos de "oi" e "parabéns". **Sem ranking e sem volumes**: é para motivar, não para competir (ver Parte 9). Desde a 1.1.1, pedido, aceite e aceno também chegam como **notificação push** com o app fechado (ver Parte 10).
+- Amigos (1.1.0, opcional): convite por código, perfil público mínimo (apelido, mascote, insígnias, % da meta de hoje e sequência) visto só por amigos aprovados, acenos de "oi" e "parabéns". Na 1.1.0 era **sem ranking e sem volumes**; **a 1.2.0 mudou isso por pedido do dono** (turma única com ranking Hoje/Semana/Sequência e meta em ml opcional, ver Parte 11), sempre com texto positivo: é para motivar (ver Partes 9 e 11). Desde a 1.1.1, pedido, aceite e aceno também chegam como **notificação push** com o app fechado (ver Parte 10).
 - Insights locais: período mais seco do dia, melhor dia da semana, % da água antes do meio-dia, semana vs. semana anterior.
 - Visual: gota SVG com ondas, texto "líquido", gota caindo + respingo a cada registro, confete na meta, tema claro/escuro, respeita "reduzir movimento".
 - Plano B sem push: exporta lembretes recorrentes para o calendário (.ics).
-- Atalhos no ícone (Android), badge com copos restantes, backup JSON, voltar do Android fecha painéis.
+- Atalhos no ícone (Android), backup JSON, voltar do Android fecha painéis. (O selo com os copos que faltam saiu na 1.2.0: parecia um contador de notificações; ver Parte 11.)
 
 ## Decisões técnicas
 
@@ -53,11 +53,15 @@ mare/
 │           art.js (GERADO)  kit.js  social.js  friends-view.js  social-cloud.js   # 1.1.0 (Parte 9)
 │           alerts-sync.js                                                         # 1.1.1 (Parte 10)
 ├── functions/  package.json  index.js  social-push.js  friend-push.js              # os dois últimos: 1.1.1 (Parte 10)
+│               clock.js  quiet.js  network.js  crew-push.js                        # 1.2.0 (Parte 11)
 └── tests/  core.test.js  art.test.js  social.test.js  compat.test.js  e2e.spec.js  e2e-friends.spec.js
     │       push.test.js  sw.test.js  files.test.js  e2e-alerts.spec.js              # 1.1.1 (Parte 10)
+    │       clock.test.js  quiet.test.js  crew.test.js                               # 1.2.0 (Parte 11)
     ├── helpers/  seed.js  friends.js  fake-cloud.browser.js
+    │             server-env.js  dst-sweep.mjs  old-rules.js                          # 1.2.0 (Parte 11)
     └── rules/  firestore.rules.test.js  social-cloud.test.js  friend-push.test.js
                 alerts-sync.test.js  firebase-cloud.test.js                           # contra o emulador do Firestore (npm run test:rules)
+                network.test.js  quiet-hours.test.js  crew-push.test.js              # 1.2.0 (Parte 11)
 ```
 
 ## Modelo de dados
@@ -73,7 +77,8 @@ localStorage "mare:v1"
   days:{ "AAAA-MM-DD": { goal, entries:[{ id, t(ms), ml, d(drinkId) }] } },
   achievements:{ id: ts }, missions:{ "AAAA-MM-DD": 1 }, ui:{},
   insignias:{ id: ts },                                  // 1.1.0: insígnias do mar conquistadas (Parte 9)
-  social:{ on, nick, share, code, push }                 // 1.1.0: amigos; fica FORA do backup. push (1.1.1): avisos dos amigos, nasce true
+  social:{ on, nick, share, code, push, goal, hit, week } // 1.1.0: amigos; fica FORA do backup. push (1.1.1): avisos dos amigos, nasce true.
+                                                          // 1.2.0: goal = meta em ml para a turma (null = ainda não decidiu), hit = aviso de meta batida (nasce false), week = resumo da semana (nasce true)
   profile.mascot: id da insígnia que os amigos veem ('' = a mais alta conquistada) }
 localStorage "mare:social"   // cópia da lista de amigos { uid, code, at, friends, reqIn, reqOut }; só vale para o mesmo uid
 
@@ -81,16 +86,17 @@ Firestore
 users/{uid}: name, tz, wake, sleep, unit, goal, today:{day, ml},
              reminder:{enabled, interval, smart, nextAt(Timestamp), lastSentAt},
              fcm:{ <hash>: {token, ua, at} }, stats:{streak, best, totalMl, level},
-             social:{ push }  (1.1.1: só existe se a pessoa mexeu na chave; sem o campo vale ligado), updatedAt
+             social:{ push?, hit?, week? }  (só existe se a pessoa mexeu; padrões: push ligado, hit desligado, week ligado), updatedAt
 users/{uid}/days/{AAAA-MM-DD}: goal, total, entries[], updatedAt
 
 Firestore, amigos (1.1.0, Parte 9; nenhum documento público leva carimbo de hora do dono)
-profiles/{uid}:            v, nm, mc, ins[], pct?, met, st, day, sh
+profiles/{uid}:            v, nm, mc, ins[], pct?, met, st, day, sh, gl?, wm?   (1.2.0: gl = meta em ml, só com o "sim" da pessoa; wm = máscara de 7 bits dos últimos 7 dias)
 codes/{CÓDIGO8}:           uid, nm, mc, rv?                    (nunca é apagado; rv = revogado)
-friendships/{menor_maior}: m[2], by, st, nm, mc, tn, tc, cd, at, ok?, w?   (w[uid] = { k, d, at })
+friendships/{menor_maior}: m[2], by, st, nm, mc, tn, tc, cd, at, ok?, w?, auto?   (w[uid] = { k, d, at }; auto: true = criada pelo servidor para completar a turma, 1.2.0)
 
 Firestore, avisos dos amigos (1.1.1, Parte 10; só o servidor lê e grava, as regras negam tudo ao app)
 pushlog/{uid}:             t{"tipo_quem": ms}, h[ms], q[ms], exp   (freio contra repetição e spam; exp = TTL opcional)
+pushq/{uid}:               items[{k, at, tag, title, body, url, n?}], due, exp   (1.2.0, Parte 11: avisos que esperam a pessoa acordar; só o servidor)
 ```
 
 ## Checklist
@@ -132,12 +138,12 @@ pushlog/{uid}:             t{"tipo_quem": ms}, h[ms], q[ms], exp   (freio contra
 - Sem Firebase, lembretes só disparam com o app aberto ou recém-minimizado. Para isso existe o .ics.
 - Safari pode apagar dados de sites não instalados após ~7 dias sem uso. Instalado na Tela de Início, isso não acontece; por isso o app incentiva a instalação.
 - Open-Meteo é grátis só para uso não comercial. No lançamento comercial, assine o plano ou troque o provedor.
-- Atalhos do ícone e a ação "+250 ml" são apenas Android. O badge depende do sistema.
+- Atalhos do ícone e a ação "+250 ml" são apenas Android. (O selo com número no ícone saiu na 1.2.0, Parte 11.)
 - A fórmula de meta é uma heurística, não orientação médica (há aviso nos Ajustes). Desde a 1.0.2 não há mais fatores de hidratação: a meta é de água, e os outros líquidos têm contagem própria. Na 1.0.3 há o interruptor opcional que soma os outros líquidos 1:1 até metade da meta; continua não havendo fator por bebida (ver Parte 8).
 
 ## Roadmap sugerido
 - Endpoint `quickLog` (HTTPS + token HMAC curto no payload do push) para a ação da notificação sincronizar na hora.
-- Resumo semanal por push (domingo 19h); i18n (en/es) extraindo as strings para um dicionário.
+- ~~Resumo semanal por push (domingo 19h)~~ (feito na 1.2.0, Parte 11); i18n (en/es) extraindo as strings para um dicionário.
 - Widgets nativos (WidgetKit/Glance) com o nível da maré; Apple Watch/Wear OS; Siri/App Intents.
 
 
@@ -261,7 +267,7 @@ pushlog/{uid}:             t{"tipo_quem": ms}, h[ms], q[ms], exp   (freio contra
 
 ### Lacunas (próximos passos)
 - views.js e ui.js dependem do DOM e só são cobertos pelo e2e. Se quiser teste de unidade, use Vitest com jsdom.
-- functions/index.js replica a lógica do core.js. Extraia nextAt, local e windowOf para um módulo e teste a paridade com core.nextReminderAt.
+- functions/index.js replica a lógica do core.js. Extraia nextAt, local e windowOf para um módulo e teste a paridade com core.nextReminderAt. (Feito na 1.2.0: `functions/clock.js`, com `tests/clock.test.js` comparando com o `core.js`, inclusive nas viradas do horário de verão.)
 - Backup, .ics e push precisam de teste manual no Android e no iPhone.
 - O Playwright usa o WebKit atual. Para iOS 12–15, Android antigo e iPhone físico (iOS 16.4+ instalado), use BrowserStack ou aparelhos reais.
 
@@ -396,12 +402,14 @@ Na 1.0.2, `VERSION` (sw.js) e `APP_VERSION` (app.js) estavam em `1.0.2`. O passo
 
 ## Adendo — Parte 9 (versão 1.1.0: insígnias do mar e amigos)
 
+> **Atualização (1.2.0, Parte 11):** o dono pediu uma **turma única com ranking**. Mudaram: a lista deixou de ser alfabética (agora há ranking Hoje/Semana/Sequência), a meta em ml pode aparecer (opt-in), "Remover amizade" saiu (ficou "Sair da turma"), o selo do ícone saiu e as amizades passaram a se completar sozinhas no servidor. O que esta parte diz sobre "nada de ranking" e "ordem alfabética" vale só para a 1.1.x.
+
 ### O que o dono pediu e por quê
 - Duas ideias vindas do grupo do dono, entregues juntas porque se alimentam: (1) um **sistema de amizade** para acompanhar o progresso diário dos amigos, **só se eles permitirem**, **sem competição** (é um app de saúde: a ideia é motivar, não ranquear); (2) um **joguinho de insígnias**: ao passar de certas quantidades de água (ele deu o exemplo de 100 L e de um cavalo-marinho), a pessoa desbloqueia uma insígnia que fica no **perfil público**. Ele deixou o Claude decidir onde encaixar e como: "bem testado, bem bacana, bem construído e de forma motivacional".
 - Decisões de desenho (todas do Claude, dentro da autorização do dono):
   - As insígnias são **bichinhos do mar** (10, da concha ao narval) e são o "joguinho": colecionar, escolher o **mascote** do perfil e ver o recife. Marcos por **litros de água acumulados**, que é uma conta que só cresce, então ninguém "perde" insígnia e ninguém precisa de streak perfeito para progredir. Ficam num "recife" na aba Jornada.
   - Amigos são uma **5ª aba ("Amigos")**, e **opcionais em dois níveis**: a pessoa precisa ativar (com apelido) e ainda escolhe se mostra o progresso do dia. Quem não ativa nunca é cobrado: nenhuma faixa, nenhum aviso.
-  - **Nada de ranking e nada de números absolutos:** a lista é em ordem alfabética, ninguém vê litros, ml, peso, horários ou localização de ninguém. Só **% da meta de hoje (0 a 100)**, se bateu a meta, **sequência** e as insígnias. A "Maré da turma" fala só de coisas boas ("3 de 4 já bateram a meta hoje") e nunca de quem está atrás.
+  - **Nada de ranking e nada de números absolutos (decisão da 1.1.0, revertida pelo dono na 1.2.0; ver Parte 11):** a lista é em ordem alfabética, ninguém vê litros, ml, peso, horários ou localização de ninguém. Só **% da meta de hoje (0 a 100)**, se bateu a meta, **sequência** e as insígnias. A "Maré da turma" fala só de coisas boas ("3 de 4 já bateram a meta hoje") e nunca de quem está atrás.
   - Interação positiva e leve: **um aceno por amigo por dia** ("oi" 👋 para quem está no caminho, "parabéns" 🎉 para quem bateu a meta), com festinha quando a turma inteira bate a meta (uma vez por dia) e quando uma amizade nasce.
   - Privacidade em primeiro lugar: perfil lido só por amigos aprovados, convite por **código** (nunca por busca de nomes), e dá para **trocar o código**, **remover** qualquer amizade e **sair** (apaga tudo da nuvem, ou não apaga nada: ver "Sair dos amigos").
 
@@ -454,9 +462,9 @@ Três coleções novas; **`users/*` e `users/*/days/*` não mudaram** (continuam
 - **Entrada** (aba Amigos, antes de ativar): explica o que os amigos veem e o que **nunca** veem; campo de apelido já preenchido com o primeiro nome; interruptor "Mostrar meu progresso do dia" (ligado de fábrica); botão "Ativar amigos". **Nada liga sozinho.** Sem a nuvem (aparelho sem internet na primeira vez, ou nuvem fora do ar) a tela avisa e não deixa ativar.
 - **Convidar:** card com o código `ABCD-EFGH` (8 caracteres, com traço só na tela), "Convidar" (compartilhamento do aparelho com o **link** `…/mare/?amigo=ABCDEFGH`; se não houver, copia o texto) e "Copiar código". **Receber:** quem abre o link vê quem convidou e, ao ativar, o pedido é enviado junto; quem já tem os amigos ligados cai direto no painel "Inserir código" com o resultado. O mesmo painel aceita **digitar** o código ou **colar o link inteiro**.
 - **Pedidos:** "Pedidos de amizade" (recebidos: Aceitar / Agora não; enviados: Cancelar; "Recusar todos" quando há vários). Aceitar faz festa ("Nova amizade", pop 🤗). Bolinha na aba quando há pedido ou aceno novo.
-- **Lista da turma:** avatares com **anel de progresso** (verde com ✓: meta batida; azul que vai enchendo: no caminho; trilho claro: ainda sem registros; tracejado: progresso em pausa ou sem novidades), apelido e uma frase ("62% da meta de hoje", "Meta batida hoje 🎉", "Ainda sem registros hoje", "Progresso do dia em pausa", "Sem novidades há 4 dias"). **Ordem alfabética**, sem barra de classificação. Faixa "Maré da turma" no topo (só frases positivas; "Turma completa!" tem o card verde e a festa uma vez por dia). Quem está há mais de 3 dias sem aparecer não entra na conta da turma.
-- **Painel do amigo:** avatar, frase de hoje, sequência, as 10 insígnias (as que ele não tem em silhueta, o mascote destacado), "Amigos desde…", botão de aceno e "Remover amizade" (com confirmação). **Aceno recebido:** aparece na lista ("acenou para você 👋" / "mandou parabéns pra você 🎉") com bolinha na aba até a pessoa ver.
-- **Hoje:** uma faixa discreta com a turma só aparece **para quem tem amigos** e abre a aba. **Ajustes → Amigos:** "Meu perfil público", interruptor do progresso, "Novo código de convite" e "Sair dos amigos".
+- **Lista da turma:** avatares com **anel de progresso** (verde com ✓: meta batida; azul que vai enchendo: no caminho; trilho claro: ainda sem registros; tracejado: progresso em pausa ou sem novidades), apelido e uma frase ("62% da meta de hoje", "Meta batida hoje 🎉", "Ainda sem registros hoje", "Progresso do dia em pausa", "Sem novidades há 4 dias"). **Ordem alfabética**, sem barra de classificação (1.1.0; a 1.2.0 trocou a lista por um ranking, Parte 11). Faixa "Maré da turma" no topo (só frases positivas; "Turma completa!" tem o card verde e a festa uma vez por dia). Quem está há mais de 3 dias sem aparecer não entra na conta da turma.
+- **Painel do amigo:** avatar, frase de hoje, sequência, as 10 insígnias (as que ele não tem em silhueta, o mascote destacado), "Amigos desde…", botão de aceno e "Remover amizade" (com confirmação; a 1.2.0 tirou o "Remover amizade", Parte 11). **Aceno recebido:** aparece na lista ("acenou para você 👋" / "mandou parabéns pra você 🎉") com bolinha na aba até a pessoa ver.
+- **Hoje:** uma faixa discreta com a turma só aparece **para quem tem amigos** e abre a aba. **Ajustes → Amigos:** "Meu perfil público", interruptor do progresso, "Novo código de convite" e "Sair dos amigos" (na 1.2.0: "Sair da turma", com mais chaves; Parte 11).
 - **Sair dos amigos** só vale se a nuvem confirmar (senão o perfil continuaria público e o app diria que saiu). Se der certo: "Você saiu dos amigos. Seu perfil foi apagado da nuvem." Se não der (sem internet, por exemplo): avisa e **nada mudou**, a pessoa continua nos amigos. Se a espera estourar (rede travada) mas a gravação terminar depois, a tela acompanha o que de fato aconteceu (`afterLeft`) em vez de ficar dizendo outra coisa que a nuvem.
 - **Apagar tudo (Ajustes), com os amigos ligados:** primeiro sai dos amigos. Se não conseguir, **não apaga nada** e abre o aviso "Não consegui sair dos amigos", com duas saídas: tentar de novo mais tarde ou "Apagar só neste aparelho" (`eraseLocal`), para ninguém ficar sem poder apagar os próprios dados (por exemplo, num aparelho onde a nuvem nunca sobe). Nesse segundo caminho o perfil continua na nuvem, visível só a quem já era amigo, até a pessoa ativar os amigos de novo e sair (o aviso diz isso com todas as letras).
 - **Fuso:** `day` do perfil é o dia de quem publicou; quem olha de um fuso atrás ainda vê "hoje" (`liveOf` trata `day > hoje` como hoje, até 2 dias).
@@ -532,7 +540,7 @@ Nenhuma das duas achou como **ler o perfil de outra pessoa, forjar ou aceitar so
 
 ### Ideias para depois
 - Login com Google/Apple para manter a identidade ao trocar de aparelho (e restaurar amigos junto).
-- Resumo semanal da turma por push (os avisos de pedido, aceite e aceno já existem desde a 1.1.1, Parte 10).
+- ~~Resumo semanal da turma por push~~ (feito na 1.2.0, Parte 11; os avisos de pedido, aceite e aceno já existiam desde a 1.1.1, Parte 10).
 - Desafios **em grupo e cooperativos** ("a turma bebe 50 L juntos neste mês"), mantendo a regra de nunca comparar pessoas.
 - Insígnias novas por constância (sequências), e uma escolha de "moldura" para o avatar.
 - Lista de bloqueio e denúncia, se o app for aberto ao público em geral.
@@ -624,9 +632,19 @@ O `git push` publica **só o site**. A função `onFriendship` e as regras novas
 
 **Se não chegar push**, conferir nesta ordem: (1) a chave "Avisos dos amigos" do destinatário está ligada e a nota da linha não aponta falta de permissão? (2) o aparelho se registrou? (`users/{uid}.fcm` no Firestore precisa ter ao menos um item; sem aparelho o log diz `sem aparelho`); (3) o log da `onFriendship` mostra o evento? `repetido` e `limite` são normais quando o mesmo aviso se repete; (4) ajustes do sistema do celular: notificações do app desligadas, economia de bateria agressiva (Android) ou modo Foco/Não perturbar (iOS).
 
+### Estado da implantação (19/10/2026)
+- **Publicado e conferido no Cloud Shell do dono** (`~/mare`, `git pull` até o commit "newversion"; `sha256sum firestore.rules` = `e1186f8cc1a27834c2e2bb5ea745c249787d7f7d521073e2f07ecdd876d19cf3`; `functions/` e `package.json` na 1.1.1):
+  - **Regras do Firestore publicadas** (`released rules firestore.rules to cloud.firestore`).
+  - **`sendReminders`** atualizada (mesmo código).
+  - **`onFriendship` criada** em `southamerica-east1` (Node 22, 256 MiB, 1 instância no máximo, sem retentativa). O gatilho do Eventarc `onfriendship-367444` (`google.cloud.firestore.document.v1.written`, `friendships/{pair}`, banco `(default)`) está **ativo**, e a instância subiu sem erro (a sonda de inicialização passou): o módulo carrega com as versões reais do Admin SDK e do `firebase-functions`.
+  - A **primeira tentativa falhou**, como previsto, com `Permission denied while using the Eventarc Service Agent` (HTTP 400, "Retry the deployment in a few minutes"). A segunda, uns 4 minutos depois (`firebase deploy --only functions:onFriendship --project mare-hidratacao`), passou. `firebase functions:list` mostra as duas funções (v2, `nodejs22`).
+  - Os registros da função só têm a auditoria da criação e a subida da instância: **ainda não houve nenhuma invocação real**. É o que falta: o teste de ponta a ponta com duas pessoas (ver "Como a turma passa a receber").
+- **Cloud Shell hoje** traz Node v24 e npm 12: aparece o aviso `EBADENGINE` (inofensivo; a função roda em Node 22 na nuvem) e o `npm install` cria um `functions/package-lock.json` que **não é versionado** (fica só no Cloud Shell, vai junto no envio e o build passou com ele).
+- **Para repetir:** a mesma sequência de "Para publicar (1.1.1)". Dica de automação: num Cloud Shell aberto pelo navegador embutido do app, a ação `type` não chega ao terminal; use `key` com no máximo 100 teclas por chamada, uma tecla por caractere (`space` para o espaço, `F` para maiúscula, `Return` para executar).
+
 ### Compatibilidade e limitações (1.1.1)
 - **Aparelhos que ainda estão no `sw.js` da 1.1.0** (não tocaram em "Atualizar") mostram o push de amigo como se fosse um lembrete (com o botão "+250 ml") e o toque não leva à aba Amigos. Resolve-se tocando em **Atualizar**.
-- **Sem horário de silêncio:** o push chega a qualquer hora (um aceno às 3 da manhã toca). `users/{uid}` já tem `tz`, `wake` e `sleep`, então dá para segurar o aviso fora da janela de vigília do destinatário se virar incômodo.
+- **Sem horário de silêncio (1.1.1; resolvido na 1.2.0, Parte 11):** o push chega a qualquer hora (um aceno às 3 da manhã toca). `users/{uid}` já tem `tz`, `wake` e `sleep`, então dá para segurar o aviso fora da janela de vigília do destinatário se virar incômodo.
 - **Sem retentativas:** se o FCM estiver fora do ar naquele instante, o push se perde (o pedido e o aceno continuam no app).
 - **Token velho** só sai do cadastro no próximo envio que falhar para ele.
 - **Quem não tem aparelho registrado não recebe:** é preciso ter dado a permissão com os amigos ligados (ou ter ligado os lembretes) depois de atualizar.
@@ -639,7 +657,131 @@ O `git push` publica **só o site**. A função `onFriendship` e as regras novas
 - iPhone/Safari de verdade (continuam emulados no Chromium) e o fluxo com **duas pessoas reais** no Firebase real (tarefa pendente desde a Parte 9).
 
 ### Ideias para depois
-- **Horário de silêncio** pelo `wake`/`sleep`/`tz` do destinatário (a função já lê `users/{uid}` na transação).
+- **Horário de silêncio** pelo `wake`/`sleep`/`tz` do destinatário (a função já lê `users/{uid}` na transação). **Feito na 1.2.0 (Parte 11).**
 - **Retentativas** do envio com o `pushlog` (hoje um aviso que falha se perde, de propósito).
-- Aviso de "o amigo bateu a meta": **não construído de propósito**, porque é o que mais lembra competição; se vier, que seja opt-in e só para quem escolher.
-- Resumo semanal da turma por push (domingo 19h), reaproveitando a infraestrutura da `onFriendship`.
+- Aviso de "o amigo bateu a meta": **não construído de propósito**, porque é o que mais lembra competição; se vier, que seja opt-in e só para quem escolher. **Feito na 1.2.0 como opt-in (Parte 11), depois que o dono pediu.**
+- Resumo semanal da turma por push (domingo 19h), reaproveitando a infraestrutura da `onFriendship`. **Feito na 1.2.0 (Parte 11).**
+
+
+## Adendo — Parte 11 (versão 1.2.0: turma única com ranking, meta em ml, horário de silêncio e avisos opcionais)
+
+### O que o dono pediu e por quê
+Depois de usar a 1.1.1 com gente de verdade, o dono mandou um pedido com duas capturas da Tela de Início do iPhone (o ícone do Maré com um selo vermelho "13"):
+- **"A tela de amigos, podemos dar uma vida?"** Quem testou disse: "tá legal, mas a gente não consegue fazer muita coisa, não dá pra ver muita coisa, não vi tanta serventia".
+- **Uma turma só, não vários grupos.** Cada código aceito criava "um segundo grupo"; ele queria **uma rede única**, "como uma tela de ranking", parecida com a do aplicativo **ForgeX** ("uma pegada totalmente diferente, mas algo parecido; não se apegue exatamente ao que eu estou dizendo"). Ele mesmo reconhece que isso **sai da ideia inicial** (sem ranking) e diz que não tem problema.
+- **Mostrar a meta do amigo em ml**, não só a porcentagem.
+- **O número no ícone:** "faz sentido ter? pq onde estão essas notificações?".
+- **As três "ideias para depois" do HANDOFF** (Parte 10) de que ele gostou: horário de silêncio, aviso de "o amigo bateu a meta" (opt-in) e resumo semanal da turma por push (domingo, 19h). Pediu que o Claude pensasse na melhor estratégia. Autorização total, como nas partes anteriores.
+
+### Decisões do Claude (dentro da autorização)
+- **Reverte a regra da Parte 9** ("nada de ranking, lista alfabética, nada de números absolutos") **por decisão do dono**. Fica o espírito: texto sempre positivo (ninguém é "o último": quem não entra na conta de uma visão fica numa lista à parte), tudo opcional, só quem aceita entra. A Maré da turma, os acenos e o "Turma completa!" continuam.
+- **O ForgeX não foi visto.** Duas buscas na web deram resultados ambíguos, então o desenho é um **padrão de ranking genérico** (pódio, lista numerada, três visões) no estilo do Maré. Se ele quiser outra cara, basta mandar uma captura da tela de referência.
+- **O "13" não era notificação.** Era `Math.ceil(copos que faltam / 250)`, o "badge com copos restantes" que o app colocava no ícone desde as primeiras versões. Como se parece com um contador de notificações e não é, **foi removido**: o app (`clearBadge()` em `platform.js`, na abertura e a cada push) e o `sw.js` (ao ativar e a cada push) zeram o selo, e o servidor parou de mandar `badge` nos lembretes. Em cada aparelho o número some na primeira vez que o app atualizado é aberto.
+- **"Remover amizade" por pessoa saiu; ficou "Sair da turma".** Numa turma única todo mundo é amigo de todo mundo; se alguém removesse uma pessoa, a conferência do servidor recriaria o par no dia seguinte (`tests/rules/network.test.js` prova isso com o app e o servidor de verdade: remover uma amizade automática e rodar `reconcileAll` a restaura; `leave()` não é restaurado, porque quem saiu não tem mais perfil). Em vez de prometer o que não se cumpre, só existe sair (de tudo).
+- **A meta em ml é opt-in.** Com a % e a meta dá para estimar quanto a pessoa bebeu; o app **pergunta uma vez** (só quando já há amigos) e o texto diz isso com todas as letras. Ligar/desligar fica em Ajustes e em "Meu perfil". Ao **sair da turma a escolha é zerada** (o "sim" valia para a turma que ficou para trás): numa turma nova o app pergunta de novo.
+- **Padrões dos dois avisos novos:** **meta batida desligado** (é o que mais lembra competição, então só liga quem quiser) e **resumo da semana ligado** (só chega a quem já recebe os avisos dos amigos, tem aparelho registrado e amigos que mostram a semana; desliga em Ajustes → Amigos). O app assume `{ push: true, hit: false, week: true }` até a pessoa mexer.
+
+### A turma única (`functions/network.js`)
+- **Modelo:** a turma é o conjunto de pessoas ligadas por amizades **ativas** (de amigo em amigo) e é sempre **completa**: todo mundo tem amizade com todo mundo. Quando um pedido vira amizade (`pending → active` por um aplicativo), `growNetwork` calcula as duas turmas (`crewOf`, sem contar a amizade nova), junta as pessoas de cada lado que ainda têm perfil e cria o que falta (`planClosure`): **amizades novas** (`create`) e **pedidos pendentes entre membros da mesma turma, que viram amizade** (`upgrade`, em silêncio). Tudo em lotes de 400 (`BATCH`); se um lote falha, repete um a um e aceita "já existe"/"sumiu".
+- **Quem escreve:** só o servidor (Admin SDK ignora as regras). As amizades criadas ou promovidas pelo servidor levam **`auto: true`**; as regras **nunca** aceitam um aplicativo criando uma amizade já ativa (o pedido do app tem exatamente 9 chaves e `st: 'pending'`; o aceite só muda `st` e `ok`; o aceno só muda `w`; `auto` é impossível para clientes). Amizade `auto` não gera "aceitou seu pedido" nem dispara outra junção (sem laço).
+- **Limite:** uma turma tem no máximo **31 pessoas** (`CREW_MAX`; o app guarda até 30 amigos por pessoa, `MAX_FRIENDS`). Se a junção passar disso, **não faz nada**: fica só a amizade que a pessoa aceitou (como na 1.1.x), e o log diz `turma grande demais para juntar`.
+- **Aviso "X entrou na turma":** cada pessoa que já estava em um dos lados recebe um push com os nomes de quem veio do outro lado (kind `joined`; "X entrou na turma", "X e Y entraram na turma", "X, Y e mais N pessoas entraram na turma"; o app mostra o mesmo texto como aviso de tela e `joinedText` é igual nos dois lados). **Quem aceitou e quem pediu não recebem esse aviso um do outro** (já têm o de "aceitou seu pedido" e a tela); só das outras pessoas.
+- **Ordem no gatilho `onFriendship` (`handleFriendship`):** primeiro o aviso do evento (pedido, aceite, aceno), depois a junção. Se a junção falhar, o erro vai para o registro (`turma única falhou`) e a conferência diária completa.
+- **`reconcileNetworks`** (todo dia às **03:30, horário de Brasília**; `reconcileAll`): varre as amizades ativas (páginas de 500), agrupa em turmas (união de conjuntos), **completa** as de 3 a 31 pessoas (no máximo 3000 amizades novas por rodada, `MAX_NEW`: se algo estranho disparar, o estrago para aí), deixa em paz as maiores que 31 e **apaga amizades `auto` cujo dono já saiu** (a saída apaga as amizades dele, mas uma gravação do servidor no mesmo instante pode recriar uma). **Não avisa ninguém** (o app mostra "X entrou na turma" sozinho quando a lista muda). **Uma falha isolada não derruba a rodada:** se a limpeza das órfãs ou o fechamento de uma turma falha (o Firestore some por um instante), o erro vai para o registro (`amizades automáticas de quem saiu não foram apagadas`; `turma não completada (fica para a próxima conferência)`), conta em `failed` no resultado e a conferência segue para as outras turmas; o que ficou para trás se completa na próxima rodada. `orphans` só soma o que foi mesmo apagado.
+- **Efeito da primeira execução:** as amizades que já existiam entre pares (as da 1.1.x) **viram uma turma só**: se A é amigo de B e de C, B e C passam a ser amigos. Isso é o que o dono pediu, mas vale **avisar o grupo** antes.
+- **Privacidade, dito com todas as letras no app** (Inserir código, "Como funciona a privacidade", tela de entrada): **aceitar um pedido junta as turmas**; quem entra vê todo mundo e todo mundo o vê; cada um decide o que mostra (progresso, meta em ml); sai quando quiser, de tudo.
+- **Risco aceito:** qualquer membro pode trazer um desconhecido (o convidado só precisa ser aceito por quem o convidou) e ele passa a ver a turma inteira. A turma é avisada ("X entrou na turma") e cada um pode sair, mas **não há como tirar uma pessoa** nem bloquear. Ver "Ideias para depois".
+
+### Ranking e telas (`social.js`, `friends-view.js`, `app.js`, `app.css`)
+- **Aba Amigos**, de cima para baixo: cabeçalho e "Perfil"; aviso de conexão; pedidos recebidos; cartão de avisos por push; **cartão "Mostrar sua meta aos amigos?"** (uma vez, só com amigos e enquanto `S.social.goal` é `null`); **resumo da visão** ("Maré da turma" / "Semana da turma" / "Sequências da turma", sempre positivo); **Ranking da turma**; convite; convites enviados; nota de privacidade.
+- **Três visões** (`RANKS`, escolha em `S.ui.frRank`): **Hoje** (% da meta de hoje), **Semana** (dias na meta nos últimos 7, `n/7`) e **Sequência** (dias seguidos, `🔥 n`). Cada uma tem quem conta (`COUNTS`) e desempates (`THEN`, no fim o nome e o uid, para a ordem nunca tremer): Hoje: %, depois sequência, depois semana; Semana: dias, depois % de hoje, depois sequência; Sequência: dias, depois semana, depois % de hoje.
+- **Quem conta:** Hoje, quem já apareceu hoje (um amigo que não abriu o app hoje fica **fora**, não "em último"); Semana, quem tem os 7 dias conhecidos; Sequência, quem mostra o progresso e tem perfil. Quem não conta aparece depois, em ordem alfabética, sob "Sem dados de hoje/da semana/de sequência". **Empate divide a posição** (1, 1, 3); valor zero mostra "–" no lugar do número.
+- **Pódio** só com pelo menos 3 pessoas e o 3º valor maior que zero ("um pódio de zeros não anima ninguém"); com posições todas diferentes a ordem de exibição é 2º, 1º, 3º; com empate, a da lista. Cada linha tem avatar com anel de progresso, apelido ("você" na sua), a frase de hoje, as **7 bolinhas da semana**, o número grande da visão, a **meta em ml** (`meta 2.500 ml`, só de quem deixou) e o **botão de aceno** (👋 para quem está no caminho, 🎉 para quem bateu a meta; um por dia por amigo; também no pódio).
+- **A semana no perfil (`wm`):** máscara de 7 bits em que o bit i diz se o dia (`day − i`) bateu a meta; o bit 0 é o dia do perfil. Quem olha desloca a janela pelos dias que passaram: dias em que o amigo não abriu o app contam como não batidos. Sem `wm` (app antigo), em pausa ou com um dia que ainda nem chegou: "sem dados da semana" (`known: false`). `weekOf` existe igual em `public/js/social.js` e em `functions/crew-push.js`; `tests/crew.test.js` compara as duas em 4000 perfis sorteados (e nas viradas de mês e de ano).
+- **Meta em ml (`gl`):** `profilePayload` só envia `gl` com `S.social.goal === true` e o progresso ligado (inteiro de 0 a 10000; o app só mostra de 100 a 10000). `null` = a pessoa ainda não decidiu = não sai. Vale também para o **seu próprio** ranking (`myMember` mostra a sua meta para você mesmo, mesmo em pausa para os amigos).
+- **Ajustes → Amigos:** Meu perfil público, Mostrar meu progresso do dia, **Mostrar minha meta em ml**, Avisos dos amigos, **Avisar quando um amigo bater a meta**, **Resumo da semana da turma**, Novo código de convite e **Sair da turma**. Os dois avisos novos só valem com "Avisos dos amigos" ligado e a permissão dada: ligar um deles sem isso pede a permissão (se faltar) e liga também os "Avisos dos amigos".
+- **Hoje:** a faixa "Maré da turma" continua (só com amigos); o aviso de tela "X entrou na turma 🐠" (com "Ver") aparece quando a lista cresce sem ser por um pedido seu.
+- **Selo do ícone:** removido (ver Decisões).
+
+### Horário de silêncio (`functions/clock.js`, `quiet.js`, `friend-push.js`)
+- **Quando a pessoa dorme:** fora de `wake` (inclusive) até `sleep` (exclusive) no **relógio dela** (`tz`; dormir depois da meia-noite funciona). `wake == sleep` não define silêncio nenhum ("sempre acordada"); campos que faltam valem 07:00 e 23:00, como no app. A conta é **exata na virada do horário de verão** (`instantAt`, "uma hora que não existe vale a seguinte; uma que acontece duas vezes vale a primeira"); `tests/helpers/dst-sweep.mjs` varre os fusos e as viradas. `hm` (a hora "HH:MM" que o app grava) só devolve de 0 a 1440 minutos: texto fora do formato, hora ou minuto fora do intervalo e negativos valem 0, e "24:00" vale 1440, igual ao `core.js` (`tests/clock.test.js` compara as duas).
+- **`route()` (friend-push.js)** é o caminho de **todo** aviso (pedido, aceite, aceno, entrada na turma, meta batida, resumo da semana): numa **única transação** lê `users/{to}`, `pushlog/{to}` e `pushq/{to}`, confere aparelho e chave (`wantsKind`), o limite (`admit`) e se está acordada. Acordada: envia. Dormindo: o aviso vai para a **fila** `pushq/{uid}` = `{ items[], due, exp }` (`due` = a próxima hora de acordar; o limite já foi gasto, então a repetição do mesmo evento não entra duas vezes).
+- **Validade na fila** (`HOLD`): pedido e aceite 48 h, entrada na turma 24 h, aceno 12 h, resumo da semana 12 h, **meta batida 4 h** (notícia velha perde o sentido). A fila guarda no máximo 20 itens; um aviso do mesmo `tag` substitui o anterior.
+- **`flushHeld`** (a cada 15 min): lê as filas com `due` vencido e entrega **um aviso só** se for um; se forem vários, o resumo **"Novidades da turma"** ("2 pedidos de amizade, 1 aceno e 1 meta batida. Toque para ver a turma."). Ainda dormindo (ela mudou o horário) só remarca; sem aparelho ou com os avisos desligados, joga a fila fora; tudo vencido, idem. A fila é reivindicada (apagada) **na mesma transação** que decide: duas execuções ao mesmo tempo não mandam duas vezes ("melhor perder um aviso que mandar dois").
+- **TTL do push** (quanto tempo o FCM espera um aparelho desligado, `TTL`): pedido e aceite 2 dias, entrada na turma 1 dia, aceno 6 h, meta 3 h, resumo da semana 12 h, "Novidades" 6 h. **Janela de repetição** (`WINDOW`, por tipo e por quem fez): pedido 24 h, aceite 60 s, aceno 5 min, entrada 5 min, meta 12 h, resumo 20 h.
+- **`sendReminders`** passou a usar `clock.js` (a conta era do `index.js`): é **a mesma do app** (`core.js`), agora também certa na noite em que o horário de verão vira (a do servidor antes podia sair uma hora fora nessa noite, para quem mora num fuso com horário de verão; no Brasil não há). `tests/clock.test.js` varre todas as viradas de 2026 em fusos de todo jeito e compara com `core.js`.
+
+### Avisos opcionais: meta batida e resumo da semana (`functions/crew-push.js`)
+- **Chaves** em `users/{uid}.social = { push?, hit?, week? }` (booleanos; qualquer uma pode faltar): `push` ("Avisos dos amigos") desliga **tudo**; `hit` ("Avisar quando um amigo bater a meta") só liga com um **true** de verdade (**padrão desligado**, de propósito: é o que mais lembra competição); `week` ("Resumo da semana da turma") vale ligado, só um **false** desliga. `public/js/alerts-sync.js` grava as três juntas (nunca só a que mudou), só quando algo difere do que o servidor assume, e a marca local (`mare:cloud.social`, agora um objeto) só muda depois de o servidor confirmar (a forma antiga, um booleano, ainda é lida).
+- **Meta batida (`onProfile`):** roda a cada gravação em `profiles/{uid}`; sai logo (sem tocar no banco) se não é a **primeira vez do dia** em que o perfil mostra `met: true` com o progresso ligado (`hitOf`). Avisa só os **amigos que ligaram** o aviso, têm aparelho e não desligaram o push. Texto: "<nome> bateu a meta de hoje 🎉" / "Que tal mandar um parabéns? Toque para ver a turma." Um `tag` só para todos (vários amigos na mesma noite trocam o aviso em vez de empilhar).
+- **Resumo da semana (`weeklyCrew`):** roda **de hora em hora**; só avisa quem está, no relógio dele, no **domingo entre 19:00 e 19:59** (`zonesAt`: os nomes de fuso que o Node conhece mais apelidos antigos que navegadores ainda mandam; consulta `users` com `tz in [...]`, 30 fusos por vez). Para cada pessoa: perfis da turma (a conta é `weekOfCrew`), **só se pelo menos mais uma pessoa mostra os 7 dias e a turma bateu a meta ao menos uma vez na semana**; "Semana perfeita! Todo mundo bateu a meta todos os dias." ou "A turma bateu a meta N vezes nos últimos 7 dias. Você bateu em K dias. Toque para ver a turma." (sem placar nem nomes). Quem não tem `tz` gravado não entra na consulta, e a consulta traz só os campos usados (`select('tz', 'social', 'fcm')`). Quem tem um `tz` que o Node não conhece e que não está na lista de apelidos (`ZONES_EXTRA`: `GMT`, `America/Argentina/Cordoba`, `America/Kentucky/Louisville`, `Pacific/Chuuk`… os nomes antigos que alguns navegadores ainda mandam) **não recebe o resumo**; `tests/crew.test.js` confere que cada nome da lista é válido no `Intl` e que os nomes principais entram em `zonesAt`.
+- Os dois passam por `route()`: horário de silêncio, limite e FCM como todo aviso.
+
+### Dados e regras (`firestore.rules`)
+- `profiles/{uid}`: ganhou **`gl`** (inteiro de 0 a 10000, ou null) e **`wm`** (inteiro de 0 a 127, ou null), opcionais.
+- `users/{uid}.social`: mapa com **só** `push`, `hit` e `week`, cada um booleano e opcional (`{}` vale).
+- `friendships/{par}`: o documento pode ter **`auto: true`** (só o servidor grava; o app nunca).
+- `pushq/{uid}`: fechado para o app (`if false`), como `pushlog`.
+- SHA-256 do `firestore.rules` da 1.2.0: `52dbd3fe5a6c14919d154ad3846932bc4ddafaa38d2ee45c24c5de65ae18e293` (`sha256sum firestore.rules`).
+- **O site novo antes das regras novas não quebra os amigos:** `putProfile` (`social-cloud.js`) tenta o perfil completo e, se as regras de antes recusarem (`permission-denied`) e o perfil tem `gl`/`wm`, grava de novo **no formato da 1.1.x** (sem esses dois campos); a abertura seguinte do app, já com as regras novas, publica o completo. Só as escolhas `hit`/`week` ficam sem gravar até as regras entrarem (`alerts-sync` tolera a recusa).
+- **As regras novas são um superconjunto das antigas:** os aparelhos da 1.1.x continuam funcionando (ignoram `gl`, `wm` e `auto`).
+
+### Como foi validado
+- `npm test` (Vitest): **502** testes de lógica em 10 arquivos: `social` 119, `push` 105, `core` 52, `clock` 52, `crew` 45, `quiet` 28, `compat` 53, `sw` 29, `art` 13 e `files` 6. Novos: `clock.test.js` (fuso, horário de verão, `nextAt` igual ao `core.js`, `hm` à prova de lixo, `zonesAt` o ano inteiro), `quiet.test.js` (a fila), `crew.test.js` (`hitOf`, `weekOf`, `weekOfCrew`, igualdade com o app, nomes de fuso), `sw.test.js` (só as janelas do Maré).
+- `npm run test:rules` (emulador do Firestore): **389** testes em 8 arquivos: `social-cloud` 104, `firestore.rules` 78, `network` 58, `friend-push` 39, `quiet-hours` 36, `alerts-sync` 29, `crew-push` 28 e `firebase-cloud` 16. `network.test.js` e `quiet-hours.test.js` rodam `growNetwork`, `reconcileAll`, `route` e `flushDue` contra o **Admin SDK de verdade no emulador** com um FCM de mentira (repetição, corrida entre instâncias, lotes que falham, turma de 31, pedidos cruzados, quem saiu no meio, o horário de verão de verdade); `crew-push.test.js` conta as **transações** (quem não vai receber nem chega a abrir uma). `tests/helpers/old-rules.js` monta as regras da 1.1.0/1.1.x a partir das de hoje para provar o caso "site novo, regras velhas".
+- `npm run test:e2e` (Playwright): **1.593 execuções** nos mesmos 13 perfis de aparelho da Parte 6: **1.588 passam e 5 são puladas de propósito** (o mesmo teste de registro de push no iOS, que só existe com o app instalado). São **196 testes por perfil** nos 8 perfis padrão (32 do app, **79 de amigos** em `tests/e2e-friends.spec.js` e **85 de avisos** em `tests/e2e-alerts.spec.js`) e só os 5 testes `layout:` nos 5 perfis extras (8 × 196 + 5 × 5). Os perfis de iPhone/iPad continuam emulados no Chromium.
+- **Teste de mutação** (scripts descartáveis, fora do repositório; cada defeito plantado tem que fazer pelo menos um teste falhar): turma única 48 (47 pegos + 1 equivalente: `NW04`, o `ca.over` já é coberto pelo tamanho total), horário de silêncio e relógio (rodadas anteriores, todos pegos), avisos opcionais 23 (22 pegos + 1 equivalente: `CP15`, o laço nunca recebe um grupo vazio), regras 24 (23 pegos + 1 equivalente: `RL15`, `keys()` num valor que não é mapa já dá erro e nega), `alerts-sync` 13 (todos pegos), perfil de reserva 8 (todos pegos) e as correções da revisão independente 31 (todos pegos: o único que sobreviveu na primeira rodada, `RV05` — contar as órfãs antes de gravar —, virou um teste novo que derruba só o `commit()`). Os sobreviventes de primeira viraram **testes novos** (quem não vai receber não abre transação; a fronteira exata de 4 h da meta na fila; campos extras em `social`; o lote que falha só na hora de gravar).
+- **Um teste antigo que oscilava** (`social-cloud.test.js`, "a escuta do perfil de um amigo se recupera sozinha", falhava uma rodada em cada duas ou três): era o **teste**, não o app. A recusa simulada da escuta chegava num `setTimeout(0)` e, sob carga, a resposta da rede às vezes passava na frente; sem nada para refazer naquele instante, o app esperava o temporizador (2 s, depois 6 s) e estourava o prazo do teste. A recusa agora chega num microtask (antes de qualquer rede): 12 rodadas seguidas passaram. O comportamento do app (religar assim que o servidor confirma; ou no temporizador, se a recusa vier depois) não mudou.
+- **Uma corrida num teste de tela** (`tests/e2e-alerts.spec.js`, "a aba Amigos não pisca…" e "a permissão muda por fora…"): os dois usavam a nuvem de mentira (`window.__fake`) logo depois de o cartão aparecer, mas ela só nasce quando a nuvem liga; numa rodada sob carga o teste chegou antes e falhou uma vez em 1.593. Era o **teste**: agora esperam `window.__fake` (48 repetições em 3 perfis passaram) e a rodada final inteira ficou verde.
+
+### Revisão independente e correções finais
+Antes de fechar a 1.2.0, dois revisores independentes (agentes só de leitura, que não viram as conclusões um do outro) leram o código novo: um as funções (`network.js`, `crew-push.js`, `friend-push.js`, `quiet.js`, `clock.js`, `index.js`) e as regras; o outro o cliente (`app.js`, `social.js`, `friends-view.js`, `alerts-sync.js`, `sw.js`, CSS). **Nenhum achou defeito grave, vazamento de privacidade ou injeção** (nomes e apelidos sempre passam por `esc()`/`textContent`; o servidor só escreve o que as regras proíbem o app de escrever). Os achados pequenos foram corrigidos e ganharam teste:
+- **Conferência diária à prova de falha isolada** (`reconcileAll`) e **`hm` endurecido** (ver as seções acima), com testes que quebram o Firestore de propósito (`tests/rules/network.test.js`).
+- **Nomes de fuso antigos** no resumo da semana e a **consulta enxuta** (`select`), ver "Avisos opcionais".
+- **`sw.js` só mexe nas janelas do Maré.** Vários apps dividem a origem `usuario.github.io` e `clients.matchAll` devolve as janelas de **todos**: tocar numa notificação (ou no "+250 ml") podia focar, ou mandar mensagem para, a primeira janela de **qualquer** app. Agora só valem as da pasta do Maré (`ours()`), nos dois caminhos (`tests/sw.test.js`: outro app, pasta de nome parecido, janela sem `url`).
+- **A nuvem que não subiu volta sozinha.** Quem abria o app sem internet ficava sem sincronização, sem lembretes do servidor e sem amigos até fechar e abrir o app. Agora há uma nova tentativa quando o navegador avisa que a internet voltou (`online`) e quando o app volta ao primeiro plano (`onResume`): **uma por evento** (nada de laço), nunca com o navegador dizendo que está sem rede, e só para quem ficou sem nuvem **por falha** (quem tem a nuvem desligada na configuração não conta). Quando sobe, a tela de entrada dos amigos para de mostrar o erro, e o botão "Ativar amigos" **não fica mais apagado** sem nuvem (tocar explica de novo e tenta subir a nuvem). Testes: `tests/e2e-friends.spec.js` ("abriu sem internet e a internet voltou", "ao voltar para o app com a nuvem fora", "uma tentativa por evento", "o navegador ainda diz que está sem rede").
+- **A escolha da meta em ml é zerada ao sair da turma** (`afterLeft`), ver "Decisões".
+- **Pódio:** a meta do degrau (`small`) ficou em **uma linha** (`white-space: nowrap`): se quebrasse, o degrau do 2º e o do 3º ficavam da mesma altura e a escada sumia (apareceu em 280 px); e com 9 px abaixo de 300 px de largura, para "meta 10.000 ml" (o teto que as regras aceitam) caber nos ~72 px do degrau. O teste de layout usa essa meta no 3º lugar em todos os 13 perfis.
+
+**Limitações que a revisão apontou e ficaram como estão** (nenhuma expõe dados de ninguém; as duas primeiras são de custo):
+- Os campos de `users/{uid}` **não têm tamanho nem forma limitados** nas regras (só `fcm`, `social`, `goal` e `tz` são conferidos): um aplicativo hostil logado (login anônimo) poderia gravar documentos grandes **no próprio** documento. Não expõe nada de ninguém, mas gasta cota. **Recomendado: App Check e um alerta de orçamento no Cloud Billing**; apertar as regras fica para depois.
+- `onProfile` é disparado por gravação do cliente: um app hostil pode regravar o próprio perfil sem parar. Os **avisos** continuam limitados (janela de 12 h da meta batida, teto por pessoa), mas as invocações e leituras não. Mesma recomendação.
+- A **sequência** de um amigo aparece com **um dia a mais** depois de perdida (o perfil só muda quando ele abre o app).
+
+### Para publicar (1.2.0): **site, regras e funções**
+O `git push` publica **só o site**. As regras e as funções novas vão à parte. Passos, em ordem:
+1. **Site:** extrair o ZIP por cima do repositório, commit e push na `main` (o Actions publica em cerca de 1 minuto). **Nenhum arquivo novo em `public/`**, então a lista do `pages.yml` não muda. `VERSION` (`sw.js`), `APP_VERSION` (`app.js`) e `package.json` estão em `1.2.0`.
+2. **Regras e funções** (Cloud Shell, https://shell.cloud.google.com/?project=mare-hidratacao):
+
+   ```bash
+   cd ~/mare && git pull && cd functions && npm install && cd ..
+   firebase deploy --only functions,firestore:rules --project mare-hidratacao
+   ```
+
+   Cria `onProfile`, `flushHeld`, `weeklyCrew` e `reconcileNetworks` (as três últimas criam trabalhos no Cloud Scheduler) e reimplanta `onFriendship` e `sendReminders`. **Na primeira implantação de `onProfile`** (gatilho do Firestore novo) o Google pode recusar com `Permission denied while using the Eventarc Service Agent`: esperar 3 a 5 minutos e repetir o mesmo comando (como na 1.1.1).
+3. **Uma vez, logo depois:** rodar `reconcileNetworks` na hora (Cloud Scheduler → o trabalho `firebase-schedule-reconcileNetworks-southamerica-east1` → *Forçar execução*, ou `gcloud scheduler jobs run firebase-schedule-reconcileNetworks-southamerica-east1 --location=southamerica-east1`), para as amizades que já existem virarem uma turma já, e não às 03:30. O log diz `turmas conferidas` com as contas (`pairs`, `crews`, `created`, `upgraded`, `big`, `orphans`).
+4. **Conferir:** `firebase functions:list` mostra as seis (`sendReminders`, `onFriendship`, `onProfile`, `flushHeld`, `weeklyCrew`, `reconcileNetworks`); `sha256sum firestore.rules` bate com o da seção "Dados e regras"; os registros de `onFriendship` dizem `turma única` quando uma turma cresce.
+5. **Opcional:** política de TTL do Firestore para `pushq.exp` (e `pushlog.exp`), para os documentos pequenos se apagarem sozinhos.
+6. **A ordem site/regras quase não importa:** o site novo antes das regras funciona (perfil no formato antigo, ver acima); as regras e as funções antes do site também (os aparelhos antigos continuam funcionando). Publique os dois no mesmo dia.
+
+**O que dizer ao grupo:** (1) tocar em **Atualizar** quando aparecer "Nova versão disponível" e abrir o app; o número no ícone some; (2) agora há **uma turma só**: quem aceita um pedido junta as turmas (todo mundo passa a ver todo mundo); (3) o app pergunta uma vez se mostra a **meta em ml** (e dá para mudar em Ajustes); (4) em Ajustes → Amigos: o **resumo da semana da turma** (domingo, 19h) vem ligado para quem já recebe os avisos dos amigos e dá para desligar; o aviso de **meta batida** vem desligado e só liga quem quiser; (5) os avisos esperam a pessoa acordar (horário de acordar e dormir do Maré).
+
+### Compatibilidade e limitações (1.2.0)
+- **Aparelhos na 1.1.x** continuam funcionando, mas mostram a lista em ordem alfabética, sem ranking, sem a meta em ml e (até atualizarem) com o selo no ícone; o "Remover amizade" deles funciona, mas **o servidor recria o par** na junção ou na conferência diária. O resumo da semana e os avisos de entrada na turma chegam a eles como avisos de amigos normais, e a única chave que eles têm é a de "Avisos dos amigos" (desliga tudo).
+- **Sem retentativas de envio** (como antes): se o FCM falha naquele instante, o push se perde; a fila do silêncio só segura o que **chegou** com a pessoa dormindo.
+- **O push de quem dorme chega até 15 min depois de acordar** (o `flushHeld` roda de 15 em 15). Quem muda o horário de dormir no meio da noite tem a fila remarcada no próximo ciclo.
+- **Turma de no máximo 31**; acima disso as pessoas continuam só com as amizades que aceitaram.
+- **Sem como tirar ou bloquear uma pessoa da turma**; só sair (ver risco aceito acima).
+- **O resumo da semana depende de `users/{uid}.tz`** (o app sempre grava; um nome de fuso fora da lista de `crew-push.js` fica sem o resumo) e de a pessoa ter aparelho registrado.
+- **Custo e abuso:** ver "Limitações que a revisão apontou" (campos de `users/{uid}` sem limite de tamanho; `onProfile` disparado pelo cliente). Ligue o **App Check** e um **alerta de orçamento** no Cloud Billing.
+- **Pushes de meta e resumo só chegam a quem registrou o aparelho** com a permissão dada (como os outros).
+
+### Não testado (só um deploy e aparelhos reais mostram)
+- Tudo o que depende do **Google real**: a entrega do FCM; o gatilho `onProfile` e os três trabalhos do Cloud Scheduler em produção; e **índices**: o emulador não cobra índices, e as consultas novas (`users` com `tz in`, `pushq` com `due <=` e `orderBy('due')`, `friendships` com `st == 'active'` e `orderBy('__name__')`) usam só os índices automáticos de um campo, o que deveria bastar. Se o Firestore pedir um índice, o erro no registro da função traz o link para criá-lo.
+- O gosto visual da aba Amigos em aparelhos de verdade (o ranking foi desenhado sem ver o ForgeX) e o teste de ponta a ponta com **duas pessoas reais** (a tarefa pendente desde a Parte 9).
+
+### Ideias para depois
+- **Silenciar ou esconder uma pessoa** (só para mim) e **turma com dono** (quem entra precisa ser aprovado por quem criou), para o risco de "o amigo traz um desconhecido".
+- **Retentativas** do envio com `pushlog`/`pushq` (hoje um aviso que falha se perde, de propósito).
+- **Desafios cooperativos** da turma ("a turma bebe 50 L juntos neste mês"), mantendo a regra de nunca humilhar ninguém.
+- Resumo do mês; i18n (en/es).

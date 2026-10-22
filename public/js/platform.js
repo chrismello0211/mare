@@ -142,12 +142,11 @@ export function scheduleNative(at, title, body) {
   return true;
 }
 
-/* ---------- badge no ícone ---------- */
-export function setBadge(n) {
-  try {
-    if (n > 0 && navigator.setAppBadge) quiet(navigator.setAppBadge(n));
-    else if (navigator.clearAppBadge) quiet(navigator.clearAppBadge());
-  } catch (e) {}
+/* ---------- selo no ícone ---------- */
+// Desde a 1.2.0 o Maré não acende mais o selo (era a conta de copos que faltam e parecia um contador de notificações): só zera o que
+// uma versão antiga deixou lá.
+export function clearBadge() {
+  try { if (navigator.clearAppBadge) quiet(navigator.clearAppBadge()); } catch (e) {}
 }
 
 /* ---------- caixa de entrada das ações de notificação ---------- */

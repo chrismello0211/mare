@@ -183,7 +183,7 @@ test('desbloquear: o fundo do painel e o "voltar" também contam como "visto"', 
 });
 
 test('quem já usava o Maré ganha as insígnias de uma vez e só a mais alta é comemorada', async ({ page }) => {
-  await seed(page, { history: [26, 2500], ui: { tip_news: 0 }, medals: true }); // 65 L e nenhuma insígnia guardada (estado da versão 1.0.x)
+  await seed(page, { history: [26, 2500], ui: { tip_news12: 0 }, medals: true }); // 65 L e nenhuma insígnia guardada (estado da versão 1.0.x)
   await page.goto('/');
   await expect(page.locator('#tTips')).toContainText('Novidades no Maré');
   await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Nova insígnia!', { timeout: 9000 });
@@ -244,7 +244,7 @@ test('backup antigo (sem insígnias): restaura, concede em silêncio e não deix
   const st = await stored(page);
   expect(Object.keys(st.insignias).sort()).toEqual(['baiacu', 'concha', 'estrela', 'tartaruga']); // 65 L; ids inventados e valores ruins caíram
   expect(st.profile.mascot).toBe('');
-  expect(st.social).toEqual({ on: false, nick: '', share: true, code: '', push: true }); // amigos são deste aparelho (e a chave de avisos nasce ligada)
+  expect(st.social).toEqual({ on: false, nick: '', share: true, code: '', push: true, goal: null, hit: false, week: true }); // amigos são deste aparelho (avisos de amigos e resumo nascem ligados, o aviso de meta e a meta em ml, não)
 });
 
 test('insígnias: a arte cabe no medalhão e a silhueta da bloqueada funciona', async ({ page }) => {

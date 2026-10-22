@@ -208,6 +208,17 @@ export function createSocial(opt) {
     if ((keep.nm !== p.nm || keep.mc !== p.mc) && !(await syncCode(keep.id, p))) return createCode(p); // sumiu no meio do caminho: cria outro
     return keep.id;
   }
+  // Grava o perfil. O site sai sozinho em cerca de 1 minuto e as regras do Firestore vão à parte: se o site novo chegar antes delas, o perfil com
+  // "gl" e "wm" (1.2.0) é recusado. Então tenta de novo no formato da 1.1.x, que as regras de antes e as de agora aceitam: os amigos seguem
+  // funcionando (só sem a meta em ml e sem os 7 dias) até as regras novas entrarem, e a próxima abertura do app já publica o perfil completo.
+  async function putProfile(p) {
+    try { await FS.setDoc(profRef(me), p); } catch (e) {
+      if (!e || e.code !== 'permission-denied' || !('gl' in p || 'wm' in p)) throw e;
+      const old = Object.assign({}, p);
+      delete old.gl; delete old.wm;
+      await FS.setDoc(profRef(me), old);
+    }
+  }
   // Envia o perfil que os amigos veem (só se mudou). payload vem de social.profilePayload. Nome e mascote também vão para o convite.
   async function publish(p, force) {
     if (!p || leaving) return false;
@@ -215,7 +226,7 @@ export function createSocial(opt) {
     const prev = lastPub, before = card;
     lastPub = p; card = { nm: p.nm, mc: p.mc };
     try {
-      await FS.setDoc(profRef(me), p);
+      await putProfile(p);
       // O convite só é tocado quando nome ou mascote MUDAM (no primeiro envio da sessão, quem acerta o convite é o join, via ensureCode):
       // uma gravação a cada abertura do app mostraria a quem tem o código quando você aparece.
       if (st.code && before && (before.nm !== p.nm || before.mc !== p.mc)) await syncCode(st.code, p);

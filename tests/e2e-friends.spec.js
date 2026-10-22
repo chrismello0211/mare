@@ -21,7 +21,11 @@ const stored = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('ma
 const calls = (page) => page.evaluate(() => (window.__fake ? window.__fake.calls.slice() : []));
 const lastPayload = (page) => page.evaluate(() => { const p = window.__fake.payloads; return p[p.length - 1]; });
 const dayNow = (page) => page.evaluate(() => { const d = new Date(), p = (n) => (n < 10 ? '0' : '') + n; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); });
-const turmaCard = (page) => page.locator('section.card', { has: page.getByRole('heading', { name: 'Sua turma' }) });
+const turmaCard = (page) => page.locator('section.card', { has: page.getByRole('heading', { name: 'Sua turma' }) }); // o cartão da turma ainda sozinha
+const rank = (page) => page.locator('section.rk'); // o ranking da turma: pódio + linhas
+const inRank = (page, name) => rank(page).locator('li.rk-r, li.pd', { hasText: name }); // a pessoa no pódio ou numa linha
+const openFriend = (page, uid) => page.locator('[data-action="fr-open"][data-id="' + uid + '"]').first().click(); // pódio e linhas abrem o mesmo painel
+const payload = (page) => page.evaluate(() => window.__fake.hooks.payload()); // o que o aparelho mandaria agora para a nuvem
 const REQS = [
   { uid: UID.gabi, prof: { nm: 'Gabi', mc: 'polvo', ins: ['concha', 'estrela', 'baiacu', 'tartaruga', 'cavalo', 'polvo'] } },
   { uid: UID.hugo, prof: { nm: 'Hugo' } },
@@ -45,7 +49,9 @@ test.describe('entrada', () => {
     await tabF(page).click();
     await expect(page.getByRole('heading', { name: 'Beba água em boa companhia' })).toBeVisible();
     await expect(page.locator('.see')).toContainText('Nunca veem');
-    await expect(page.locator('.see')).toContainText('Quantos litros você bebeu');
+    await expect(page.locator('.see')).toContainText('Os registros de cada gole');
+    await expect(page.locator('.see')).toContainText('Só se você deixar'); // a meta em ml: a turma só vê com um "sim"
+    await expect(page.locator('.see')).toContainText('A sua meta do dia em ml');
     await expect(page.locator('#frNick')).toHaveValue('Ana'); // o primeiro nome vira o apelido de partida
     await expect(page.getByRole('switch', { name: /Mostrar meu progresso/ })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByRole('button', { name: 'Ativar amigos' })).toBeEnabled();
@@ -68,8 +74,8 @@ test.describe('entrada', () => {
     await expect(page.locator('.code')).toHaveText('ABCD-2345');
     expect((await stored(page)).social).toMatchObject({ on: true, nick: 'Aninha', share: false, code: 'ABCD2345' });
     const sent = await lastPayload(page);
-    expect(Object.keys(sent).sort()).toEqual(['day', 'ins', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v']); // nada de litros, peso, horários…
-    expect(sent).toMatchObject({ nm: 'Aninha', pct: null, met: false, st: 0, sh: false });
+    expect(Object.keys(sent).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']); // nada de litros, peso, horários…
+    expect(sent).toMatchObject({ nm: 'Aninha', pct: null, met: false, st: 0, sh: false, gl: null, wm: null }); // em pausa: nem a semana nem a meta saem
     expect(JSON.stringify(sent)).not.toContain('1400');
   });
 
@@ -92,12 +98,78 @@ test.describe('entrada', () => {
     expect((await stored(page)).social.on).toBe(true);
   });
 
-  test('sem a nuvem do Maré, a entrada avisa e não deixa ativar (nada trava)', async ({ page }) => {
+  test('sem a nuvem do Maré, a entrada avisa; o botão continua ativo, tocar explica de novo e nada liga nem trava', async ({ page }) => {
     await seed(page, { social: { on: false } }); // sem stub: a nuvem fica desligada nos testes (navigator.webdriver)
     await page.goto('/');
     await tabF(page).click();
     await expect(page.locator('#frErr')).toContainText('precisam da nuvem');
-    await expect(page.getByRole('button', { name: 'Ativar amigos' })).toBeDisabled();
+    const cta = page.getByRole('button', { name: 'Ativar amigos' });
+    await expect(cta, 'um botão apagado não deixaria tentar de novo quando a internet voltasse').toBeEnabled();
+    await cta.click();
+    await expect(page.locator('#frErr')).toContainText('precisam da nuvem');
+    await expect(cta).toBeEnabled(); // não ficou preso em "Ativando…"
+    expect((await stored(page)).social.on).toBe(false);
+  });
+
+  // A nuvem não subiu ao abrir o app (sem internet) e depois a internet volta: o app tenta de novo sozinho, sem precisar fechar e abrir.
+  // initFail = quantas das primeiras tentativas de ligar a nuvem falham (a página conta as tentativas em window.__cloudInit).
+  async function openDown(page, f, o) {
+    await stubFriendsCloud(page, Object.assign({ code: 'ABCD2345', initFail: 1 }, f || {}));
+    await seed(page, o || { social: { on: false } });
+    await page.goto('/');
+    await page.waitForFunction(() => window.__cloudInit === 1);
+  }
+  const tries = (page) => page.evaluate(() => window.__cloudInit);
+  test('abriu sem internet e a internet voltou ("online"): a nuvem sobe sozinha, o aviso da entrada some e dá para ativar', async ({ page }) => {
+    await openDown(page);
+    await tabF(page).click();
+    await expect(page.locator('#frErr')).toContainText('precisam da nuvem');
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.waitForFunction(() => window.__cloudInit === 2);
+    await expect(page.locator('#frErr'), 'a entrada para de dizer que não há nuvem').toHaveText('');
+    await page.getByRole('button', { name: 'Ativar amigos' }).click();
+    await expect(toast(page)).toContainText('Amigos ativados');
+    expect(await tries(page), 'uma única tentativa nova').toBe(2);
+    expect((await stored(page)).social.on).toBe(true);
+  });
+
+  test('quem já usa os amigos: ao voltar para o app com a nuvem fora, ela sobe e a turma aparece sem tocar em "Tentar de novo"', async ({ page }) => {
+    await openDown(page, { friends: CREW }, { todayMl: 1400, social: SOCIAL_ON });
+    await tabF(page).click();
+    await expect(page.getByText('Sem conexão com a nuvem do Maré')).toBeVisible();
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange'))); // a página está visível: conta como "voltou ao app"
+    await page.waitForFunction(() => window.__cloudInit === 2);
+    await expect(rank(page)).toBeVisible();
+    await expect(inRank(page, 'Bia')).toHaveCount(1);
+    await expect(page.getByText('Sem conexão com a nuvem do Maré')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__fake.started), 'a escuta da turma ligou').toBe(true);
+  });
+
+  test('uma tentativa por evento: se ela falhar de novo, espera o próximo (nada de laço)', async ({ page }) => {
+    await openDown(page, { initFail: 2 }); // a 1ª e a 2ª tentativas falham
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.waitForFunction(() => window.__cloudInit === 2);
+    await page.waitForTimeout(500);
+    expect(await tries(page), 'sem tentar sozinho de novo').toBe(2);
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.waitForFunction(() => window.__cloudInit === 3);
+    await tabF(page).click();
+    await expect(page.locator('#frErr')).toHaveText('');
+    await page.waitForTimeout(500);
+    await page.evaluate(() => { window.dispatchEvent(new Event('online')); document.dispatchEvent(new Event('visibilitychange')); });
+    await page.waitForTimeout(500);
+    expect(await tries(page), 'com a nuvem de pé, os eventos não religam nada').toBe(3);
+  });
+
+  test('o navegador ainda diz que está sem rede: nada de tentar; quando a rede volta, tenta', async ({ page }) => {
+    await openDown(page);
+    await page.evaluate(() => { Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false }); });
+    await page.evaluate(() => { window.dispatchEvent(new Event('online')); document.dispatchEvent(new Event('visibilitychange')); });
+    await page.waitForTimeout(500);
+    expect(await tries(page)).toBe(1);
+    await page.evaluate(() => { delete navigator.onLine; }); // volta o valor de verdade (com rede)
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.waitForFunction(() => window.__cloudInit === 2);
   });
 
   test('convite por link com os amigos desligados: mostra quem convidou e pede amizade ao ativar', async ({ page }) => {
@@ -138,21 +210,37 @@ test.describe('entrada', () => {
 
 /* ---------- a lista ---------- */
 test.describe('lista da turma', () => {
-  test('todos os estados, em ordem alfabética e sem litros nem ranking', async ({ page }) => {
+  test('todos os estados no ranking de hoje: pódio, lista e quem fica fora da conta (ninguém é "o último")', async ({ page }) => {
     await open(page, { friends: CREW, reqIn: REQS });
-    const names = await turmaCard(page).locator('.fr-t b').allTextContents();
-    expect(names).toEqual(['Bia', 'Caio', 'Duda', 'Edu', 'Fê']); // alfabética: a lista não vira ranking
-    const row = (n) => page.locator('li.fr', { has: page.locator('.fr-t b', { hasText: new RegExp('^' + n + '$') }) });
-    await expect(row('Bia')).toContainText('Meta batida hoje');
-    await expect(row('Bia')).toContainText('12 dias seguidos');
-    await expect(row('Caio')).toContainText('45% da meta de hoje');
-    await expect(row('Caio')).toContainText('3 dias seguidos');
-    await expect(row('Duda')).toContainText('Ainda sem registros hoje');
-    await expect(row('Edu')).toContainText('Progresso do dia em pausa');
-    await expect(row('Fê')).toContainText('Sem novidades há 4 dias');
+    const rk = rank(page);
+    await expect(rk.getByRole('heading', { name: 'Ranking da turma' })).toBeVisible();
+    await expect(rk).toContainText('6 pessoas'); // eu + 5 amigos
+    // pódio com o primeiro no meio: eu (50%) em 2º, Bia (100%) em 1º e Caio (45%) em 3º
+    await expect(rk.locator('li.pd .pd-n')).toHaveText(['Você', 'Bia', 'Caio']);
+    await expect(rk.locator('li.pd.r1')).toContainText('100%');
+    await expect(rk.locator('li.pd.r2')).toContainText('50%');
+    await expect(rk.locator('li.pd.r3')).toContainText('45%');
+    await expect(rk.locator('li.pd.r1')).toContainText('meta 2.800 ml'); // quem liberou a meta em ml mostra
+    await expect(rk.locator('li.pd.r3')).toContainText('meta 3.200 ml');
+    // abaixo do pódio: quem está na conta de hoje (Duda: 0%, sem posição) e, à parte, quem não está
+    const lists = rk.locator('ul.rk-l');
+    await expect(lists.first().locator('.rk-t b')).toHaveText(['Duda']);
+    await expect(lists.first().locator('li.rk-r').first().locator('.rk-n')).toHaveText('–');
+    await expect(lists.first().locator('li.rk-r').first()).toContainText('Ainda sem registros hoje');
+    await expect(lists.first().locator('li.rk-r').first()).not.toContainText('meta '); // Duda não liberou a meta em ml
+    await expect(rk.locator('.rk-rest')).toHaveText('Sem dados de hoje');
+    await expect(lists.nth(1).locator('.rk-t b')).toHaveText(['Edu', 'Fê']);
+    await expect(lists.nth(1).locator('li.rk-r').nth(0)).toContainText('Progresso do dia em pausa');
+    await expect(lists.nth(1).locator('li.rk-r').nth(1)).toContainText('Sem novidades há 4 dias');
+    // os 7 dias: bolinhas só de quem manda a semana (Edu, em pausa, não); Fê parou há 4 dias, então só 3 dias entram na janela
+    await expect(lists.nth(1).locator('li.rk-r').nth(0).locator('.dots')).toHaveCount(0);
+    await expect(lists.nth(1).locator('li.rk-r').nth(1).locator('.dt.on')).toHaveCount(3);
+    await expect(lists.first().locator('li.rk-r').first().locator('.dots .dt')).toHaveCount(7);
+    await expect(lists.first().locator('li.rk-r').first().locator('.dt.on')).toHaveCount(0);
+    // a meta em ml só aparece onde a pessoa liberou; o que foi bebido nunca aparece
     const txt = await page.locator('#view').innerText();
-    expect(txt, 'a tela mostra volumes').not.toMatch(/\d[\d.,]*\s?(ml|mL|L|oz)\b/);
-    expect(txt, 'a tela parece um ranking').not.toMatch(/ranking:|posição|#\d|\b\d+º\b/i);
+    expect(txt.replace(/meta\s[\d.,]+\s?(ml|L|oz)/g, ''), 'a tela mostra volumes que não são a meta liberada').not.toMatch(/\d[\d.,]*\s?(ml|mL|L|oz)\b/);
+    expect(txt, 'texto que humilha').not.toMatch(/último|ultimo|lanterna|pior|perdeu/i);
     await expect(page.getByText('Maré da turma')).toBeVisible();
     await expect(page.getByText('1 de 4 já bateu a meta hoje')).toBeVisible(); // eu + Bia + Caio + Duda; Edu (em pausa) e Fê (ausente) ficam de fora
   });
@@ -192,7 +280,7 @@ test.describe('lista da turma', () => {
     });
     await open(page, { startErr: 'offline' });
     await expect(page.getByText('Sem internet agora')).toBeVisible();
-    await expect(turmaCard(page).locator('.fr-t b')).toHaveText(['Bia']);
+    await expect(inRank(page, 'Bia')).toHaveCount(1);
     await page.getByRole('button', { name: 'Tentar de novo' }).click();
     await expect.poll(async () => (await calls(page)).filter((c) => c === 'refresh').length).toBeGreaterThan(0);
   });
@@ -207,23 +295,292 @@ test.describe('lista da turma', () => {
   });
 });
 
+/* ---------- o ranking da turma ---------- */
+test.describe('ranking da turma', () => {
+  const view = (page, v) => page.locator('#view [data-action="fr-rank"][data-v="' + v + '"]');
+
+  test('as três visões: Hoje, Semana e Sequência; a escolha fica guardada ao reabrir', async ({ page }) => {
+    // eu: os 6 dias anteriores na meta e hoje em 50%. Os 18 L de água já deram a concha e a estrela-do-mar: sem elas guardadas, o painel
+    // "Você desbloqueou" abre sozinho uns 2 s depois de o app carregar e, num aparelho lento, cobre os cliques no meio do teste
+    await open(page, { friends: CREW }, { history: [6, 2800], insignias: { concha: 8, estrela: 7 } });
+    const rk = rank(page), lists = rk.locator('ul.rk-l');
+    await expect(rk.getByRole('radio')).toHaveText(['Hoje', 'Semana', 'Sequência']);
+    await expect(view(page, 'day')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('.tide')).toContainText('Maré da turma');
+    // Semana: dias na meta nos últimos 7. Eu 6, Bia 7, Caio 5, Fê 3 (parou há 4 dias: só 3 dias entram na janela), Duda 0; Edu (em pausa) fica de fora
+    await view(page, 'week').click();
+    await expect(view(page, 'week')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('.tide')).toContainText('Semana da turma');
+    await expect(page.locator('.tide-t')).toHaveText('A turma bateu a meta 21 vezes'); // 6 + 7 + 5 + 3 + 0
+    await expect(rk.locator('li.pd .pd-n')).toHaveText(['Você', 'Bia', 'Caio']);
+    await expect(rk.locator('li.pd.r1')).toContainText('7/7');
+    await expect(rk.locator('li.pd.r2')).toContainText('6/7');
+    await expect(rk.locator('li.pd.r3')).toContainText('5/7');
+    await expect(lists.first().locator('.rk-t b')).toHaveText(['Fê', 'Duda']);
+    await expect(lists.first().locator('li.rk-r').nth(0)).toContainText('3/7');
+    await expect(lists.first().locator('li.rk-r').nth(0).locator('.rk-n')).toHaveText('4');
+    await expect(lists.first().locator('li.rk-r').nth(1)).toContainText('0/7');
+    await expect(lists.first().locator('li.rk-r').nth(1).locator('.rk-n')).toHaveText('–'); // quem tem zero não ganha posição
+    await expect(rk.locator('.rk-rest')).toHaveText('Sem dados da semana');
+    await expect(lists.nth(1).locator('.rk-t b')).toHaveText(['Edu']);
+    // Sequência: Bia 12, eu 6, Caio 3; quem parou (Duda e Fê) fica com "–"
+    await view(page, 'streak').click();
+    await expect(view(page, 'streak')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('.tide')).toContainText('Sequências da turma');
+    await expect(page.locator('.tide-t')).toHaveText('A maior sequência da turma: 12 dias');
+    await expect(rk.locator('li.pd .pd-n')).toHaveText(['Você', 'Bia', 'Caio']);
+    await expect(rk.locator('li.pd.r1')).toContainText('12');
+    await expect(rk.locator('li.pd.r2')).toContainText('6');
+    await expect(rk.locator('li.pd.r3')).toContainText('3');
+    expect((await lists.first().locator('.rk-t b').allTextContents()).sort()).toEqual(['Duda', 'Fê']);
+    await expect(rk.locator('.rk-rest')).toHaveText('Sem dados de sequência');
+    // a escolha fica guardada
+    expect((await stored(page)).ui.frRank).toBe('streak');
+    await page.reload();
+    await tabF(page).click();
+    await expect(view(page, 'streak')).toHaveAttribute('aria-checked', 'true');
+    await view(page, 'day').click();
+    await expect(page.locator('.tide')).toContainText('Maré da turma');
+    expect((await stored(page)).ui.frRank).toBe('day');
+  });
+
+  test('quem manda uma versão antiga (sem os 7 dias) entra no "Hoje" e fica à parte na "Semana"', async ({ page }) => {
+    await open(page, { friends: [{ uid: UID.ze, prof: { nm: 'Zé', mc: 'polvo', pct: 10 } }] });
+    await expect(inRank(page, 'Zé').locator('.dots')).toHaveCount(0);
+    await expect(rank(page).locator('.rk-rest')).toHaveCount(0);
+    await view(page, 'week').click();
+    await expect(rank(page).locator('.rk-rest')).toHaveText('Sem dados da semana');
+    await expect(rank(page).locator('ul.rk-l').nth(1).locator('.rk-t b')).toHaveText(['Zé']);
+  });
+
+  test('com menos de três pessoas com algo a mostrar não há pódio: só a lista, com as posições', async ({ page }) => {
+    await open(page, { friends: [CREW[0]] }); // eu e a Bia
+    await expect(rank(page).locator('li.pd')).toHaveCount(0);
+    await expect(rank(page).locator('ul.rk-l li.rk-r .rk-n')).toHaveText(['1', '2']);
+    await expect(rank(page).locator('ul.rk-l li.rk-r .rk-t b')).toHaveText(['Bia', 'Ana você']);
+    await page.evaluate((u) => window.__fake.befriend(u, { nm: 'Duda', pct: 0 }), UID.duda); // com a terceira em 0%, ainda não é pódio
+    await expect(inRank(page, 'Duda')).toHaveCount(1);
+    await expect(rank(page).locator('li.pd')).toHaveCount(0);
+    await page.evaluate((u) => window.__fake.person(u, { pct: 10 }), UID.duda); // com algo a mostrar, vira pódio
+    await expect(rank(page).locator('li.pd')).toHaveCount(3);
+    await expect(rank(page).locator('li.pd .pd-n')).toHaveText(['Você', 'Bia', 'Duda']);
+  });
+
+  test('empate divide a posição: os dois no mesmo degrau e o próximo pula uma posição', async ({ page }) => {
+    const F = (uid, nm, pct) => ({ uid: uid, prof: { nm: nm, pct: pct, st: 1, wm: 1 } });
+    await open(page, { friends: [F(UID.bia, 'Bia', 70), F(UID.caio, 'Caio', 70), F(UID.duda, 'Duda', 20)] });
+    await expect(rank(page).locator('li.pd.r1 .pd-n')).toHaveText(['Bia', 'Caio']); // 1º lugar dividido (desempate pelo nome)
+    await expect(rank(page).locator('li.pd.r3 .pd-n')).toHaveText(['Você']); // eu, com 50%, em 3º (o 2º lugar não existe)
+    await expect(rank(page).locator('ul.rk-l li.rk-r .rk-n')).toHaveText(['4']);
+    await expect(rank(page).locator('li.pd.r1').first().getByRole('button', { name: /1º lugar: Bia, 70% da meta de hoje/ })).toBeVisible();
+  });
+
+  test('com o progresso em pausa para os amigos, eu continuo no meu ranking e nada do progresso sai', async ({ page }) => {
+    await open(page, { friends: CREW }, { social: Object.assign({}, SOCIAL_ON, { share: false }) });
+    await expect(rank(page).locator('li.pd .pd-n')).toHaveText(['Você', 'Bia', 'Caio']); // a minha posição é calculada no aparelho
+    expect(await payload(page)).toMatchObject({ sh: false, pct: null, met: false, st: 0, wm: null, gl: null });
+  });
+
+  test('o ranking acompanha a turma ao vivo: quem passa à frente sobe, e a lista não pisca por mudança irrelevante', async ({ page }) => {
+    await open(page, { friends: CREW });
+    await expect(rank(page).locator('li.pd .pd-n')).toHaveText(['Você', 'Bia', 'Caio']);
+    await page.evaluate((u) => window.__fake.person(u, { pct: 60 }), UID.caio); // Caio passa de 45% para 60%: passa à minha frente
+    await expect(rank(page).locator('li.pd .pd-n')).toHaveText(['Caio', 'Bia', 'Você']);
+    await expect(rank(page).locator('li.pd.r2')).toContainText('60%');
+    await expect(rank(page).locator('li.pd.r3 .pd-n')).toHaveText(['Você']);
+  });
+});
+
+/* ---------- a meta em ml (só com um "sim") ---------- */
+test.describe('meta em ml', () => {
+  test('sem ninguém na turma ainda não há pergunta; com amigos ela aparece uma vez', async ({ page }) => {
+    await open(page);
+    await expect(page.locator('.goalq')).toHaveCount(0);
+    await page.evaluate((u) => window.__fake.befriend(u, { nm: 'Bia', pct: 20 }), UID.bia);
+    await expect(page.locator('.goalq')).toContainText('Mostrar sua meta aos amigos?');
+    await expect(page.locator('.goalq')).toContainText('meta 2.800 ml'); // a meta de hoje
+    await expect(page.locator('.goalq')).toContainText('dá para estimar quanto você bebeu'); // diz a verdade sobre o que a meta revela
+  });
+
+  test('"Agora não": a meta fica só com você, a pergunta some e não volta', async ({ page }) => {
+    await open(page, { friends: CREW });
+    const q = page.locator('.goalq');
+    await expect(q).toBeVisible();
+    expect((await payload(page)).gl, 'enquanto não responde, nada sai').toBeNull();
+    await q.getByRole('button', { name: 'Agora não' }).click();
+    await expect(toast(page)).toContainText('Sua meta fica só com você');
+    await expect(q).toHaveCount(0);
+    expect((await stored(page)).social.goal).toBe(false);
+    expect((await payload(page)).gl).toBeNull();
+    await page.reload();
+    await tabF(page).click();
+    await expect(rank(page)).toBeVisible();
+    await expect(q).toHaveCount(0); // a escolha fica guardada
+  });
+
+  test('"Mostrar": a meta do dia vai para a turma (e só ela, nunca o que foi bebido)', async ({ page }) => {
+    await open(page, { friends: CREW }, { todayMl: 1400 });
+    await page.locator('.goalq').getByRole('button', { name: 'Mostrar' }).click();
+    await expect(toast(page)).toContainText('Sua meta aparece para a turma');
+    await expect(page.locator('.goalq')).toHaveCount(0);
+    expect((await stored(page)).social.goal).toBe(true);
+    const p = await payload(page);
+    expect(p.gl).toBe(2800);
+    expect(JSON.stringify(p)).not.toContain('1400'); // o que foi bebido não sai
+    expect(await page.evaluate(() => window.__fake.touches), 'o perfil é enviado de novo').toBeGreaterThan(0);
+    // eu me vejo com a meta no ranking (e os amigos que também liberaram)
+    await expect(rank(page).locator('li.pd.r2')).toContainText('meta 2.800 ml');
+  });
+
+  test('a chave no perfil e em Ajustes liga e desliga, e cada toque republica o perfil', async ({ page }) => {
+    await open(page, { friends: CREW }, { social: Object.assign({}, SOCIAL_ON, { goal: true }) });
+    expect((await payload(page)).gl).toBe(2800);
+    await page.getByRole('button', { name: 'Meu perfil' }).click();
+    const sw = sheet(page).getByRole('switch', { name: /Mostrar minha meta em ml/ });
+    await expect(sw).toHaveAttribute('aria-checked', 'true');
+    await expect(sheet(page)).toContainText('Seus amigos veem a meta do dia ao lado da porcentagem');
+    await expect(sheet(page)).toContainText('e a sua meta em ml'); // o resumo do que a turma vê
+    await sw.click();
+    await expect(sheet(page).getByRole('switch', { name: /Mostrar minha meta em ml/ })).toHaveAttribute('aria-checked', 'false');
+    await expect(sheet(page)).toContainText('Desligado: seus amigos não veem a sua meta em ml');
+    expect((await payload(page)).gl).toBeNull();
+    expect((await stored(page)).social.goal).toBe(false);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#sheet')).toBeHidden();
+    await tab(page, 'Ajustes').click();
+    const sw2 = page.getByRole('switch', { name: /Mostrar minha meta em ml/ });
+    await expect(sw2).toHaveAttribute('aria-checked', 'false');
+    await sw2.click();
+    await expect(sw2).toHaveAttribute('aria-checked', 'true');
+    expect((await payload(page)).gl).toBe(2800);
+    expect((await stored(page)).social.goal).toBe(true);
+    await expect(toast(page)).toContainText('Sua meta aparece para a turma');
+  });
+
+  test('sair da turma zera a escolha: numa turma nova a meta não vai antes do "sim" e a pergunta volta', async ({ page }) => {
+    await open(page, { friends: CREW }, { social: Object.assign({}, SOCIAL_ON, { goal: true }) });
+    expect((await payload(page)).gl, 'com o "sim" dado à turma de antes').toBe(2800);
+    await tab(page, 'Ajustes').click();
+    await page.getByRole('button', { name: 'Sair', exact: true }).click();
+    await sheet(page).getByRole('button', { name: 'Sair', exact: true }).click();
+    await expect(toast(page)).toContainText('Você saiu da turma');
+    expect((await stored(page)).social).toMatchObject({ on: false, code: '', goal: null });
+    await tabF(page).click(); // entra de novo, numa turma que ainda não existe
+    await page.getByRole('button', { name: 'Ativar amigos' }).click();
+    await expect(toast(page)).toContainText('Amigos ativados');
+    expect((await lastPayload(page)).gl, 'o perfil novo não leva a meta de antes').toBeNull();
+    expect((await stored(page)).social.goal).toBeNull();
+    await expect(page.locator('.goalq'), 'sem amigos ainda, sem pergunta').toHaveCount(0);
+    await tab(page, 'Ajustes').click();
+    await expect(page.getByRole('switch', { name: /Mostrar minha meta em ml/ })).toHaveAttribute('aria-checked', 'false');
+    await page.evaluate((u) => window.__fake.befriend(u, { nm: 'Bia', pct: 20 }), UID.bia);
+    await tabF(page).click();
+    await expect(page.locator('.goalq')).toContainText('Mostrar sua meta aos amigos?'); // pergunta de novo
+    expect((await payload(page)).gl).toBeNull(); // e enquanto não responde, nada sai
+  });
+
+  test('com o progresso em pausa a meta também não sai, mesmo com o "sim"', async ({ page }) => {
+    await open(page, { friends: CREW }, { social: Object.assign({}, SOCIAL_ON, { goal: true, share: false }) });
+    expect((await payload(page)).gl).toBeNull();
+  });
+
+  test('a meta dos amigos aparece em ml na unidade de cada um (oz inclusive) e só de quem liberou', async ({ page }) => {
+    await open(page, { friends: CREW }, { profile: { unit: 'oz' } });
+    const txt = await rank(page).innerText();
+    expect(txt).toMatch(/meta\s[\d.,]+\s?oz/); // Bia e Caio liberaram
+    expect(txt).not.toMatch(/\bml\b/);
+    expect((txt.match(/meta\s[\d.,]+/g) || []).length, 'Bia, Caio e eu').toBe(3);
+  });
+});
+
+/* ---------- uma turma só ---------- */
+test.describe('uma turma só', () => {
+  async function started(page, friends) {
+    await stubFriendsCloud(page, { friends: friends, code: 'ABCD2345' });
+    await seed(page, { todayMl: 1400, social: SOCIAL_ON });
+    await page.goto('/');
+    await page.waitForFunction(() => window.__fake && window.__fake.started);
+    await page.waitForTimeout(300);
+  }
+
+  test('gente nova na turma (que aceitou outra pessoa): aviso "entrou na turma" com atalho, sem festa de aceite', async ({ page }) => {
+    await started(page, [CREW[0]]);
+    await page.evaluate((u) => window.__fake.befriend(u, { nm: 'Caio', mc: 'estrela', pct: 45 }), UID.caio);
+    await expect(toast(page)).toContainText('Caio entrou na turma');
+    await expect(page.locator('.medal-pop')).toHaveCount(0);
+    await toast(page).getByRole('button', { name: 'Ver' }).click();
+    await expect(tabF(page)).toHaveAttribute('aria-current', 'page');
+    await expect(inRank(page, 'Caio')).toHaveCount(1);
+  });
+
+  test('dois ao mesmo tempo: o aviso junta os nomes', async ({ page }) => {
+    await started(page, [CREW[0]]);
+    await page.evaluate((u) => { window.__fake.befriend(u.caio, { nm: 'Caio' }); window.__fake.befriend(u.duda, { nm: 'Duda' }); }, UID);
+    await expect(toast(page)).toContainText('Caio e Duda entraram na turma');
+  });
+
+  test('na aba Amigos o aviso aparece sem atalho (a pessoa já está lá)', async ({ page }) => {
+    await started(page, [CREW[0]]);
+    await tabF(page).click();
+    await page.evaluate((u) => window.__fake.befriend(u, { nm: 'Caio' }), UID.caio);
+    await expect(toast(page)).toContainText('Caio entrou na turma');
+    await expect(toast(page).getByRole('button', { name: 'Ver' })).toHaveCount(0);
+    await expect(inRank(page, 'Caio')).toHaveCount(1);
+  });
+
+  test('quem aceitou o meu convite traz a turma dele junto: festa de aceite com o tamanho novo da turma', async ({ page }) => {
+    await started(page, [CREW[0]]);
+    await page.evaluate((u) => window.__fake.outgoing(u.ze, { nm: 'Zé', mc: 'polvo' }), UID);
+    await tabF(page).click();
+    await expect(page.locator('li.fr', { hasText: 'Zé' })).toContainText('convite enviado'); // o app já viu o pedido pendente
+    await page.evaluate((u) => {
+      window.__fake.person(u.ze, { nm: 'Zé', mc: 'polvo', pct: 10 });
+      window.__fake.accepted(u.ze);
+      window.__fake.befriend(u.hugo, { nm: 'Hugo', pct: 10 }); // o Hugo já estava na turma do Zé
+    }, UID);
+    await expect(page.locator('.medal-pop')).toContainText('Zé aceitou seu pedido');
+    await expect(page.locator('.medal-pop')).toContainText('Sua turma agora tem 4 pessoas'); // eu, Bia, Zé e Hugo
+    await tabF(page).click();
+    await expect(inRank(page, 'Hugo')).toHaveCount(1);
+    await expect(rank(page)).toContainText('4 pessoas');
+  });
+
+  test('abrir o app num aparelho novo não anuncia a turma inteira como "nova"', async ({ page }) => {
+    await started(page, CREW);
+    await page.waitForTimeout(500);
+    await expect(toast(page)).not.toContainText('entrou na turma');
+    await expect(toast(page)).not.toContainText('entraram na turma');
+  });
+});
+
 /* ---------- pedidos ---------- */
 test.describe('pedidos de amizade', () => {
-  test('aceitar vira amizade com festa; "Agora não" recusa; a bolinha da aba some', async ({ page }) => {
+  test('aceitar pede confirmação (as turmas se juntam), vira amizade com festa; "Agora não" recusa; a bolinha da aba some', async ({ page }) => {
     await open(page, { friends: CREW, reqIn: REQS });
     await expect(page.getByRole('heading', { name: 'Pedidos de amizade' })).toBeVisible();
     await expect(tabF(page)).toHaveAccessibleName('Amigos (novidades)');
     const rq = (n) => page.locator('li.rq', { hasText: n });
+    // "Aceitar" abre a confirmação: aceitar junta as turmas dos dois lados, então a pessoa precisa saber disso
     await rq('Gabi').getByRole('button', { name: 'Aceitar' }).click();
+    await expect(sheet(page).locator('#sheetTitle')).toHaveText('Aceitar o pedido de Gabi?');
+    await expect(sheet(page)).toContainText('turma só');
+    await expect(sheet(page)).toContainText('passam a ver o progresso uns dos outros');
+    await sheet(page).getByRole('button', { name: 'Cancelar' }).click(); // desistir não aceita nada
+    await expect(page.locator('#sheet')).toBeHidden();
+    expect(await calls(page)).not.toContain('accept');
+    await expect(rq('Gabi')).toBeVisible();
+    await rq('Gabi').getByRole('button', { name: 'Aceitar' }).click();
+    await sheet(page).getByRole('button', { name: 'Aceitar', exact: true }).click();
     await expect(page.locator('.medal-pop')).toContainText('Gabi');
     await expect(page.locator('.medal-pop')).toContainText('Nova amizade');
-    await expect(turmaCard(page).locator('.fr-t b')).toHaveText(['Bia', 'Caio', 'Duda', 'Edu', 'Fê', 'Gabi']);
+    await expect(inRank(page, 'Gabi')).toHaveCount(1); // já está no ranking da turma
+    await expect(rank(page)).toContainText('7 pessoas');
     await rq('Hugo').getByRole('button', { name: /Agora não/ }).click();
     await expect(toast(page)).toContainText('Pedido recusado');
     await expect(page.getByRole('heading', { name: 'Pedidos de amizade' })).toHaveCount(0);
     await expect(tabF(page)).toHaveAccessibleName('Amigos');
     const c = await calls(page);
-    expect(c).toContain('accept');
+    expect(c.filter((x) => x === 'accept')).toHaveLength(1);
     expect(c).toContain('decline');
   });
 
@@ -263,7 +620,7 @@ test.describe('inserir código', () => {
     // do outro lado, a pessoa aceita: festa e amizade
     await page.evaluate((u) => window.__fake.accepted(u), UID.ze);
     await expect(page.locator('.medal-pop')).toContainText('Zé aceitou seu pedido');
-    await expect(turmaCard(page).locator('.fr-t b')).toHaveText(['Zé']);
+    await expect(inRank(page, 'Zé')).toHaveCount(1);
     await expect(page.getByRole('heading', { name: 'Convites enviados' })).toHaveCount(0);
   });
 
@@ -320,7 +677,7 @@ test.describe('inserir código', () => {
     await find(page).click();
     await sheet(page).getByRole('button', { name: 'Enviar pedido' }).click();
     await expect(page.locator('.medal-pop')).toContainText('Você e Gabi agora se acompanham');
-    await expect(turmaCard(page).locator('.fr-t b')).toHaveText(['Gabi']);
+    await expect(inRank(page, 'Gabi')).toHaveCount(1);
     await expect(page.getByRole('heading', { name: 'Pedidos de amizade' })).toHaveCount(0);
   });
 
@@ -371,9 +728,9 @@ test.describe('acenos', () => {
     await expect.poll(() => page.evaluate(() => window.__fake.lastWave)).toEqual({ uid: UID.bia, kind: 'cheer', day: hoje }); // o servidor leva um instante
   });
 
-  test('aceno recebido: bolinha na aba, texto na lista e a bolinha some ao ver', async ({ page }) => {
+  test('aceno recebido: bolinha na aba, texto na lista (emoji no pódio) e a bolinha some ao ver', async ({ page }) => {
     await stubFriendsCloud(page, { friends: CREW, code: 'ABCD2345' });
-    await seed(page, { social: SOCIAL_ON });
+    await seed(page, { todayMl: 1400, social: SOCIAL_ON }); // com 50% eu entro no ranking e há pódio (Bia, eu e Caio)
     await page.goto('/');
     await page.waitForFunction(() => window.__fake && window.__fake.started);
     await page.waitForTimeout(300);
@@ -381,8 +738,13 @@ test.describe('acenos', () => {
     await page.evaluate((u) => { window.__fake.waveFrom(u.caio, 'hi'); window.__fake.waveFrom(u.bia, 'cheer'); }, UID);
     await expect(tabF(page)).toHaveAccessibleName('Amigos (novidades)');
     await tabF(page).click();
-    await expect(page.locator('li.fr', { hasText: 'Caio' })).toContainText('acenou para você');
-    await expect(page.locator('li.fr', { hasText: 'Bia' })).toContainText('mandou parabéns pra você');
+    // quem está numa linha mostra o texto; quem está no pódio (Bia e Caio) mostra o emoji no avatar, e o nome acessível diz o que foi
+    await page.evaluate((u) => window.__fake.waveFrom(u.duda, 'hi'), UID);
+    await expect(inRank(page, 'Duda')).toContainText('acenou para você');
+    await expect(rank(page).locator('li.pd', { hasText: 'Caio' }).locator('.pd-in')).toHaveText('👋');
+    await expect(rank(page).locator('li.pd', { hasText: 'Bia' }).locator('.pd-in')).toHaveText('🎉');
+    await expect(rank(page).locator('li.pd', { hasText: 'Caio' }).getByRole('button', { name: /Caio acenou para você/ })).toBeVisible();
+    await expect(rank(page).locator('li.pd', { hasText: 'Bia' }).getByRole('button', { name: /Bia mandou parabéns pra você/ })).toBeVisible();
     await tab(page, 'Hoje').click();
     await expect(tabF(page)).toHaveAccessibleName('Amigos'); // já viu: sem bolinha
   });
@@ -397,35 +759,41 @@ test.describe('acenos', () => {
 
 /* ---------- painéis ---------- */
 test.describe('painéis', () => {
-  test('painel do amigo: insígnias com silhuetas, aceno, e se ele muda ou sai com o painel aberto', async ({ page }) => {
+  test('painel do amigo: meta, últimos 7 dias, insígnias com silhuetas, aceno, e se ele muda ou sai com o painel aberto', async ({ page }) => {
     await open(page, { friends: CREW });
-    await page.locator('li.fr', { hasText: 'Caio' }).locator('.fr-main').click();
+    await openFriend(page, UID.caio);
     await expect(sheet(page).locator('#sheetTitle')).toHaveText('Caio');
     await expect(sheet(page)).toContainText('45% da meta de hoje');
+    await expect(sheet(page)).toContainText('Meta do dia: 3.200 ml'); // ele liberou a meta em ml
+    await expect(sheet(page)).toContainText('5 de 7 na meta');
+    await expect(sheet(page).locator('.wk-row .dt')).toHaveCount(7);
+    await expect(sheet(page).locator('.wk-row .dt.on')).toHaveCount(5);
+    await expect(sheet(page).locator('.wk-row small')).toHaveCount(7); // a letra do dia da semana embaixo de cada bolinha
     await expect(sheet(page)).toContainText('2 de 10');
     await expect(sheet(page).locator('.reef .rf')).toHaveCount(10);
     await expect(sheet(page).locator('.reef .rf.off')).toHaveCount(8);
+    await expect(sheet(page)).not.toContainText('Remover'); // a turma é uma só: não dá para tirar uma pessoa só
     await page.evaluate((u) => window.__fake.person(u, { pct: 80 }), UID.caio); // ele bebeu mais com o painel aberto
     await expect(sheet(page)).toContainText('80% da meta de hoje');
     await sheet(page).getByRole('button', { name: /Acenar/ }).click();
     await expect(sheet(page).getByRole('button', { name: /Aceno enviado hoje/ })).toBeDisabled();
-    await page.evaluate((u) => window.__fake.unfriend(u), UID.caio); // e desfaz a amizade
+    await page.evaluate((u) => window.__fake.unfriend(u), UID.caio); // e sai da turma
     await expect(page.locator('#sheet')).toBeHidden();
-    await expect(turmaCard(page).locator('.fr-t b')).not.toContainText(['Caio']);
+    await expect(inRank(page, 'Caio')).toHaveCount(0);
   });
 
-  test('remover amizade pede confirmação e dá para voltar atrás', async ({ page }) => {
+  test('quem não liberou a meta em ml não mostra meta nenhuma; quem está em pausa não mostra os 7 dias', async ({ page }) => {
     await open(page, { friends: CREW });
-    await page.locator('li.fr', { hasText: 'Bia' }).locator('.fr-main').click();
-    await sheet(page).getByRole('button', { name: 'Remover amizade' }).click();
-    await expect(sheet(page).locator('#sheetTitle')).toHaveText('Remover amizade?');
-    await sheet(page).getByRole('button', { name: 'Cancelar' }).click();
-    await expect(turmaCard(page).locator('.fr-t b').first()).toHaveText('Bia');
-    await page.locator('li.fr', { hasText: 'Bia' }).locator('.fr-main').click();
-    await sheet(page).getByRole('button', { name: 'Remover amizade' }).click();
-    await sheet(page).getByRole('button', { name: 'Remover', exact: true }).click();
-    await expect(toast(page)).toContainText('Amizade desfeita');
-    await expect(turmaCard(page).locator('.fr-t b')).toHaveText(['Caio', 'Duda', 'Edu', 'Fê']);
+    await openFriend(page, UID.duda); // não liberou a meta em ml
+    await expect(sheet(page)).toContainText('Ainda sem registros hoje');
+    await expect(sheet(page)).not.toContainText('Meta do dia');
+    await expect(sheet(page)).toContainText('0 de 7 na meta');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#sheet')).toBeHidden();
+    await openFriend(page, UID.edu); // em pausa: nem % nem semana
+    await expect(sheet(page)).toContainText('Progresso do dia em pausa');
+    await expect(sheet(page)).not.toContainText('Meta do dia');
+    await expect(sheet(page).locator('.wk-row')).toHaveCount(0);
   });
 
   test('meu perfil: apelido, mascote e progresso do dia', async ({ page }) => {
@@ -433,6 +801,8 @@ test.describe('painéis', () => {
     await page.getByRole('button', { name: 'Meu perfil' }).click();
     await expect(sheet(page).locator('#sheetTitle')).toHaveText('Meu perfil');
     await expect(sheet(page)).toContainText('50% da meta de hoje');
+    await expect(sheet(page).locator('.wk-row .dt.on')).toHaveCount(6); // meus 7 dias: os 6 anteriores bateram a meta; hoje ainda está em andamento
+    await expect(sheet(page).locator('.wk-row .dt.now')).toHaveCount(1);
     const nick = page.locator('#frNickIn');
     await nick.fill('Aninha');
     await nick.blur();
@@ -449,7 +819,7 @@ test.describe('painéis', () => {
     // pausar o progresso: os amigos passam a ver só nome e insígnias
     await sheet(page).getByRole('switch', { name: /Mostrar meu progresso/ }).click();
     const p = await page.evaluate(() => window.__fake.hooks.payload());
-    expect(p).toMatchObject({ sh: false, pct: null, met: false, st: 0 });
+    expect(p).toMatchObject({ sh: false, pct: null, met: false, st: 0, wm: null, gl: null }); // em pausa: nem a semana nem a meta saem
     await expect(sheet(page)).toContainText('Progresso do dia em pausa');
   });
 
@@ -466,8 +836,11 @@ test.describe('painéis', () => {
     await open(page);
     await page.getByRole('button', { name: 'Como funciona a privacidade' }).click();
     await expect(sheet(page).locator('#sheetTitle')).toHaveText('Como funciona a privacidade');
-    await expect(sheet(page)).toContainText('quantos litros ou mililitros você bebeu');
+    await expect(sheet(page)).toContainText('os registros de cada gole nem os horários');
     await expect(sheet(page)).toContainText('sua localização');
+    await expect(sheet(page)).toContainText('a sua meta do dia em ml'); // só se a pessoa deixar
+    await expect(sheet(page)).toContainText('as turmas dos dois se juntam'); // como a turma cresce
+    await expect(sheet(page)).toContainText('Sair da turma');
     await sheet(page).getByRole('button', { name: 'Entendi' }).click();
     await expect(page.locator('#sheet')).toBeHidden();
   });
@@ -520,7 +893,7 @@ test.describe('em outras telas', () => {
     await tab(page, 'Ajustes').click();
     await page.getByRole('button', { name: 'Sair', exact: true }).click();
     await sheet(page).getByRole('button', { name: 'Sair', exact: true }).click();
-    await expect(toast(page)).toContainText('Você saiu dos amigos');
+    await expect(toast(page)).toContainText('Você saiu da turma');
     const st = await stored(page);
     expect(st.social).toMatchObject({ on: false, code: '' });
     expect(await page.evaluate(() => localStorage.getItem('mare:social'))).toBeNull(); // a cópia local dos amigos também some
@@ -549,7 +922,9 @@ test.describe('em outras telas', () => {
     const p = await page.evaluate(() => window.__fake.hooks.payload());
     expect(p).toMatchObject({ pct: 100, met: true, sh: true });
     expect(p.st).toBeGreaterThanOrEqual(5);
-    expect(Object.keys(p).sort()).toEqual(['day', 'ins', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v']);
+    expect(Object.keys(p).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']);
+    expect(p.wm, 'os 6 dias na meta (hoje + 5 anteriores)').toBe(63);
+    expect(p.gl, 'sem o "sim" da pessoa, a meta em ml não sai').toBeNull();
     expect(JSON.stringify(p)).not.toMatch(/2800|ml/);
   });
 });
@@ -588,7 +963,7 @@ test.describe('recusar todos os pedidos', () => {
     await expect(all(page)).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Convites enviados' })).toBeVisible();
     await expect(page.locator('li.fr', { hasText: 'Zé' })).toContainText('convite enviado');
-    await expect(turmaCard(page).locator('.fr-t b')).toHaveText(['Bia', 'Caio', 'Duda', 'Edu', 'Fê']);
+    await expect(rank(page)).toContainText('6 pessoas'); // as amizades continuam: eu + 5
     await expect(tabF(page)).toHaveAccessibleName('Amigos'); // sem pedidos: sem bolinha
     expect((await calls(page)).filter((c) => c === 'declineAll')).toHaveLength(1);
   });
@@ -750,7 +1125,7 @@ test.describe('apagar tudo', () => {
     await tab(page, 'Ajustes').click();
     await page.getByRole('button', { name: 'Sair', exact: true }).click();
     await sheet(page).getByRole('button', { name: 'Sair', exact: true }).click();
-    await expect(toast(page)).toContainText('Você saiu dos amigos', { timeout: 15000 });
+    await expect(toast(page)).toContainText('Você saiu da turma', { timeout: 15000 });
     expect(await page.evaluate(() => window.__cloudInit)).toBe(2);
     expect((await stored(page)).social).toMatchObject({ on: false, code: '' });
     expect(await calls(page)).toContain('leave');
@@ -780,7 +1155,7 @@ test.describe('apagar tudo', () => {
     await startSlowLeave(page);
     await leaveBtn(page).click();
     await sheet(page).getByRole('button', { name: 'Sair', exact: true }).click();
-    await expect(toast(page)).toContainText('Saindo dos amigos');
+    await expect(toast(page)).toContainText('Saindo da turma');
     await page.clock.fastForward('00:45'); // passou o tempo que a tela espera
     await expect(toast(page)).toContainText('demorando mais que o normal');
     expect((await stored(page)).social.on, 'por enquanto nada mudou na tela').toBe(true);
@@ -833,11 +1208,12 @@ test.describe('apagar tudo', () => {
 /* ---------- novidades e backup ---------- */
 test('a janela de novidades apresenta os amigos e leva até eles', async ({ page }) => {
   await stubFriendsCloud(page);
-  await seed(page, { social: { on: false }, ui: { tip_news: 0 } }); // 0 = a dica ainda não foi dispensada
+  await seed(page, { social: { on: false }, ui: { tip_news12: 0 } }); // 0 = a dica ainda não foi dispensada
   await page.goto('/');
   await page.getByRole('button', { name: /Ver as novidades/ }).click();
-  await expect(sheet(page)).toContainText('Amigos, sem competição');
-  await sheet(page).getByRole('button', { name: /amigos/i }).first().click();
+  await expect(sheet(page)).toContainText('Uma turma, um ranking');
+  await expect(sheet(page)).toContainText('Sem número no ícone');
+  await sheet(page).getByRole('button', { name: 'Conhecer a turma' }).click();
   await expect(tabF(page)).toHaveAttribute('aria-current', 'page');
 });
 
@@ -856,7 +1232,9 @@ test('exportar o backup não leva os amigos (são deste aparelho)', async ({ pag
 
 /* ---------- layout ---------- */
 test('layout: amigos sem rolagem lateral, alvos de toque confortáveis e screenshots', async ({ page }, info) => {
-  await stubFriendsCloud(page, { friends: CREW, reqIn: REQS, code: 'ABCD2345' });
+  // o 3º lugar (Caio) com a meta mais comprida que existe (10.000 ml): o texto do degrau tem de ficar numa linha só
+  const longGoal = CREW.map((f) => (f.uid === UID.caio ? { uid: f.uid, prof: Object.assign({}, f.prof, { gl: 10000 }) } : f));
+  await stubFriendsCloud(page, { friends: longGoal, reqIn: REQS, code: 'ABCD2345' });
   await seed(page, { todayMl: 1400, social: SOCIAL_ON, history: [30, 2800], insignias: { concha: 30, estrela: 25, baiacu: 20, tartaruga: 12, cavalo: 3 } });
   await page.goto('/');
   const over = async (n) => expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'rolagem lateral em ' + n).toBeLessThanOrEqual(0);
@@ -868,8 +1246,26 @@ test('layout: amigos sem rolagem lateral, alvos de toque confortáveis e screens
   await shot('Amigos');
   expect(await page.$$eval('#tabbar .tab', (els) => els.filter((e) => e.getBoundingClientRect().height < 44).length)).toBe(0);
   expect(await page.$$eval('.fr-wave', (els) => els.filter((e) => e.getBoundingClientRect().width < 40 || e.getBoundingClientRect().height < 40).length), 'botões de aceno pequenos').toBe(0);
-  expect(await page.$$eval('.fr-main', (els) => els.filter((e) => e.getBoundingClientRect().height < 48).length), 'linhas da lista baixas').toBe(0);
-  for (const [label, open2] of [['painel do amigo', () => page.locator('li.fr', { hasText: 'Bia' }).locator('.fr-main').click()],
+  expect(await page.$$eval('.rk-main', (els) => els.filter((e) => e.getBoundingClientRect().height < 48).length), 'linhas do ranking baixas').toBe(0);
+  expect(await page.$$eval('.pd-b', (els) => els.filter((e) => e.getBoundingClientRect().height < 48).length), 'pódio baixo').toBe(0);
+  expect(await page.$$eval('#view [data-action="fr-rank"]', (els) => els.filter((e) => e.getBoundingClientRect().height < 32).length), 'abas do ranking baixas').toBe(0);
+  // nomes curtos nunca podem ser cortados com reticências (em 280 px o número e a meta descem para baixo do nome)
+  expect(await page.$$eval('.rk-t b, .pd-n', (els) => els.filter((e) => e.textContent.length <= 8 && e.scrollWidth > e.clientWidth).map((e) => e.textContent)), 'nomes curtos cortados').toEqual([]);
+  expect(await page.$$eval('.rk-r', (els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).length), 'linha do ranking maior que o cartão').toBe(0);
+  // o pódio é uma escada: o 1º é o degrau mais alto e o 3º o mais baixo (com ou sem botão de aceno)
+  const steps = await page.$$eval('.pd-s', (els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
+  expect(steps.length).toBe(3);
+  expect(steps[1], 'o 1º (no meio) é mais alto que o 2º').toBeGreaterThan(steps[0]);
+  expect(steps[0], 'o 2º é mais alto que o 3º').toBeGreaterThan(steps[2]);
+  // a meta do degrau (ex.: "meta 10.000 ml") cabe numa linha e dentro do degrau, em qualquer largura de tela
+  const goals = await page.$$eval('.pd-s small', (els) => els.map((e) => ({ t: e.textContent, h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width, box: e.parentElement.getBoundingClientRect().width })));
+  expect(goals.length, 'as metas do pódio (Bia, eu e Caio: a minha meta eu sempre vejo)').toBe(3);
+  expect(goals.find((g) => /10\.000/.test(g.t)), 'a meta de cinco dígitos está no pódio').toBeTruthy();
+  goals.forEach((g) => {
+    expect(g.h, 'meta do degrau quebrou em duas linhas: ' + g.t).toBeLessThan(18);
+    expect(g.w, 'meta do degrau mais larga que o degrau: ' + g.t).toBeLessThanOrEqual(g.box + 0.5);
+  });
+  for (const [label, open2] of [['painel do amigo', () => openFriend(page, UID.bia)],
     ['meu perfil', () => page.getByRole('button', { name: 'Meu perfil' }).click()],
     ['inserir código', () => page.getByRole('button', { name: 'Inserir código' }).click()],
     ['privacidade', () => page.getByRole('button', { name: 'Como funciona a privacidade' }).click()]]) {
@@ -880,6 +1276,14 @@ test('layout: amigos sem rolagem lateral, alvos de toque confortáveis e screens
     expect(box && box.width, 'painel mais largo que a tela: ' + label).toBeLessThanOrEqual(page.viewportSize().width + 1);
     await page.keyboard.press('Escape');
     await expect(page.locator('#sheet')).toBeHidden();
+  }
+  // as outras visões do ranking
+  await tabF(page).click();
+  for (const v of ['week', 'streak', 'day']) {
+    await page.locator('#view [data-action="fr-rank"][data-v="' + v + '"]').click();
+    await page.waitForTimeout(400);
+    await over('ranking ' + v);
+    if (v !== 'day') await shot('Amigos ' + v);
   }
   await tab(page, 'Ajustes').click();
   await page.waitForTimeout(500);

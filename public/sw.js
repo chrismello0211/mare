@@ -1,7 +1,7 @@
 // Maré — Service Worker (Parte 4): cache offline, atualização controlada, push (lembretes e avisos dos amigos) e ação "+250 ml" da notificação.
 // A cada deploy, aumente VERSION (e APP_VERSION em js/app.js): é isso que dispara o aviso "Nova versão disponível".
 // Não use firebase-messaging-sw.js: o firebase.js registra o token FCM neste SW e o push chega aqui como "data".
-const VERSION = '1.1.1';
+const VERSION = '1.2.0';
 const CACHE = 'mare-' + VERSION, RUNTIME = 'mare-sdk', TAG = 'mare-lembrete';
 const SHELL = new URL('./', self.location).href, ROOT = new URL('./', self.location).pathname;
 const CORE = ['./', './manifest.webmanifest', './css/app.css', './js/app.js', './js/core.js', './js/store.js',
@@ -24,7 +24,8 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys()
     .then((keys) => Promise.all(keys.filter((k) => k.indexOf('mare-') === 0 && k !== CACHE && k !== RUNTIME).map((k) => caches.delete(k))))
-    .then(() => self.clients.claim()));
+    .then(() => self.clients.claim())
+    .then(() => clearBadge())); // 1.2.0: sem selo no ícone; zera o número que uma versão antiga deixou
 });
 self.addEventListener('message', (e) => { if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting(); });
 
@@ -65,31 +66,38 @@ self.addEventListener('push', (e) => {
   let p = {};
   try { p = e.data ? e.data.json() : {}; } catch (err) { p = { body: e.data ? e.data.text() : '' }; }
   const d = p.data || p; // o FCM entrega os campos dentro de "data"
-  if (d.kind === 'friend') { // avisos dos amigos (1.1.1: pedido, aceite, aceno): sem o botão "+250 ml", sem mexer no selo; o toque abre a aba Amigos
-    e.waitUntil(self.registration.showNotification(d.title || 'Maré 💧', {
+  if (d.kind === 'friend') { // avisos dos amigos (1.1.1: pedido, aceite, aceno): sem o botão "+250 ml"; o toque abre a aba Amigos
+    e.waitUntil(Promise.all([self.registration.showNotification(d.title || 'Maré 💧', {
       body: d.body || 'Toque para ver seus amigos.', icon: 'icons/icon-192.png', badge: 'icons/badge-72.png',
       tag: d.tag || 'mare-amigos', renotify: true, vibrate: [60, 40, 60], data: { url: d.url || './?tab=friends', go: 'friends' },
-    })); // o iOS exige que todo push mostre uma notificação: sempre chama showNotification
+    }), clearBadge()])); // o iOS exige que todo push mostre uma notificação: sempre chama showNotification
     return;
   }
-  const jobs = [self.registration.showNotification(d.title || 'Hora de beber água 💧', {
+  // O selo do ícone saiu na 1.2.0: o campo "badge" que um servidor antigo ainda mande é ignorado e o que sobrou de antes é zerado
+  // O iOS exige que todo push mostre uma notificação: nunca retorne sem chamar showNotification
+  e.waitUntil(Promise.all([self.registration.showNotification(d.title || 'Hora de beber água 💧', {
     body: d.body || 'Toque para registrar no Maré.', icon: 'icons/icon-192.png', badge: 'icons/badge-72.png',
     tag: d.tag || TAG, renotify: true, vibrate: [80, 40, 80], data: { url: d.url || './?source=push' },
     actions: [{ action: 'add250', title: d.action || '+250 ml' }], // só Android/desktop; o iOS ignora
-  })];
-  if (d.badge != null && self.navigator && self.navigator.setAppBadge) jobs.push(self.navigator.setAppBadge(+d.badge).catch(() => null));
-  // O iOS exige que todo push mostre uma notificação: nunca retorne sem chamar showNotification
-  e.waitUntil(Promise.all(jobs));
+  }), clearBadge()]));
 });
+// Zera o selo do ícone (nunca falha: sem a API, ou recusada, não muda nada)
+function clearBadge() {
+  try { const n = self.navigator; return n && n.clearAppBadge ? Promise.resolve(n.clearAppBadge()).catch(() => null) : null; } catch (err) { return null; }
+}
 
 self.addEventListener('notificationclick', (e) => {
   const n = e.notification, data = n.data || {}, url = new URL(data.url || './', self.location).href;
   n.close();
   e.waitUntil(e.action === 'add250' ? quickLog(250) : focusOrOpen(url, data.go));
 });
+// As janelas do Maré: vários apps dividem esta mesma origem (usuario.github.io) e matchAll devolve as janelas de todos. Só as que estão na pasta do
+// Maré contam; um toque na notificação nunca pode focar (nem mandar mensagem para) a aba de outro app.
+function ours(list) { return list.filter((c) => typeof c.url === 'string' && c.url.indexOf(SHELL) === 0); }
 // go = aba que o app deve abrir (avisos dos amigos): o app já aberto recebe a mensagem e troca de aba; sem janela aberta, abre a URL (?tab=friends)
 function focusOrOpen(url, go) {
-  return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+  return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((all) => {
+    const list = ours(all);
     for (let i = 0; i < list.length; i++) if (list[i].focus) {
       if (go) list[i].postMessage({ type: 'go', tab: go });
       return list[i].focus();
@@ -101,7 +109,7 @@ function focusOrOpen(url, go) {
 function quickLog(ml) {
   const item = { id: 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), t: Date.now(), ml: ml, d: 'water' };
   return idbPut(item).then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    .then((list) => { list.forEach((c) => { c.postMessage({ type: 'inbox' }); }); })
+    .then((list) => { ours(list).forEach((c) => { c.postMessage({ type: 'inbox' }); }); })
     .then(() => self.registration.showNotification('+' + ml + ' ml registrados ✓', {
       body: 'Bom gole! Já está guardado no Maré.', icon: 'icons/icon-192.png', badge: 'icons/badge-72.png',
       tag: TAG, silent: true, data: { url: './?source=notif' } }))

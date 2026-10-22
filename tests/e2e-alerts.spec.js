@@ -1,4 +1,4 @@
-// Maré — testes de interface dos avisos dos amigos (1.1.1). Rodar: npm run test:e2e
+// Maré — testes de interface dos avisos dos amigos (1.1.1; avisos opcionais e nova aba na 1.2.0). Rodar: npm run test:e2e
 // Aqui: o que a pessoa vê e toca (a chave em Ajustes, o cartão na aba Amigos, o pedido de permissão, o registro do aparelho, o toque na
 // notificação) e o sw.js de verdade num Chromium. A decisão e o texto de cada aviso são cobertos por tests/push.test.js, o servidor e as
 // regras por tests/rules/friend-push.test.js, e o sw.js sem navegador por tests/sw.test.js.
@@ -24,7 +24,7 @@ const toast = (page) => page.locator('#toast');
 const stored = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('mare:v1')));
 const alertSw = (page) => page.getByRole('switch', { name: 'Avisos dos amigos', exact: true });
 const alertNote = (page) => page.locator('#frAlertNote');
-const fpush = (page) => page.locator('#view section.tip'); // o cartão "Receba avisos dos amigos" (a única dica da aba Amigos)
+const fpush = (page) => page.locator('#view section.tip:not(.goalq)'); // o cartão "Receba avisos da turma" (a pergunta da meta, .goalq, é outra dica)
 const perm = (page) => page.evaluate(() => window.__notif.permission);
 const asked = (page) => page.evaluate(() => ({ n: window.__notif.asked, ev: window.__notif.ev.slice() }));
 const pushReg = (page) => page.evaluate(() => window.__pushEnabled || 0); // quantas vezes o app registrou o aparelho para receber push
@@ -35,7 +35,7 @@ const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_4 like Mac OS X) AppleWebK
 const IPHONE_15 = IPHONE.replace('16_4', '15_4').replace('Version/16.4', 'Version/15.4'); // iOS antes do 16.4: sem notificação na web
 const NOTES = {
   default: 'Desligados: ative para saber na hora de pedidos e acenos',
-  on: 'Pedido de amizade, aceite e acenos chegam como notificação',
+  on: 'Pedido de amizade, aceite, acenos e novos amigos na turma chegam como notificação',
   off: 'Desligados',
   denied: 'Bloqueados no navegador: toque no botão para ver como liberar',
   install: 'No iPhone, instale o Maré na Tela de Início para ativar',
@@ -125,10 +125,11 @@ test.describe('Ajustes: Avisos dos amigos', () => {
     await expect(alertSw(page)).toHaveCount(0);
   });
 
-  test('fica entre "Mostrar meu progresso" e "Novo código de convite", dentro do grupo Amigos', async ({ page }) => {
+  test('fica entre "Mostrar minha meta em ml" e "Novo código de convite", com os dois avisos opcionais logo depois, dentro do grupo Amigos', async ({ page }) => {
     await ajustes(page, { perm: 'granted' });
     const labels = await page.locator('h2.sec-t', { hasText: 'Amigos' }).locator('xpath=following-sibling::div[1]').locator('.row-l > span').allTextContents();
-    expect(labels).toEqual(['Meu perfil público', 'Mostrar meu progresso do dia', 'Avisos dos amigos', 'Novo código de convite', 'Sair dos amigos']);
+    expect(labels).toEqual(['Meu perfil público', 'Mostrar meu progresso do dia', 'Mostrar minha meta em ml', 'Avisos dos amigos',
+      'Avisar quando um amigo bater a meta', 'Resumo da semana da turma', 'Novo código de convite', 'Sair da turma']);
   });
 
   test('sem os amigos ligados, a linha não existe (nada para avisar)', async ({ page }) => {
@@ -136,6 +137,8 @@ test.describe('Ajustes: Avisos dos amigos', () => {
     await expect(page.getByRole('button', { name: 'Conhecer' })).toBeVisible();
     await expect(page.getByText('Avisos dos amigos', { exact: true })).toHaveCount(0);
     await expect(alertSw(page)).toHaveCount(0);
+    await expect(page.getByText('Resumo da semana da turma', { exact: true })).toHaveCount(0); // os avisos opcionais também só existem com a turma ligada
+    await expect(page.getByText('Avisar quando um amigo bater a meta', { exact: true })).toHaveCount(0);
   });
 
   test('bloqueado: tocar na chave abre a ajuda para liberar (nada é pedido ao navegador)', async ({ page }) => {
@@ -305,22 +308,239 @@ test.describe('chave "Avisos dos amigos"', () => {
   });
 });
 
+/* ---------- avisos opcionais (1.2.0): "um amigo bateu a meta" e "resumo da semana da turma" ---------- */
+// Só valem com os avisos dos amigos ligados e a permissão dada. O aviso de meta batida começa desligado (é escolha de quem quer);
+// o resumo da semana começa ligado (domingo, 19h). Quem manda é o servidor: aqui se vê a chave, a nota, a escolha guardada e o que vai para a nuvem.
+test.describe('Ajustes: avisos opcionais da turma', () => {
+  const hitSw = (page) => page.getByRole('switch', { name: 'Avisar quando um amigo bater a meta', exact: true });
+  const weekSw = (page) => page.getByRole('switch', { name: 'Resumo da semana da turma', exact: true });
+  const hitNote = (page) => page.locator('#frHitNote');
+  const weekNote = (page) => page.locator('#frWeekNote');
+  const HIT = { on: 'Uma notificação quando alguém da turma bater a meta do dia', off: 'Desligado: só avisa quem você escolher' };
+  const WEEK = { on: 'Domingo, às 19h, um resumo de como foi a semana da turma', off: 'Desligado' };
+  const BOTH = Object.assign({}, SOCIAL_ON, { hit: true, week: true });
+
+  test('com a permissão: o resumo da semana já vem ligado e o aviso de meta batida, desligado', async ({ page }) => {
+    await ajustes(page, { perm: 'granted' });
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(hitNote(page)).toHaveText(HIT.off);
+    await expect(weekSw(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(weekNote(page)).toHaveText(WEEK.on);
+  });
+
+  const CASES = [
+    { t: 'sem a permissão ainda: os dois desligados, sem nenhum pedido ao navegador', d: { perm: 'default' }, hit: HIT.off, week: WEEK.off },
+    { t: 'bloqueado no navegador: os dois desligados e a nota ensina a liberar', d: { perm: 'denied' }, hit: NOTES.denied, week: NOTES.denied },
+    { t: 'iPhone sem instalar: os dois desligados e a nota pede a instalação', d: { perm: 'default', standalone: false, ua: IPHONE }, hit: NOTES.install, week: NOTES.install },
+  ];
+  for (const c of CASES) {
+    test(c.t, async ({ page }) => {
+      await ajustes(page, c.d);
+      await expect(hitSw(page)).toHaveAttribute('aria-checked', 'false');
+      await expect(weekSw(page)).toHaveAttribute('aria-checked', 'false');
+      await expect(hitNote(page)).toHaveText(c.hit);
+      await expect(weekNote(page)).toHaveText(c.week);
+      expect((await asked(page)).n).toBe(0);
+    });
+  }
+
+  test('com os avisos dos amigos desligados, as duas chaves ficam desligadas (a escolha de cada uma fica guardada)', async ({ page }) => {
+    await ajustes(page, { perm: 'granted' }, {}, { social: Object.assign({}, BOTH, { push: false }) });
+    await expect(alertSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(weekSw(page)).toHaveAttribute('aria-checked', 'false');
+    const st = (await stored(page)).social;
+    expect([st.hit, st.week]).toEqual([true, true]);
+  });
+
+  test('navegador sem notificações: nenhuma das duas linhas aparece (a nota do aviso principal já explica)', async ({ page }) => {
+    await ajustes(page, { perm: 'none' });
+    await expect(alertNote(page)).toHaveText(NOTES.none);
+    await expect(hitSw(page)).toHaveCount(0);
+    await expect(weekSw(page)).toHaveCount(0);
+  });
+
+  test('ligar o aviso de meta batida: guarda, avisa a nuvem e não pergunta nada (a permissão já existe)', async ({ page }) => {
+    await ajustes(page, { perm: 'granted' });
+    await settle(page);
+    const m0 = await metaN(page);
+    await hitSw(page).click();
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(hitNote(page)).toHaveText(HIT.on);
+    await expect(toast(page)).toContainText('Aviso de meta batida ligado');
+    expect((await stored(page)).social.hit).toBe(true);
+    expect(await metaN(page)).toBeGreaterThan(m0);
+    expect((await asked(page)).n).toBe(0);
+    expect((await stored(page)).social.week).toBe(true); // a outra escolha não mexe
+  });
+
+  test('desligar o aviso de meta batida: guarda e avisa a nuvem', async ({ page }) => {
+    await ajustes(page, { perm: 'granted' }, {}, { social: BOTH });
+    await settle(page);
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'true');
+    const m0 = await metaN(page);
+    await hitSw(page).click();
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(hitNote(page)).toHaveText(HIT.off);
+    await expect(toast(page)).toContainText('Aviso de meta batida desligado');
+    expect((await stored(page)).social.hit).toBe(false);
+    expect(await metaN(page)).toBeGreaterThan(m0);
+  });
+
+  test('desligar o resumo da semana e ligar de novo: a nuvem recebe as duas mudanças', async ({ page }) => {
+    await ajustes(page, { perm: 'granted' });
+    await settle(page);
+    const m0 = await metaN(page);
+    await weekSw(page).click();
+    await expect(weekSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(weekNote(page)).toHaveText(WEEK.off);
+    await expect(toast(page)).toContainText('Resumo da semana desligado');
+    expect((await stored(page)).social.week).toBe(false);
+    await weekSw(page).click();
+    await expect(weekSw(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(weekNote(page)).toHaveText(WEEK.on);
+    await expect(toast(page)).toContainText('Resumo da semana ligado');
+    expect((await stored(page)).social.week).toBe(true);
+    expect(await metaN(page)).toBeGreaterThanOrEqual(m0 + 2);
+  });
+
+  test('sem a permissão: ligar um aviso pede a permissão DIRETO do toque e, aceita, liga o aviso e os avisos dos amigos', async ({ page }) => {
+    await ajustes(page, { perm: 'default', answer: 'granted' });
+    await settle(page);
+    expect((await asked(page)).n).toBe(0);
+    await hitSw(page).click();
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(alertSw(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(toast(page)).toContainText('Aviso de meta batida ligado');
+    const a = await asked(page);
+    expect(a.n).toBe(1);
+    expect(a.ev, 'o pedido de permissão tem de sair do próprio toque').toEqual(['click']);
+    const st = (await stored(page)).social;
+    expect([st.hit, st.push]).toEqual([true, true]);
+    await expect.poll(() => pushReg(page)).toBe(1); // o aparelho passa a receber
+  });
+
+  test('sem a permissão e a pessoa nega: tudo continua desligado e nada vai para a nuvem', async ({ page }) => {
+    await ajustes(page, { perm: 'default', answer: 'denied' });
+    await settle(page);
+    const m0 = await metaN(page);
+    await weekSw(page).click();
+    await expect(toast(page)).toContainText('Sem permissão, os avisos ficam desligados.');
+    await expect(weekSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(weekNote(page)).toHaveText(NOTES.denied); // agora o navegador bloqueou: a nota ensina a liberar
+    expect(await metaN(page)).toBe(m0);
+    expect(await pushReg(page)).toBe(0);
+    expect((await stored(page)).social.week).toBe(true); // a escolha antiga continua (só não vale sem a permissão)
+  });
+
+  test('com os avisos dos amigos desligados pela pessoa, ligar um aviso opcional religa os avisos juntos', async ({ page }) => {
+    await ajustes(page, { perm: 'granted' }, {}, { social: OFF });
+    await settle(page);
+    await expect(alertSw(page)).toHaveAttribute('aria-checked', 'false');
+    await hitSw(page).click();
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(alertSw(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(weekSw(page)).toHaveAttribute('aria-checked', 'true'); // o resumo, que já estava escolhido, volta a valer
+    expect((await stored(page)).social.push).toBe(true);
+    expect((await asked(page)).n).toBe(0);
+  });
+
+  test('desligar os avisos dos amigos desliga as duas chaves na tela; ligar de novo traz a escolha de cada uma', async ({ page }) => {
+    await ajustes(page, { perm: 'granted' }, {}, { social: BOTH });
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(weekSw(page)).toHaveAttribute('aria-checked', 'true');
+    await alertSw(page).click();
+    await expect(alertSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(weekSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(hitNote(page)).toHaveText(HIT.off);
+    await expect(weekNote(page)).toHaveText(WEEK.off);
+    await alertSw(page).click();
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(weekSw(page)).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('bloqueado: tocar numa das chaves abre a ajuda (nada é pedido e nada é guardado)', async ({ page }) => {
+    await ajustes(page, { perm: 'denied' });
+    await hitSw(page).click();
+    await expect(sheet(page)).toContainText('Notificações bloqueadas');
+    await sheet(page).getByRole('button', { name: 'Entendi' }).click();
+    await weekSw(page).click();
+    await expect(sheet(page)).toContainText('Notificações bloqueadas');
+    expect((await asked(page)).n).toBe(0);
+    const st = (await stored(page)).social;
+    expect([st.hit, st.week]).toEqual([false, true]);
+  });
+
+  test('iPhone sem instalar: tocar numa das chaves abre o "Instalar no iPhone"', async ({ page }) => {
+    await ajustes(page, { perm: 'default', standalone: false, ua: IPHONE });
+    await weekSw(page).click();
+    await expect(sheet(page)).toContainText('Instalar no iPhone');
+    expect((await asked(page)).n).toBe(0);
+  });
+
+  test('as escolhas sobrevivem ao recarregar', async ({ page }) => {
+    await ajustes(page, { perm: 'granted' });
+    await hitSw(page).click();
+    await weekSw(page).click();
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(weekSw(page)).toHaveAttribute('aria-checked', 'false');
+    await page.reload();
+    await tab(page, 'Ajustes').click();
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(weekSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(hitNote(page)).toHaveText(HIT.on);
+    await expect(weekNote(page)).toHaveText(WEEK.off);
+  });
+
+  test('as chaves acompanham o teclado e mudam no lugar (o foco não se perde)', async ({ page }) => {
+    await ajustes(page, { perm: 'granted' });
+    await hitSw(page).focus();
+    await page.keyboard.press('Enter');
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(hitSw(page)).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(hitSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(hitSw(page)).toBeFocused();
+    await weekSw(page).focus();
+    await page.keyboard.press('Enter');
+    await expect(weekSw(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(weekSw(page)).toBeFocused();
+    await page.waitForTimeout(300);
+    await expect(weekSw(page)).toBeFocused();
+  });
+
+  test('a nota e a chave de cada aviso cabem na tela', async ({ page }) => {
+    await ajustes(page, { perm: 'granted' }, {}, { social: BOTH });
+    for (const n of [hitNote(page), weekNote(page)]) {
+      expect(await n.evaluate((e) => e.scrollWidth - e.clientWidth), 'nota cortada').toBeLessThanOrEqual(1);
+    }
+    const vw = page.viewportSize().width;
+    for (const sw of [hitSw(page), weekSw(page)]) {
+      const b = await sw.boundingBox();
+      expect(b.x + b.width, 'chave saindo pela direita').toBeLessThanOrEqual(vw + 1);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'rolagem lateral').toBeLessThanOrEqual(0);
+  });
+});
+
 /* ---------- cartão na aba Amigos ---------- */
 test.describe('cartão "Receba avisos dos amigos"', () => {
   test('aparece enquanto falta a permissão, logo depois dos pedidos, e explica o que chega', async ({ page }) => {
     await amigos(page, { perm: 'default' }, { friends: CREW, reqIn: [{ uid: UID.gabi, prof: { nm: 'Gabi' } }] });
     const c = fpush(page);
     await expect(c).toBeVisible();
-    await expect(c).toContainText('Receba avisos dos amigos');
+    await expect(c).toContainText('Receba avisos da turma');
     await expect(c).toContainText('pedir amizade, aceitar o seu pedido ou acenar para você');
     await expect(c.getByRole('button', { name: 'Ativar avisos' })).toBeVisible();
-    // ordem na tela: pedidos de amizade, depois o cartão, depois a turma
+    // ordem na tela: pedidos de amizade, depois o cartão, depois o ranking da turma
     const heads = await page.locator('#view h2').allTextContents();
-    expect(heads.indexOf('Pedidos de amizade')).toBeLessThan(heads.indexOf('Sua turma'));
+    expect(heads.indexOf('Pedidos de amizade')).toBeLessThan(heads.indexOf('Ranking da turma'));
     const at = await page.evaluate(() => {
       const y = (t) => { const h = [...document.querySelectorAll('#view h2')].find((x) => x.textContent === t); return h ? h.getBoundingClientRect().top : -1; };
-      const tip = document.querySelector('#view section.tip');
-      return { req: y('Pedidos de amizade'), tip: tip ? tip.getBoundingClientRect().top : -1, crew: y('Sua turma') };
+      const tip = document.querySelector('#view section.tip:not(.goalq)');
+      return { req: y('Pedidos de amizade'), tip: tip ? tip.getBoundingClientRect().top : -1, crew: y('Ranking da turma') };
     });
     expect(at.req).toBeLessThan(at.tip);
     expect(at.tip).toBeLessThan(at.crew);
@@ -367,7 +587,7 @@ test.describe('cartão "Receba avisos dos amigos"', () => {
     expect((await asked(page)).n).toBe(0); // dispensar não é aceitar nem negar
     await page.reload();
     await tabF(page).click();
-    await expect(page.getByRole('heading', { name: 'Sua turma' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Ranking da turma' })).toBeVisible();
     await expect(fpush(page)).toHaveCount(0);
     await tab(page, 'Ajustes').click(); // quem dispensou ainda liga quando quiser, em Ajustes
     await expect(alertSw(page)).toHaveAttribute('aria-checked', 'false');
@@ -393,7 +613,7 @@ test.describe('cartão "Receba avisos dos amigos"', () => {
   ]) {
     test(c.t, async ({ page }) => {
       await amigos(page, c.d, { friends: CREW }, c.o);
-      await expect(page.getByRole('heading', { name: 'Sua turma' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Ranking da turma' })).toBeVisible();
       await expect(fpush(page)).toHaveCount(0);
     });
   }
@@ -401,7 +621,7 @@ test.describe('cartão "Receba avisos dos amigos"', () => {
   test('iPhone sem instalar: o cartão pede a instalação e "Como instalar" abre o passo a passo', async ({ page }) => {
     await amigos(page, { perm: 'default', standalone: false, ua: IPHONE }, { friends: CREW });
     const c = fpush(page);
-    await expect(c).toContainText('Avisos dos amigos no iPhone');
+    await expect(c).toContainText('Avisos da turma no iPhone');
     await expect(c).toContainText('instale o app na Tela de Início');
     await expect(c.getByRole('button', { name: 'Ativar avisos' })).toHaveCount(0); // não adianta pedir: só vale instalado
     await c.getByRole('button', { name: 'Como instalar' }).click();
@@ -423,6 +643,7 @@ test.describe('cartão "Receba avisos dos amigos"', () => {
     await amigos(page, { perm: 'default' }, { friends: CREW });
     await expect(fpush(page)).toBeVisible();
     await page.evaluate(() => { window.__notif.permission = 'granted'; });
+    await page.waitForFunction(() => !!window.__fake); // o cartão aparece sem a nuvem; a nuvem de mentira nasce quando ela liga
     await page.evaluate((u) => { window.__fake.person(u, {}); }, UID.caio); // uma atualização que não muda nada do que a aba mostra
     await expect(fpush(page)).toHaveCount(0);
     expect((await asked(page)).n).toBe(0);
@@ -431,6 +652,7 @@ test.describe('cartão "Receba avisos dos amigos"', () => {
   test('a aba Amigos não pisca nem refaz o cartão quando um amigo muda (nada de pedido repetido)', async ({ page }) => {
     await amigos(page, { perm: 'default', answer: 'denied' }, { friends: CREW });
     await expect(fpush(page)).toBeVisible();
+    await page.waitForFunction(() => !!window.__fake); // o cartão aparece sem a nuvem; a nuvem de mentira nasce quando ela liga
     await page.evaluate((u) => { window.__fake.person(u, { pct: 80 }); }, UID.caio);
     await page.waitForTimeout(300);
     await expect(fpush(page)).toBeVisible();
@@ -507,16 +729,16 @@ test.describe('registro do aparelho para receber push', () => {
     await tabF(page).click();
     await page.getByRole('button', { name: 'Ativar amigos' }).click();
     await expect(toast(page)).toContainText('Amigos ativados');
-    await expect(fpush(page)).toContainText('Receba avisos dos amigos');
+    await expect(fpush(page)).toContainText('Receba avisos da turma');
     expect(await pushReg(page)).toBe(0);
     expect((await asked(page)).n).toBe(0);
   });
 
-  test('sair dos amigos tira a linha de Ajustes e o cartão; entrar de novo traz a escolha de antes', async ({ page }) => {
+  test('sair da turma tira a linha de Ajustes e o cartão; entrar de novo traz a escolha de antes', async ({ page }) => {
     await ajustes(page, { perm: 'granted' }, { friends: CREW }, { social: OFF });
     await page.getByRole('button', { name: 'Sair', exact: true }).click();
     await sheet(page).getByRole('button', { name: 'Sair', exact: true }).click();
-    await expect(toast(page)).toContainText('Você saiu dos amigos');
+    await expect(toast(page)).toContainText('Você saiu da turma');
     await expect(alertSw(page)).toHaveCount(0);
     await tabF(page).click();
     await expect(page.getByRole('heading', { name: 'Beba água em boa companhia' })).toBeVisible();
@@ -539,7 +761,7 @@ test.describe('toque na notificação', () => {
     await expect(page.locator('#drop')).toBeVisible();
     await swMsg(page, { type: 'go', tab: 'friends' });
     await expect(tabF(page)).toHaveAttribute('aria-current', 'page');
-    await expect(page.getByRole('heading', { name: 'Sua turma' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Ranking da turma' })).toBeVisible();
   });
 
   test('com o Maré aberto em outra aba (Ajustes): também vai para Amigos', async ({ page }) => {
@@ -600,7 +822,7 @@ test.describe('toque na notificação', () => {
     await seed(page, { todayMl: 1400, social: SOCIAL_ON });
     await page.goto('/?tab=friends');
     await expect(tabF(page)).toHaveAttribute('aria-current', 'page');
-    await expect(page.getByRole('heading', { name: 'Sua turma' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Ranking da turma' })).toBeVisible();
     await expect(page).toHaveURL(/\/$/);
   });
 
@@ -764,7 +986,7 @@ test('layout: o cartão dos avisos no iPhone sem instalar cabe em qualquer tela'
   await seed(page, { todayMl: 1400, social: SOCIAL_ON });
   await page.goto('/');
   await tabF(page).click();
-  await expect(fpush(page)).toContainText('Avisos dos amigos no iPhone');
+  await expect(fpush(page)).toContainText('Avisos da turma no iPhone');
   await page.waitForTimeout(600);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'rolagem lateral').toBeLessThanOrEqual(0);
   await page.screenshot({ path: 'test-results/shots/' + info.project.name + ' - Amigos cartão iPhone.png', fullPage: true });

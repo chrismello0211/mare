@@ -1,5 +1,5 @@
 // Maré — aplicativo (Parte 3C). Liga estado, telas, lembretes, clima, celebrações e a nuvem opcional.
-// Toda alteração segue: muda S → save() → afterChange() (lembrete, conquistas, badge, nuvem) → atualiza só o necessário.
+// Toda alteração segue: muda S → save() → afterChange() (lembrete, conquistas, nuvem) → atualiza só o necessário.
 import { ACTIVITY, drink, isWater, mixOn, retired, uid, dayKey, keyToDate, minOf, fmtHM, expectedBy, nextReminderAt, climateBonus, goalToday,
   missionFor, missionProgress, newAchievements, newInsignias, insigniaDates, insigniaById, streak, buildICS, defaults, migrate } from './core.js';
 import { KEY, S, SOC, setS, applyMix, hooks, load, save, clamp, num, plural, byT, shiftYm, today, goalNow, totalNow, otherNow, othersOn, ensureDay,
@@ -7,21 +7,21 @@ import { KEY, S, SOC, setS, applyMix, hooks, load, save, clamp, num, plural, byT
 import { $, $$, tween, animBars, onBack, hPush, hBack, toast, hideToast, runToastAction, showBanner, sheetBody, sheetIsOpen, openSheet,
   closeSheet, onSheetClose, confirmSheet, runConfirm, splash, confetti, pop, popBusy, levelY, dropTo, floatEmoji } from './ui.js';
 import { isNative, reducedMotion, onMedia, haptic, registerSW, applyUpdate, notifStatus, requestNotifPermission, showNotification,
-  scheduleNative, setBadge, drainInbox, initInstall, canInstall, promptInstall, getCoords, fetchMaxTemp, saveFile, share,
+  scheduleNative, clearBadge, drainInbox, initInstall, canInstall, promptInstall, getCoords, fetchMaxTemp, saveFile, share,
   persistStorage, copyText } from './platform.js';
 import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboardingView, OB_STEPS, tabbarHTML, othersSheet, otherNote,
   entrySheet, daySheet, installSheet, notifHelpSheet, dropOpts, dropOpts2, drop2Label, paceInfo, goalSumHTML, remNoteText, shareText,
   insigniaSheet, unlockSheet, newsSheet, fmtW } from './views.js';
-import { friendsView, friendSheet, profileSheet, codeSheet, aboutSheet, friendsSig, inviteInfo, alertsOn, alertsNote } from './friends-view.js';
+import { friendsView, friendSheet, profileSheet, codeSheet, aboutSheet, friendsSig, inviteInfo, alertsOn, alertsNote, hitOn, weekOn, hitNote, weekNote } from './friends-view.js';
 import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inviteLink, inviteText, fmtCode, profilePayload, liveOf, myLive, turma,
-  waveFor, seenWaves, arrivals, errText } from './social.js';
+  waveFor, seenWaves, arrivals, joinedText, rankId, errText } from './social.js';
 
-export const APP_VERSION = '1.1.1'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.2.0'; // aumente a cada deploy, junto com VERSION no sw.js
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'friends', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;
 let tab = 'today', ym = '', ob = null, dr = null, dropSt = null, dropSt2 = null, curDay = '', remT = 0, climBusy = false, fileIn = null;
-let cloud = null, syncState = 'off', cloudOn = false, cloudP = null;
+let cloud = null, syncState = 'off', cloudOn = false, cloudP = null, cloudFailed = false; // cloudFailed: tentou subir e falhou (sem internet ao abrir o app, por exemplo)
 // amigos: soc = camada de nuvem (social-cloud.js, criada sob demanda); frSig = o que a aba mostra agora; frInv = convite aberto por link (tela de entrada);
 // frCode = painel "Inserir código"; waving = acenos em andamento; tabHTML = a barra de abas desenhada agora (só mexe quando muda)
 let soc = null, socP = null, socWired = null, frSig = '', frInv = null, frCode = null, tabHTML = '';
@@ -43,7 +43,6 @@ const cleanEntries = (list) => list.filter((e) => e && isFinite(e.t) && e.ml > 0
   .map((e) => ({ id: String(e.id || uid()).slice(0, 24), t: +e.t, ml: Math.round(+e.ml), d: drink(e.d).id })).sort(byT);
 function refreshPart(id) { const el = $('#' + id); if (el && TODAY_PARTS[id]) el.innerHTML = TODAY_PARTS[id](); }
 function press(el) { $$('.pill', el.parentNode).forEach((p) => { p.setAttribute('aria-pressed', p === el ? 'true' : 'false'); }); }
-function updateBadge() { const left = goalNow() - totalNow(); setBadge(left > 0 ? Math.ceil(left / 250) : 0); }
 function applyTheme() {
   let t = S.profile.theme;
   if (t === 'auto') t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -172,11 +171,11 @@ function finishOb() {
   S.onboarded = true;
   ob = null;
   if (n) hBack(n); // remove as entradas do onboarding: "voltar" na tela Hoje sai do app
-  S.ui.tip_news = 1; // quem está começando agora já nasce com tudo: a dica de novidades é só para quem já usava
+  S.ui.tip_news12 = 1; // quem está começando agora já nasce com tudo: a dica de novidades é só para quem já usava
   grantInsignias(false); // a concha (0 L) vem de presente, sem festa
   syncTodayGoal(); save();
   tab = 'today';
-  render(); planReminder(); updateBadge(); persistStorage();
+  render(); planReminder(); persistStorage();
   startCloud();
   toast('Tudo pronto! Sua meta de hoje é ' + vol(goalNow()) + ' 💧');
   if (S.ui.invite) setTimeout(() => { if (S.onboarded && !ob) go('friends'); }, 1600); // chegou por um convite: leva a pessoa direto aos amigos
@@ -253,7 +252,6 @@ function deleteEntry() {
 function afterChange(keys, before, fx) {
   if (keys.indexOf(today()) >= 0) planReminder();
   celebrate(before, keys);
-  updateBadge();
   sync(keys);
   socTouch(); crewCheck(SOC.st);
   if (tab === 'today') refreshToday(fx); else if (tab !== 'settings') render(true);
@@ -384,10 +382,11 @@ function enableReminders() {
 }
 function disableReminders() { S.reminders.enabled = false; planReminder(); toast('Lembretes desligados'); refreshUI(); }
 
-/* ---------- avisos dos amigos (1.1.1) ---------- */
-// A função onFriendship (servidor) manda um push quando alguém pede amizade, aceita ou acena. Usa o mesmo registro de aparelho dos lembretes
+/* ---------- avisos dos amigos (1.1.1; avisos opcionais na 1.2.0) ---------- */
+// As funções do servidor mandam um push quando alguém pede amizade, aceita, acena ou entra na turma. Usam o mesmo registro de aparelho dos lembretes
 // (cloud.enablePush), então basta ter os amigos ligados, não ter desligado a chave (S.social.push, começa ligada) e já ter a permissão de
-// notificação. Quem manda é o servidor; aqui só se registra o aparelho e se grava a escolha (cloud.syncMeta leva S.social.push junto).
+// notificação. Quem manda é o servidor; aqui só se registra o aparelho e se grava a escolha (cloud.syncMeta leva S.social.push, hit e week junto).
+// Dois avisos são opcionais: hit (um amigo bateu a meta; começa desligado) e week (o resumo da semana, domingo às 19h; começa ligado).
 const wantsAlerts = () => S.social.on === true && S.social.push !== false;
 // quiet = não redesenhar a tela quando o registro terminar (o redesenho tira o foco de quem usa o teclado)
 function ensurePush(quiet) {
@@ -398,11 +397,16 @@ function setAlerts(on) {
   syncMeta();
   if (on) ensurePush(true);
 }
-// Mostra o resultado: em Ajustes a chave e a nota mudam no lugar (como "Mostrar meu progresso": o foco do teclado fica onde estava);
+// Mostra o resultado: em Ajustes as chaves e as notas mudam no lugar (como "Mostrar meu progresso": o foco do teclado fica onde estava);
 // na aba Amigos a tela se refaz (o cartão que convidava a ligar some)
 function paintAlerts() {
   const on = alertsOn(), note = $('#frAlertNote');
   $$('[data-action="fr-alerts"][role="switch"]').forEach((x) => { x.setAttribute('aria-checked', on ? 'true' : 'false'); });
+  [['fr-hit', 'frHitNote', hitOn(), hitNote()], ['fr-week', 'frWeekNote', weekOn(), weekNote()]].forEach((o) => {
+    $$('[data-action="' + o[0] + '"][role="switch"]').forEach((x) => { x.setAttribute('aria-checked', o[2] ? 'true' : 'false'); });
+    const n = $('#' + o[1]);
+    if (n) n.textContent = o[3];
+  });
   if (note) note.textContent = alertsNote();
   if (tab === 'friends') render(true);
 }
@@ -419,6 +423,25 @@ function toggleAlerts() {
     paintAlerts();
   });
 }
+// Os avisos opcionais (hit, week) só valem com os avisos dos amigos ligados: ligar um deles sem isso pede a permissão e liga os avisos junto
+function toggleOpt(key) {
+  const label = key === 'hit' ? 'Aviso de meta batida' : 'Resumo da semana';
+  if (key === 'hit' ? hitOn() : weekOn()) { S.social[key] = false; save(); haptic('light'); syncMeta(); toast(label + ' desligado'); paintAlerts(); return; }
+  const st = notifStatus();
+  if (st === 'install' || st === 'denied') { openSheet(notifHelpSheet(st)); return; }
+  if (st === 'unsupported' || st === 'native') { toast('Este navegador só mostra os avisos com o Maré aberto.'); return; }
+  const turnOn = () => {
+    S.social[key] = true; S.social.push = true; save(); haptic('light');
+    syncMeta(); ensurePush(true);
+    toast(label + ' ligado 🔔');
+    paintAlerts();
+  };
+  if (st === 'granted') { turnOn(); return; }
+  requestNotifPermission().then((perm) => {
+    if (perm !== 'granted') { toast('Sem permissão, os avisos ficam desligados.'); paintAlerts(); return; }
+    turnOn();
+  });
+}
 // Toque numa notificação com o Maré já aberto: o Service Worker manda abrir a aba (sem recarregar nada)
 function onSWMessage(m) {
   if (m.type === 'inbox') pullInbox();
@@ -433,16 +456,16 @@ function testNotif() {
 }
 
 /* ---------- meta e clima ---------- */
-// Ligar/desligar a segunda gota ou o "somar na meta" muda o total do dia (e o dos anteriores): refaz ritmo, lembretes, badge e telas.
+// Ligar/desligar a segunda gota ou o "somar na meta" muda o total do dia (e o dos anteriores): refaz ritmo, lembretes e telas.
 // Sem festa nem medalhas aqui: as medalhas novas só saem no próximo registro, e as já conquistadas nunca são retiradas.
 function rulesChanged() {
   applyMix();
-  planReminder(); updateBadge(); // planReminder também salva e sincroniza
+  planReminder(); // planReminder também salva e sincroniza
   socTouch(); // a % da meta que os amigos veem muda junto
   render(true);
 }
 function goalChanged() {
-  syncTodayGoal(); planReminder(); updateBadge(); // planReminder também salva e sincroniza
+  syncTodayGoal(); planReminder(); // planReminder também salva e sincroniza
   socTouch();
   const gs = $('#goalSum');
   if (gs) gs.innerHTML = goalSumHTML();
@@ -573,7 +596,7 @@ function applyBackup(s) {
   ob = null; tab = 'today'; dropSt = null; dropSt2 = null;
   grantInsignias(false); // o backup antigo não traz insígnias: saem do histórico, sem festa
   syncTodayGoal(); save(); applyTheme();
-  render(); planReminder(); updateBadge();
+  render(); planReminder();
   startCloud();
   sync(Object.keys(S.days));
   socTouch();
@@ -605,7 +628,7 @@ function resetAll() {
 function eraseLocal() {
   try { if (soc) soc.stop(); } catch (e) { /* a camada de amigos é opcional */ }
   if (cloud && cloud.wipe) cloud.wipe().catch(() => {});
-  clearTimeout(remT); scheduleNative(0); setBadge(0);
+  clearTimeout(remT); scheduleNative(0); clearBadge();
   try { localStorage.removeItem(KEY); } catch (e) { /* ignora */ }
   dropSocCache(); SOC.st = cleanState(null); frSig = ''; frInv = null; frCode = null; // amigos: o wipe() da nuvem já apagou perfil e amizades
   if (tab !== 'today') hBack();
@@ -636,13 +659,14 @@ function initCloudLayer() {
     .then((m) => (m ? m.initCloud({ state: () => S, onRemote: mergeRemote, onStatus: (st) => { syncState = st; } }) : null))
     .then((c) => {
       if (!c) { cloudDown(); return null; }
-      cloud = c; syncState = 'on'; SOC.mode = 'ready';
+      cloud = c; syncState = 'on'; SOC.mode = 'ready'; cloudFailed = false;
       syncMeta();
       ensurePush();
       startSocial();
+      if (tab === 'friends' && !S.social.on && !ob) render(true); // a tela de entrada ainda mostra o erro de quando a nuvem estava fora
       return c;
     })
-    .catch((e) => { syncState = 'off'; console.warn('[nuvem] desligada:', e && e.message ? e.message : e); cloudDown(); return null; });
+    .catch((e) => { syncState = 'off'; cloudFailed = true; console.warn('[nuvem] desligada:', e && e.message ? e.message : e); cloudDown(); return null; });
 }
 function cloudDown() {
   SOC.mode = 'off';
@@ -662,7 +686,7 @@ function mergeRemote(days) {
   grantInsignias(false);
   save();
   if (keys.indexOf(today()) >= 0) planReminder();
-  updateBadge(); refreshUI(); socTouch();
+  refreshUI(); socTouch();
 }
 
 /* ---------- amigos ---------- */
@@ -695,7 +719,11 @@ function getSoc() {
   return socP;
 }
 // Refaz a conexão com a nuvem do zero (ela não subiu: sem internet ao abrir o app, por exemplo)
-function reconnectCloud() { SOC.mode = 'wait'; cloudOn = false; cloudP = null; socP = null; soc = null; startCloud(); }
+function reconnectCloud() { SOC.mode = 'wait'; cloudFailed = false; cloudOn = false; cloudP = null; socP = null; soc = null; startCloud(); }
+// A nuvem não subiu quando o app abriu (sem internet) e agora a internet voltou, ou o app voltou ao primeiro plano: tenta de novo sozinha. Sem isso,
+// a sincronização, os lembretes do servidor e os amigos ficavam parados até a pessoa fechar o app. Quem não tem nuvem nenhuma (FIREBASE_ENABLED
+// desligado) não conta: lá nada falhou, então não há o que tentar. Uma tentativa por evento: se falhar de novo, espera o próximo.
+function retryCloudIfDown() { if (cloudFailed && S.onboarded && !ob && navigator.onLine !== false) reconnectCloud(); }
 // getSoc() com uma segunda chance: se a nuvem estava fora, tenta subi-la de novo uma vez antes de desistir. Quem sai dos amigos ou apaga
 // tudo não pode ficar preso a uma falha de quando o app abriu.
 async function connectSoc(ms) {
@@ -726,12 +754,15 @@ function onSocial(st) {
   crewCheck(st);
   refreshFriendsUI();
 }
-// Avisos do que mudou desde a última vez: pedido aceito (festinha) e pedido novo (toque no aviso abre a aba)
+// Avisos do que mudou desde a última vez: pedido aceito (festinha), gente nova na turma e pedido novo (toque no aviso abre a aba)
 function announceSocial(prev, st) {
-  const a = arrivals(prev, st);
+  const a = arrivals(prev, st), size = st.friends.length + 1;
   if (a.accepted.length) {
     const f = a.accepted[0];
-    pop('🤗', 'Nova amizade', f.nm + ' aceitou seu pedido', a.accepted.length > 1 ? 'e mais ' + (a.accepted.length - 1) + (a.accepted.length > 2 ? ' pessoas' : ' pessoa') : 'Agora vocês se acompanham');
+    pop('🤗', 'Nova amizade', f.nm + ' aceitou seu pedido', a.joined.length ? 'Sua turma agora tem ' + size + ' pessoas'
+      : a.accepted.length > 1 ? 'e mais ' + (a.accepted.length - 1) + (a.accepted.length > 2 ? ' pessoas' : ' pessoa') : 'Agora vocês se acompanham');
+  } else if (a.joined.length) {
+    toast(esc(joinedText(a.joined)) + ' 🐠', tab === 'friends' ? undefined : { label: 'Ver', fn: () => go('friends') });
   } else if (a.requests.length && tab !== 'friends' && !sheetIsOpen()) {
     const r = a.requests[0];
     toast(a.requests.length === 1 ? esc(r.nm) + ' quer acompanhar o dia com você 💌' : 'Você tem ' + a.requests.length + ' pedidos de amizade 💌',
@@ -823,7 +854,7 @@ async function joinFriends(el) {
   S.social.nick = nick;
   busyBtn(el, true, 'Ativando…');
   try {
-    const s = await guard(getSoc(), 20000);
+    const s = await connectSoc(20000); // se a nuvem estava fora, tenta subi-la de novo uma vez
     const code = await guard(s.join({ payload: profilePayload(S, today()), code: S.social.code }), 25000);
     S.social.on = true; S.social.code = code; save();
     ensurePush(); // com a permissão já dada, o aparelho passa a receber os avisos dos amigos
@@ -854,6 +885,16 @@ function toggleShare() {
   if (!S.social.on) return;
   socTouch();
   if (sheetIsOpen() && $('#frNm', sheetBody)) openSheet(profileSheet()); // o texto sob o avatar muda junto
+}
+// A meta em ml só vai para a turma com um "sim" explícito (S.social.goal === true). null = ainda não escolheu (o cartão da aba Amigos pergunta)
+function setGoalShare(on) {
+  if (S.social.goal === on) { if (tab === 'friends') render(true); return; }
+  S.social.goal = on; save(); haptic('light');
+  $$('[data-action="fr-goal"][role="switch"]').forEach((x) => { x.setAttribute('aria-checked', on ? 'true' : 'false'); });
+  if (S.social.on) socTouch(); // o perfil sai de novo, com ou sem a meta
+  toast(on ? 'Sua meta aparece para a turma 🎯' : 'Sua meta fica só com você');
+  if (sheetIsOpen() && $('#frNm', sheetBody)) openSheet(profileSheet());
+  if (tab === 'friends') render(true);
 }
 function nickChanged(el, v) {
   const n = cleanNick(v);
@@ -921,9 +962,15 @@ async function sendCode(el) {
 }
 
 /* pedidos, acenos e amizades */
+// Aceitar junta as turmas dos dois lados (todo mundo passa a ver todo mundo): por isso a pessoa confirma antes
 function acceptReq(id) {
   const r = SOC.st.reqIn.filter((x) => x.uid === id)[0];
   if (!r) return;
+  if (!soc) { toast(errText('off')); return; }
+  confirmSheet('Aceitar o pedido de ' + esc(r.nm) + '?', 'Os amigos do Maré formam uma turma só. Ao aceitar, você entra na turma de <b>' + esc(r.nm) +
+    '</b>: vocês e os amigos de cada um passam a ver o progresso uns dos outros. Dá para sair quando quiser, em Ajustes.', 'Aceitar', false, () => doAccept(id, r));
+}
+function doAccept(id, r) {
   if (!soc) { toast(errText('off')); return; }
   haptic('success');
   soc.accept(id).then(() => { pop('🤗', 'Nova amizade', 'Você e ' + r.nm + ' agora se acompanham', 'Que tal mandar um aceno?'); },
@@ -952,14 +999,6 @@ function waveTo(el, id) {
   toast((w.kind === 'cheer' ? 'Parabéns enviado para ' : 'Aceno enviado para ') + esc(f.nm) + (w.kind === 'cheer' ? ' 🎉' : ' 👋'));
   soc.wave(id, w.kind, t).then(() => { delete waving[id]; }, (e) => { delete waving[id]; toast(errText(codeOf(e))); });
 }
-function removeFriend(id) {
-  const f = friendById(id);
-  if (!f) return;
-  confirmSheet('Remover amizade?', 'Você e <b>' + esc(f.nm) + '</b> deixam de acompanhar o dia um do outro. Dá para se reconectar depois com um novo convite.', 'Remover', true, () => {
-    if (!soc) { toast(errText('off')); return; }
-    soc.remove(id).then(() => { toast('Amizade desfeita'); }, (e) => { toast(errText(codeOf(e))); });
-  });
-}
 function newCode() {
   if (!soc) { toast(errText('off')); return; }
   guard(soc.newCode(), 20000).then((c) => {
@@ -983,17 +1022,17 @@ async function exitCloud() {
 }
 // O aparelho passa a refletir que a pessoa saiu dos amigos (a nuvem já foi limpa)
 function afterLeft() {
-  S.social.on = false; S.social.code = ''; delete S.ui.wv; save();
+  S.social.on = false; S.social.code = ''; S.social.goal = null; delete S.ui.wv; save(); // goal = null: o "sim" à meta em ml valia para a turma que ficou para trás; na próxima, pergunta de novo
   SOC.st = cleanState(null); dropSocCache(); frSig = '';
   paintTabs();
   if (tab === 'today') refreshPart('tCrew'); else if (tab === 'friends' || tab === 'settings') render(true);
 }
 // Sair apaga tudo na nuvem; só vale se der certo (senão o perfil continuaria público e o app diria que saiu)
 async function leaveFriends() {
-  toast('Saindo dos amigos…');
+  toast('Saindo da turma…');
   try { await exitCloud(); } catch (e) { toast(errText(codeOf(e))); return; }
   afterLeft();
-  toast('Você saiu dos amigos. Seu perfil foi apagado da nuvem.');
+  toast('Você saiu da turma. Seu perfil foi apagado da nuvem.');
 }
 function retrySocial() {
   if (SOC.mode === 'off') { // a nuvem não subiu: refaz a conexão do zero
@@ -1077,7 +1116,7 @@ const A = {
   ins: (el, d) => { openSheet(insigniaSheet(d.id)); animBars(sheetBody); },
   mascot: (el, d) => setMascot(d.id),
   reef: () => { closeSheet(); go('journey'); },
-  news: () => { S.ui.tip_news = 1; save(); refreshPart('tTips'); openSheet(newsSheet()); },
+  news: () => { S.ui.tip_news12 = 1; save(); refreshPart('tTips'); openSheet(newsSheet()); },
   'news-go': () => { closeSheet(); go('journey'); },
   'news-friends': () => { closeSheet(); go('friends'); },
   // amigos
@@ -1098,15 +1137,20 @@ const A = {
   'fr-cancel': (el, d) => dropReq(d.id, 'cancel'),
   'fr-open': (el, d) => openFriend(d.id),
   'fr-wave': (el, d) => waveTo(el, d.id),
-  'fr-remove': (el, d) => removeFriend(d.id),
   'fr-profile': () => openSheet(profileSheet()),
   'fr-mascot': (el, d) => pickMascot(d.id),
   'fr-about': () => openSheet(aboutSheet()),
-  'fr-newcode': () => confirmSheet('Trocar o código de convite?', 'Quem tem o código antigo não consegue mais usá-lo. Seus amigos e os pedidos que já chegaram continuam como estão.', 'Trocar', false, newCode),
-  'fr-leave': () => confirmSheet('Sair dos amigos?', 'Seu perfil, seus convites e suas amizades serão apagados da nuvem. Seus registros de água continuam no aparelho. ' +
-    'Para voltar, é só ativar de novo.', 'Sair', true, leaveFriends),
+  'fr-newcode': () => confirmSheet('Trocar o código de convite?', 'Quem tem o código antigo não consegue mais usá-lo. Sua turma e os pedidos que já chegaram continuam como estão.', 'Trocar', false, newCode),
+  'fr-leave': () => confirmSheet('Sair da turma?', 'Seu perfil, seus convites e suas amizades serão apagados da nuvem, e você deixa de ver a turma e de ser visto por ela. Como a turma é uma só, ' +
+    'não dá para sair só de uma pessoa. Seus registros de água continuam no aparelho. Para voltar, é só ativar de novo e pedir um novo convite.', 'Sair', true, leaveFriends),
   'fr-retry': () => retrySocial(),
   'fr-alerts': () => toggleAlerts(),
+  'fr-hit': () => toggleOpt('hit'),
+  'fr-week': () => toggleOpt('week'),
+  'fr-rank': (el, d) => { const v = rankId(d.v); if (S.ui.frRank === v) return; S.ui.frRank = v; save(); haptic('light'); render(true); },
+  'fr-goal': () => setGoalShare(S.social.goal !== true),
+  'fr-goal-on': () => setGoalShare(true),
+  'fr-goal-off': () => setGoalShare(false),
   'ob-next': () => obNext(),
   'ob-back': () => obBack(false),
   'ob-weight': (el, d) => {
@@ -1175,12 +1219,13 @@ function checkDay() {
   if (k === curDay) return false;
   curDay = k;
   if (!S.onboarded || ob) return true;
-  planReminder(); updateBadge(); refreshClimate(false); socTouch(); // virou o dia: a % de hoje começa do zero para os amigos
+  planReminder(); refreshClimate(false); socTouch(); // virou o dia: a % de hoje começa do zero para os amigos
   if (!sheetIsOpen()) render(true);
   return true;
 }
 function onResume() {
   pullInbox();
+  clearBadge(); // um push de uma versão antiga do servidor ou do app pode ter acendido o selo com o app fechado
   if (!S.onboarded || ob) return;
   if (!checkDay()) {
     const r = S.reminders;
@@ -1189,6 +1234,7 @@ function onResume() {
   }
   refreshClimate(false);
   if (soc && S.social.on && SOC.st.err) soc.refresh().catch(() => {}); // a escuta caiu enquanto o app estava longe: tenta de novo agora
+  retryCloudIfDown();
 }
 function handleURL() {
   const q = location.search, add = /[?&]add=(\d+)/.exec(q), t = /[?&]tab=(\w+)/.exec(q), inv = codeFromURL(q);
@@ -1225,11 +1271,13 @@ function boot() {
     const r = S.reminders;
     if (r.enabled && (!r.nextAt || r.nextAt < Date.now())) planReminder(Date.now());
     else { armTimer(); const m = reminderText(); scheduleNative(r.enabled ? r.nextAt : 0, m.title, m.body); }
-    updateBadge(); refreshClimate(false); persistStorage();
+    refreshClimate(false); persistStorage();
   }
+  clearBadge(); // o selo do ícone saiu na 1.2.0 (era a conta de copos que faltam): quem veio de uma versão antiga ainda pode ter um número parado lá
   startCloud();
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') onResume(); else socFlush(); });
   window.addEventListener('pageshow', (e) => { if (e.persisted) onResume(); });
+  window.addEventListener('online', retryCloudIfDown);
   setInterval(() => { // o ritmo muda com o relógio, mesmo sem novos registros
     if (document.visibilityState === 'visible' && S.onboarded && !ob && !checkDay() && tab === 'today') refreshPart('tMeta');
   }, 60000);

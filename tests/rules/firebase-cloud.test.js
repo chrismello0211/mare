@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import * as C from '../../public/js/core.js';
 import { notifyFriendship } from '../../functions/friend-push.js';
+import { rules110 } from '../helpers/old-rules.js';
 
 // vi.mock sobe para o topo do arquivo: o que as trocas usam precisa nascer junto (vi.hoisted)
 const H = vi.hoisted(() => ({ db: null, uid: '', token: 'tok-1', supported: true, deleted: 0, gets: [] }));
@@ -39,8 +40,8 @@ const req = HAVE ? createRequire(path.join(FN, 'package.json')) : null;
 const A = HAVE ? { app: req('firebase-admin/app'), fs: req('firebase-admin/firestore') } : null;
 const hp = (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080').split(':');
 const RULES = readFileSync(path.join(ROOT, 'firestore.rules'), 'utf8');
-// as regras de antes dos avisos (1.1.0): sem o campo "social" em users
-const OLD_RULES = RULES.replace("'stats', 'social', 'updatedAt'", "'stats', 'updatedAt'").replace(/\n\s*&& \(!\('social' in d\)[^\n]*/, '');
+// as regras de antes dos avisos (1.1.0): sem o campo "social" em users (e, no perfil, sem gl e wm); tests/helpers/old-rules.js tira isso das regras de hoje
+const OLD_RULES = rules110(RULES);
 const PROJECT = 'demo-mare-cloud';
 const U = (n) => n + 'x'.repeat(28 - n.length);
 const ANA = U('ana'), BRU = U('bruno');
@@ -143,8 +144,12 @@ describe('abrir a nuvem e gravar o resumo', () => {
   });
 });
 
-describe('avisos dos amigos: a escolha vai para users/{uid}.social.push', () => {
-  test('quem nunca mexeu na chave nunca grava o campo (o servidor já assume ligado)', async () => {
+// A marca que o aparelho guarda do que a nuvem já sabe (mare:cloud.social): as três escolhas, só depois que o servidor aceitou
+const markOf = () => JSON.parse(store.get('mare:cloud') || '{}').social;
+const PADRAO = { push: true, hit: false, week: true }; // o que o servidor assume quando a pessoa nunca mexeu
+
+describe('avisos dos amigos: as escolhas (push, hit, week) vão para users/{uid}.social', () => {
+  test('quem nunca mexeu nas chaves nunca grava o campo (o servidor já assume os padrões)', async () => {
     const a = await boot({ social: { on: true, nick: 'Ana' } });
     await save(a);
     await until(() => userDoc(ANA), 'o resumo');
@@ -157,26 +162,43 @@ describe('avisos dos amigos: a escolha vai para users/{uid}.social.push', () => 
     a.S.social.push = false;
     await save(a);
     await until(async () => ((await userDoc(ANA)) || {}).social, 'o desligado na nuvem');
-    expect((await userDoc(ANA)).social).toEqual({ push: false });
-    await until(() => JSON.parse(store.get('mare:cloud')).social === false, 'a marca no aparelho');
+    expect((await userDoc(ANA)).social).toEqual({ push: false, hit: false, week: true }); // sempre as três escolhas, não só a que mudou
+    await until(() => markOf() && markOf().push === false, 'a marca no aparelho');
+    expect(markOf()).toEqual({ push: false, hit: false, week: true });
     a.S.social.push = true;
     await save(a);
     await until(async () => (((await userDoc(ANA)) || {}).social || {}).push === true, 'o ligado na nuvem');
-    expect(JSON.parse(store.get('mare:cloud')).social).toBe(true);
+    expect((await userDoc(ANA)).social).toEqual(PADRAO);
+    await until(() => markOf() && markOf().push === true, 'a marca de novo');
+    expect(markOf()).toEqual(PADRAO);
+    expect(a.status).not.toContain('error');
+  });
+  test('o aviso de meta (hit) e o resumo da semana (week) vão juntos com o push, e cada mudança leva as três escolhas', async () => {
+    const a = await boot({ social: { on: true, nick: 'Ana' } });
+    a.S.social.hit = true; a.S.social.week = false;
+    await save(a);
+    await until(async () => ((await userDoc(ANA)) || {}).social, 'as escolhas na nuvem');
+    expect((await userDoc(ANA)).social).toEqual({ push: true, hit: true, week: false });
+    await until(() => markOf() && markOf().hit === true, 'a marca no aparelho');
+    expect(markOf()).toEqual({ push: true, hit: true, week: false });
+    a.S.social.push = false; // mexer em uma só: a gravação seguinte continua levando as três
+    await save(a);
+    await until(async () => (((await userDoc(ANA)) || {}).social || {}).push === false, 'o push desligado na nuvem');
+    expect((await userDoc(ANA)).social).toEqual({ push: false, hit: true, week: false });
     expect(a.status).not.toContain('error');
   });
   test('o app é fechado e reaberto com a chave desligada: a nuvem já sabe, nada é regravado', async () => {
     const a = await boot({ social: { on: true, nick: 'Ana' } });
     a.S.social.push = false;
     await save(a);
-    await until(() => JSON.parse(store.get('mare:cloud') || '{}').social === false, 'a marca');
+    await until(() => markOf() && markOf().push === false, 'a marca');
     const t1 = (await userDoc(ANA)).updatedAt.toMillis();
     await sleep(60);
     const b = await boot({ social: { on: true, nick: 'Ana', push: false } }); // mesma "memória" do aparelho (store)
     await save(b);
     await sleep(300);
     const d = await userDoc(ANA);
-    expect(d.social).toEqual({ push: false });
+    expect(d.social).toEqual({ push: false, hit: false, week: true });
     expect(b.status).not.toContain('error');
     expect(d.updatedAt.toMillis()).toBeGreaterThanOrEqual(t1); // o resumo continua sendo atualizado; só o "social" não é reenviado
   });
@@ -185,10 +207,10 @@ describe('avisos dos amigos: a escolha vai para users/{uid}.social.push', () => 
     a.S.social.push = false;
     await save(a);
     await until(async () => (((await userDoc(ANA)) || {}).social || {}).push === false, 'o desligado na nuvem');
-    await until(() => JSON.parse(store.get('mare:cloud')).social === false, 'a marca no aparelho');
+    await until(() => markOf() && markOf().push === false, 'a marca no aparelho');
     await a.cloud.wipe();
     expect(await userDoc(ANA)).toBeNull();
-    expect(JSON.parse(store.get('mare:cloud')).social).toBeUndefined(); // a nuvem voltou do zero: o servidor assume ligado de novo
+    expect(markOf()).toBeUndefined(); // a nuvem voltou do zero: o servidor assume os padrões de novo
     await save(a); // a pessoa continua com os avisos desligados: a nuvem nova precisa saber
     await until(async () => (((await userDoc(ANA)) || {}).social || {}).push === false, 'o desligado de novo na nuvem');
     expect(a.status).not.toContain('error');
@@ -208,7 +230,7 @@ describe('avisos dos amigos: a escolha vai para users/{uid}.social.push', () => 
     expect(d).not.toHaveProperty('social');
     await until(() => warns.some((w) => w.indexOf('avisos dos amigos') >= 0), 'o aviso no console');
     expect(a.status).not.toContain('error'); // e o app não mostra "erro de sincronização" por isso
-    expect(JSON.parse(store.get('mare:cloud')).social).toBeUndefined(); // a marca só muda quando o servidor aceita: tenta de novo na próxima
+    expect(markOf()).toBeUndefined(); // a marca só muda quando o servidor aceita: tenta de novo na próxima
     a.S.social.push = false; // próxima gravação do app: tenta outra vez (continua recusada, sem estragar nada)
     await save(a);
     await sleep(300);
@@ -266,6 +288,9 @@ const pair = (by, other, nm) => ({ m: [by, other].sort(), by: by, st: 'pending',
 const server = (calls) => ({ db: adb, FieldValue: A.fs.FieldValue, now: Date.now, log: { info: () => {}, error: () => {} },
   messaging: { sendEachForMulticast: async (m) => { calls.push(m); return { responses: m.tokens.map(() => ({ success: true })), successCount: m.tokens.length, failureCount: 0 }; } } });
 const suite = HAVE ? describe : describe.skip;
+// Destinatário sempre acordado (wake == sleep): desde a 1.2.0 a função segura o aviso de quem está dormindo (horário de silêncio), e o teste
+// roda a qualquer hora do dia. Sem isso, "0 enviados" poderia ser sono em vez do que o teste quer provar. Refazer depois de cada gravação do app.
+const awake = () => adb.doc('users/' + ANA).update({ wake: '00:00', sleep: '00:00' });
 suite('do aparelho ao push: o que o app grava é o que a função lê', () => {
   test('só amigos, sem lembretes: o aparelho registrado recebe o aviso de pedido de amizade', async () => {
     const a = await boot({ social: { on: true, nick: 'Ana' } }); // lembretes desligados (padrão)
@@ -273,6 +298,7 @@ suite('do aparelho ao push: o que o app grava é o que a função lê', () => {
     H.token = 'tok-ana-amigos';
     expect(await a.cloud.enablePush()).toBe(true); // é o que o app faz ao ligar os amigos com a permissão dada (ensurePush)
     await until(async () => Object.keys(((await userDoc(ANA)) || {}).fcm || {}).length === 1, 'o aparelho na nuvem');
+    await awake();
     const calls = [];
     const sent = await notifyFriendship({ before: null, after: pair(BRU, ANA, 'Bruno') }, server(calls));
     expect(sent).toBe(1);
@@ -288,11 +314,13 @@ suite('do aparelho ao push: o que o app grava é o que a função lê', () => {
     await save(a);
     await until(async () => (((await userDoc(ANA)) || {}).social || {}).push === false, 'o desligado na nuvem');
     await until(async () => Object.keys(((await userDoc(ANA)) || {}).fcm || {}).length === 1, 'o aparelho continua registrado');
+    await awake();
     const calls = [];
     expect(await notifyFriendship({ before: null, after: pair(BRU, ANA, 'Bruno') }, server(calls))).toBe(0);
     expect(calls).toHaveLength(0);
     a.S.social.push = true; await save(a); // ligou de novo
     await until(async () => (((await userDoc(ANA)) || {}).social || {}).push === true, 'o ligado na nuvem');
+    await awake(); // a gravação do app refez wake/sleep
     expect(await notifyFriendship({ before: null, after: pair(BRU, ANA, 'Bruno') }, server(calls))).toBe(1);
   });
   test('sem permissão no aparelho (nunca registrou): a função não tem para onde mandar e não quebra', async () => {
@@ -301,6 +329,7 @@ suite('do aparelho ao push: o que o app grava é o que a função lê', () => {
     expect(await a.cloud.enablePush()).toBe(false);
     await save(a);
     await until(() => userDoc(ANA), 'o resumo');
+    await awake();
     const calls = [];
     expect(await notifyFriendship({ before: null, after: pair(BRU, ANA, 'Bruno') }, server(calls))).toBe(0);
     expect(calls).toHaveLength(0);

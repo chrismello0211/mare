@@ -761,6 +761,61 @@ body.no-tabs .toast { bottom: 20px; bottom: calc(20px + env(safe-area-inset-bott
 .fs .code-in { text-align: center; }
 .bul { margin: 2px 0 8px; padding-left: 20px; list-style: disc; }
 .bul li { padding: 2px 0; font-size: 14px; }
+/* ranking da turma (1.2.0): abas, pódio, linhas e as bolinhas dos 7 dias */
+.rk .seg { margin: 0 0 14px; }
+.pod { display: flex; align-items: flex-end; justify-content: center; margin: 2px 0 12px; }
+.pd { position: relative; flex: 1 1 0; min-width: 0; max-width: 132px; }
+.pd + .pd { margin-left: 6px; }
+.pd-b { display: block; width: 100%; text-align: center; }
+.pd-a { position: relative; display: inline-block; line-height: 0; }
+.pd-in { position: absolute; right: -10px; top: -6px; display: block; width: 26px; height: 26px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 4px rgba(11, 37, 69, .28); font-size: 15px; font-style: normal; line-height: 26px; text-align: center; }
+.pd-n { display: block; margin: 5px 2px 6px; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.pd.me .pd-n { color: var(--primary); }
+.pd-s { display: flex; flex-direction: column; align-items: center; padding: 8px 4px 8px; border-radius: 16px 16px 4px 4px; color: #0B2545; }
+.pd-s .md { font-size: 22px; font-style: normal; line-height: 1.15; }
+.pd-s b { font-size: 18px; font-weight: 800; line-height: 1.2; }
+.pd-s small { margin-top: 1px; font-size: 10.5px; font-weight: 700; line-height: 1.2; opacity: .8; white-space: nowrap; } /* uma linha só: se quebrasse, o degrau do 2º e o do 3º ficariam da mesma altura (a escada some) */
+.pd.r1 .pd-s { min-height: 96px; background: #F2A93B; background: linear-gradient(180deg, #FFD76A, #F2A93B); }
+.pd.r2 .pd-s { min-height: 76px; background: #B3C1D3; background: linear-gradient(180deg, #E3EAF3, #B3C1D3); }
+.pd.r3 .pd-s { min-height: 62px; background: #CD7F4F; background: linear-gradient(180deg, #F0B58A, #CD7F4F); }
+/* o botão de aceno mora dentro do degrau (o meu degrau não tem, mas reserva o espaço: os degraus têm sempre a mesma escada) */
+.pd .pd-s { padding-bottom: 52px; }
+.pd.r1 .pd-s { min-height: 148px; }
+.pd.r2 .pd-s { min-height: 128px; }
+.pd.r3 .pd-s { min-height: 114px; }
+.rk-rest { margin: 14px 2px 2px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.rk-r { display: flex; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); }
+.rk-l > .rk-r:first-child { border-top: 0; }
+.rk-r.me { margin: 4px -8px; padding: 9px 8px; border-top: 0; border-radius: 16px; background: var(--tint); }
+.rk-r.me + .rk-r { border-top: 0; }
+.rk-r.off .rk-main { opacity: .8; }
+.rk-n { flex: none; width: 24px; margin-right: 4px; font-size: 15px; font-weight: 800; color: var(--muted); text-align: center; }
+.rk-main { flex: 1; min-width: 0; min-height: 48px; display: flex; align-items: center; text-align: left; }
+.rk-t { flex: 1; min-width: 0; margin-left: 10px; }
+.rk-t b { display: block; overflow: hidden; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.rk-t small { display: block; margin-top: 1px; font-size: 12.5px; line-height: 1.3; color: var(--muted); }
+.you { margin-left: 4px; padding: 1px 7px; border-radius: 99px; background: var(--primary); color: #fff; font-size: 10.5px; font-style: normal; font-weight: 800; letter-spacing: .02em; vertical-align: 1px; }
+.rk-v { flex: none; margin-left: 8px; text-align: right; }
+.rk-v b { display: block; font-size: 18px; font-weight: 800; line-height: 1.15; }
+.rk-v b.ok { color: var(--ok); }
+.rk-v small { display: block; margin-top: 1px; font-size: 11px; line-height: 1.2; color: var(--muted); white-space: nowrap; }
+.rk .fr-wave { width: 42px; height: 42px; line-height: 42px; font-size: 20px; }
+.rk .pd-w { position: absolute; left: 50%; bottom: 6px; width: 40px; height: 40px; margin: 0 0 0 -20px; line-height: 40px; font-size: 19px; background: rgba(255, 255, 255, .6); }
+.rk .pd-w.done { background: rgba(255, 255, 255, .8); color: #0F6B45; font-size: 17px; }
+.dots { display: flex; align-items: center; margin-top: 5px; }
+.dt { display: block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); opacity: .5; }
+.dots .dt + .dt { margin-left: 4px; }
+.dt.on { background: var(--ok); opacity: 1; }
+.dt.now { background: transparent; opacity: 1; box-shadow: inset 0 0 0 2px var(--primary); }
+.wk-row { display: flex; justify-content: center; margin: 2px 0 4px; }
+.wk { flex: 1; max-width: 46px; text-align: center; }
+.wk .dt.big { width: 24px; height: 24px; margin: 0 auto; }
+.wk .dt.big.on::after { content: "\2713"; display: block; color: #fff; font-size: 14px; font-weight: 800; line-height: 24px; text-align: center; }
+.wk small { display: block; margin-top: 5px; font-size: 11px; font-weight: 700; color: var(--muted); }
+.fs-g { margin-top: 2px; font-size: 14px; font-weight: 600; color: var(--muted); }
+.fs-g b { color: var(--ink); }
+.goalq .btns { margin-top: 10px; }
+.goalq .btns .btn { margin-top: 0; }
 /* faixa da turma na tela Hoje */
 .crew { padding: 0; }
 .crew-b { display: flex; align-items: center; width: 100%; padding: 12px 14px; text-align: left; }
@@ -811,6 +866,13 @@ body.no-tabs .toast { bottom: 20px; bottom: calc(20px + env(safe-area-inset-bott
   .fr-t b { font-size: 15px; }
   .fr-t small { font-size: 12px; }
   .fr-wave { width: 42px; height: 42px; margin-left: 6px; font-size: 20px; line-height: 42px; }
+  .rk-n { width: 20px; margin-right: 2px; }
+  .rk-t { margin-left: 8px; }
+  .rk-t b { font-size: 15px; }
+  .rk-v b { font-size: 16px; }
+  .rk .fr-wave { width: 40px; height: 40px; line-height: 40px; font-size: 18px; }
+  .pd-n { font-size: 13px; }
+  .pd-s b { font-size: 16px; }
   .invite .btn.block { padding: 0 12px; font-size: 15px; }
   .reef { grid-template-columns: repeat(4, 1fr); padding: 16px 8px 12px; }
   .lv-n { font-size: 23px; }
@@ -835,6 +897,12 @@ body.no-tabs .toast { bottom: 20px; bottom: calc(20px + env(safe-area-inset-bott
 }
 @media (max-width: 299px) {
   .quick-top .sg-e { display: none; } /* tela de 280 px: sem o emoji, "Com gás" cabe numa linha só */
+  /* ranking em 280 px: o número e a meta descem para baixo do nome (senão o nome some); o aceno continua à direita */
+  .rk-main { flex-wrap: wrap; }
+  .rk-v { order: 3; flex: 0 0 100%; display: flex; align-items: baseline; margin: 3px 0 0; padding-left: 54px; text-align: left; }
+  .rk-v b { margin-right: 8px; }
+  .rk-v small { margin-top: 0; }
+  .pd-s small { font-size: 9px; } /* o degrau tem ~72 px: "meta 10.000 ml" (o teto que as regras aceitam) cabe com 9 px, em uma linha */
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

@@ -8,11 +8,16 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == uid;
     }
     // O servidor (Admin SDK) ignora estas regras; elas protegem só o que o app escreve.
-    // "social" (1.1.1) guarda só a escolha "Avisos dos amigos" (push: true/false), que a função onFriendship consulta antes de avisar.
+    // "social" guarda só as escolhas de aviso dos amigos (true/false cada): push = "Avisos dos amigos" (1.1.1), hit = "Avisar quando um amigo
+    // bater a meta" e week = "Resumo da semana da turma" (1.2.0). As funções consultam estas chaves antes de mandar um push.
+    // Qualquer uma pode faltar (o servidor assume push ligado, hit desligado e week ligado).
     function validUser(d) {
       return d.keys().hasOnly(['tz', 'wake', 'sleep', 'unit', 'goal', 'today', 'reminder', 'fcm', 'stats', 'social', 'updatedAt'])
         && (!('fcm' in d) || (d.fcm is map && d.fcm.size() <= 10))
-        && (!('social' in d) || (d.social is map && d.social.keys().hasOnly(['push']) && 'push' in d.social && d.social.push is bool))
+        && (!('social' in d) || (d.social is map && d.social.keys().hasOnly(['push', 'hit', 'week'])
+          && (!('push' in d.social) || d.social.push is bool)
+          && (!('hit' in d.social) || d.social.hit is bool)
+          && (!('week' in d.social) || d.social.week is bool)))
         && (!('goal' in d) || (d.goal is number && d.goal >= 0 && d.goal <= 10000))
         && (!('tz' in d) || (d.tz is string && d.tz.size() <= 64));
     }
@@ -32,10 +37,14 @@ service cloud.firestore {
     }
 
     /* ---------- amigos (1.1.0) ----------
-       profiles/{uid}      perfil que os AMIGOS veem: nome escolhido, mascote, insígnias, % da meta de hoje e sequência.
-                           Só o dono escreve; só o dono e amigos aprovados leem. Sem volumes, peso, meta em ml, localização e
+       profiles/{uid}      perfil que os AMIGOS veem: nome escolhido, mascote, insígnias, % da meta de hoje, sequência, quais dos
+                           últimos 7 dias bateram a meta ("wm", 7 bits) e, SÓ se a pessoa deixar, a meta do dia em ml ("gl").
+                           Só o dono escreve; só o dono e amigos aprovados leem. Sem volumes bebidos, peso, localização e
                            sem horários: nenhum documento público leva carimbo de hora (nem "u"), para quem tem o convite ou é
                            amigo não ficar sabendo quando a pessoa abre o app.
+                           Desde a 1.2.0 a turma é uma só: quando uma amizade vira "active", a função onFriendship (functions/network.js)
+                           cria as amizades que faltam entre todos os membros dos dois lados (marcadas "auto": true; só o servidor as cria,
+                           estas regras nunca aceitam um cliente criando uma amizade já ativa).
        codes/{CODIGO}      convite: quem tem o código lê "nome + mascote" de quem convidou (e nada mais). Não dá para listar.
                            Trocar o código NÃO apaga o antigo: marca "rv" (revogado). Um código revogado fica ocupado para sempre
                            (ninguém mais consegue criá-lo com outro dono) e deixa de valer para pedidos. Convites nunca são
@@ -74,11 +83,13 @@ service cloud.firestore {
         && insAt(l, 6) && insAt(l, 7) && insAt(l, 8) && insAt(l, 9) && insAt(l, 10) && insAt(l, 11);
     }
     function validProfile(d) {
-      return d.keys().hasOnly(['v', 'nm', 'mc', 'ins', 'pct', 'met', 'st', 'day', 'sh'])
+      return d.keys().hasOnly(['v', 'nm', 'mc', 'ins', 'pct', 'met', 'st', 'day', 'sh', 'gl', 'wm'])
         && d.keys().hasAll(['v', 'nm', 'mc', 'ins', 'met', 'st', 'day', 'sh'])
         && d.v == 1 && isName(d.nm) && isMascot(d.mc)
         && insOk(d.ins)
         && (!('pct' in d) || d.pct == null || (d.pct is int && d.pct >= 0 && d.pct <= 100))
+        && (!('gl' in d) || d.gl == null || (d.gl is int && d.gl >= 0 && d.gl <= 10000))
+        && (!('wm' in d) || d.wm == null || (d.wm is int && d.wm >= 0 && d.wm <= 127))
         && d.met is bool && d.st is int && d.st >= 0 && d.st <= 9999
         && isDay(d.day) && d.sh is bool;
     }
@@ -161,6 +172,12 @@ service cloud.firestore {
                            Cada documento traz "exp" (daqui a 2 dias): com uma política de validade (TTL) em pushlog.exp, o Firestore
                            apaga sozinho. Sem a política, nada quebra: cada documento é pequeno (o servidor guarda no máximo 100 entradas nele). */
     match /pushlog/{uid} {
+      allow read, write: if false;
+    }
+    /* ---------- horário de silêncio (1.2.0) ----------
+       pushq/{uid}         avisos que chegaram enquanto a pessoa dormia (fora do wake/sleep dela): a função flushHeld entrega ao acordar,
+                           num aviso só se forem vários. Só o servidor lê e escreve; para o app, fechado. */
+    match /pushq/{uid} {
       allow read, write: if false;
     }
   }

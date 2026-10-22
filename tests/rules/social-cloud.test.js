@@ -9,20 +9,22 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { createSocial, SocialError, mapErr } from '../../public/js/social-cloud.js';
-import { profilePayload, pairId as pid, liveOf, statusText, CODE_CHARS, MAX_FRIENDS, fmtCode } from '../../public/js/social.js';
+import { profilePayload, pairId as pid, liveOf, statusText, CODE_CHARS, MAX_FRIENDS, fmtCode, weekOf } from '../../public/js/social.js';
 import * as C from '../../public/js/core.js';
+import { rules11x } from '../helpers/old-rules.js';
 
 FS.setLogLevel('silent'); // as recusas são esperadas nestes testes: sem barulho no terminal
 const { doc, getDoc, setDoc, deleteDoc, getDocs, collection, query, where, Timestamp } = FS;
 
 const hp = (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080').split(':');
 const RULES = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../firestore.rules'), 'utf8');
+const OLD = rules11x(RULES); // as regras da 1.1.x: o perfil sem gl e wm (o site novo pode sair antes das regras)
 const CLOSED = 'rules_version = "2"; service cloud.firestore { match /databases/{d}/documents { match /{x=**} { allow read, write: if false; } } }';
 const U = (n) => n + 'x'.repeat(28 - n.length);
 const ANA = U('ana'), BRU = U('bruno'), CAI = U('caio');
 const TODAY = '2026-10-18';
 
-let env, closed;
+let env, closed, old;
 const people = [];
 // Cada login de teste (contexto) abre conexões próprias com o emulador e a biblioteca só as encerra no fim de TODA a bateria. Sem
 // encerrar cada um ao fim do teste, elas se acumulam e, lá pelo 50º teste, o emulador deixa de responder. Por isso os contextos
@@ -38,9 +40,10 @@ function track(e) {
 beforeAll(async () => {
   env = track(await initializeTestEnvironment({ projectId: 'demo-mare-social', firestore: { host: hp[0], port: +hp[1], rules: RULES } }));
   closed = track(await initializeTestEnvironment({ projectId: 'demo-mare-social-closed', firestore: { host: hp[0], port: +hp[1], rules: CLOSED } }));
+  old = track(await initializeTestEnvironment({ projectId: 'demo-mare-social-old', firestore: { host: hp[0], port: +hp[1], rules: OLD } }));
 });
-afterAll(async () => { if (env) await env.cleanup(); if (closed) await closed.cleanup(); });
-beforeEach(async () => { await env.clearFirestore(); });
+afterAll(async () => { if (env) await env.cleanup(); if (closed) await closed.cleanup(); if (old) await old.cleanup(); });
+beforeEach(async () => { await env.clearFirestore(); await old.clearFirestore(); });
 afterEach(() => {
   while (people.length) people.pop().sc.stop(); // nenhuma escuta aberta passa para o teste seguinte
   ctxs.splice(0).forEach((c) => { try { c.cleanup(); } catch (e) { /* já encerrado */ } });
@@ -48,6 +51,7 @@ afterEach(() => {
 
 // grava ou lê SEM as regras (como o servidor faria). Devolve o que a função devolver.
 const seed = async (fn) => { let out; await env.withSecurityRulesDisabled(async (ctx) => { out = await fn(ctx.firestore()); }); return out; };
+const seedOld = async (fn) => { let out; await old.withSecurityRulesDisabled(async (ctx) => { out = await fn(ctx.firestore()); }); return out; };
 const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 async function until(fn, what, ms) {
   const t0 = Date.now();
@@ -103,8 +107,8 @@ describe('entrar na turma (perfil e código)', () => {
     expect(c).toMatch(/^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/);
     expect(code(ana)).toBe(c);
     const prof = (await seed((d) => getDoc(doc(d, 'profiles', ANA)))).data();
-    expect(Object.keys(prof).sort()).toEqual(['day', 'ins', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v']); // e nenhum horário: nem "u"
-    expect(prof).toMatchObject({ v: 1, nm: 'Ana', mc: 'concha', ins: ['concha'], pct: 61, met: false, st: 0, day: TODAY, sh: true });
+    expect(Object.keys(prof).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']); // e nenhum horário: nem "u"
+    expect(prof).toMatchObject({ v: 1, nm: 'Ana', mc: 'concha', ins: ['concha'], pct: 61, met: false, st: 0, day: TODAY, sh: true, gl: null, wm: 0 }); // a meta em ml só vai se a pessoa deixar
     expect(JSON.stringify(prof)).not.toMatch(/1234|2000/); // nenhum volume
     const cd = (await seed((d) => getDoc(doc(d, 'codes', c)))).data();
     expect(Object.keys(cd).sort()).toEqual(['mc', 'nm', 'uid']); // o convite também não leva horário
@@ -1230,11 +1234,14 @@ describe('muitos pedidos (enxurrada) e pedidos que somem no meio', () => {
 });
 
 describe('a escuta do perfil de um amigo se recupera sozinha', () => {
-  // FS em que a PRIMEIRA escuta do perfil de "uid" é recusada na hora (como o servidor ainda sem saber do aceite)
+  // FS em que as PRIMEIRAS "times" escutas do perfil de "uid" são recusadas na hora (como o servidor ainda sem saber do aceite).
+  // A recusa chega num microtask: depois da chamada (o app já guardou a escuta) e ANTES de qualquer resposta da rede, que precisa de uma volta
+  // do laço de eventos. Com setTimeout(0) a ordem ficava ao acaso: sob carga, o aviso "a amizade ficou ativa" passava na frente da recusa,
+  // o app não tinha o que refazer naquele instante e só tentava de novo no temporizador (2 s, depois 6 s): o teste falhava de vez em quando.
   const flaky = (uid, times) => {
     let left = times;
     return Object.assign({}, FS, { onSnapshot: function (ref, a, b) {
-      if (left > 0 && ref && ref.path === 'profiles/' + uid && typeof b === 'function') { left--; setTimeout(() => { b({ code: 'permission-denied' }); }, 0); return () => {}; }
+      if (left > 0 && ref && ref.path === 'profiles/' + uid && typeof b === 'function') { left--; Promise.resolve().then(() => { b({ code: 'permission-denied' }); }); return () => {}; }
       return FS.onSnapshot.apply(FS, arguments);
     } });
   };
@@ -1326,5 +1333,96 @@ describe('a cópia do aparelho só vale para a mesma conta', () => {
     expect(c).not.toBe('KMNPQRST');
     expect((await seed((d) => getDoc(doc(d, 'codes', 'KMNPQRST')))).data()).toMatchObject({ uid: CAI, nm: 'Caio', mc: 'baleia' });
     expect(liveOnly(await codesOf(ANA))).toEqual([c]);
+  });
+});
+
+/* ============================== o perfil da 1.2.0: meta em ml (gl) e os 7 dias (wm) ============================== */
+const metDay = (p, k) => { p.S.days[k] = { goal: 2000, entries: [{ id: 'e' + k, t: 1, ml: 2000, d: 'water' }] }; }; // o dia k com a meta batida
+describe('o perfil da 1.2.0 com as regras de verdade: a meta em ml só com a escolha da pessoa, e os últimos 7 dias', () => {
+  const profOf = async (uid) => (await seed((d) => getDoc(doc(d, 'profiles', uid)))).data();
+  test('a meta em ml só vai se a pessoa deixar (gl); desligar apaga o valor; pausar o progresso zera tudo', async () => {
+    const ana = person('Ana', ANA); drink(ana, 1234);
+    await join(ana);
+    expect((await profOf(ANA)).gl).toBeNull();
+    ana.S.social.goal = true; await ana.sc.publish(ana.payload());
+    expect((await profOf(ANA)).gl).toBe(2000);
+    ana.S.social.goal = false; await ana.sc.publish(ana.payload());
+    expect((await profOf(ANA)).gl).toBeNull();
+    ana.S.social.goal = true; ana.S.social.share = false; await ana.sc.publish(ana.payload()); // pausou o progresso: a meta também some
+    expect(await profOf(ANA)).toMatchObject({ sh: false, pct: null, met: false, st: 0, gl: null, wm: null });
+  });
+  test('os 7 dias vão como uma máscara de 7 bits (o bit 0 é o dia do perfil), em todo o intervalo que as regras aceitam: de 0 a 127', async () => {
+    const ana = person('Ana', ANA); drink(ana, 500);
+    await join(ana);
+    expect((await profOf(ANA)).wm).toBe(0);
+    metDay(ana, TODAY); metDay(ana, C.addDays(TODAY, -1)); metDay(ana, C.addDays(TODAY, -3));
+    await ana.sc.publish(ana.payload());
+    expect((await profOf(ANA)).wm).toBe(1 + 2 + 8);
+    for (let i = 0; i < 7; i++) metDay(ana, C.addDays(TODAY, -i));
+    await ana.sc.publish(ana.payload());
+    expect((await profOf(ANA)).wm).toBe(127);
+  });
+  test('o amigo recebe a semana de quem a mostra e a meta em ml só de quem deixou', async () => {
+    const ana = person('Ana', ANA), bru = person('Bruno', BRU);
+    metDay(ana, TODAY); drink(bru, 1000); bru.S.social.goal = true; // Ana não mostra a meta; Bruno mostra
+    await befriend(ana, bru);
+    const fb = ana.sc.state().friends.filter((f) => f.uid === BRU)[0], fa = bru.sc.state().friends.filter((f) => f.uid === ANA)[0];
+    expect(fb).toMatchObject({ nm: 'Bruno', pct: 50, gl: 2000, wm: 0 });
+    expect(fa).toMatchObject({ nm: 'Ana', pct: 100, met: true, gl: null, wm: 1 });
+    expect(weekOf(fa, TODAY)).toMatchObject({ known: true, n: 1 });
+  });
+});
+
+/* ============================== o site novo antes das regras novas ============================== */
+// O site sai sozinho em cerca de 1 minuto depois do push; as regras e as funções vão à parte. Nesse intervalo o app novo fala com as regras da 1.1.x,
+// que não conhecem "gl" nem "wm": o perfil cai para o formato antigo (sem a meta em ml e sem os 7 dias) em vez de ser recusado.
+describe('o site novo antes das regras novas (o servidor ainda está na 1.1.x): os amigos seguem funcionando', () => {
+  const profOld = async (uid) => (await seedOld((d) => getDoc(doc(d, 'profiles', uid)))).data();
+  const spyFS = (log) => Object.assign({}, FS, { setDoc: function (ref) { if (String(ref.path).indexOf('profiles/') === 0) log.push(ref.path); return FS.setDoc.apply(FS, arguments); } });
+  test('entrar e publicar passam: o perfil vai no formato antigo e o convite sai normal', async () => {
+    const ana = person('Ana', ANA, { env: old }); drink(ana, 1234);
+    const c = await join(ana);
+    expect(c).toMatch(/^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/);
+    expect(Object.keys(await profOld(ANA)).sort()).toEqual(['day', 'ins', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v']);
+    drink(ana, 2000); await ana.sc.publish(ana.payload());
+    expect(await profOld(ANA)).toMatchObject({ pct: 100, met: true });
+    ana.S.social.goal = true; await ana.sc.publish(ana.payload()); // ligar a meta em ml também não quebra (só não chega aos amigos ainda)
+    expect(Object.keys(await profOld(ANA))).not.toContain('gl');
+    expect(ana.sc.state().err).toBeFalsy();
+  });
+  test('dois amigos nesse servidor se enxergam como antes; só a semana e a meta em ml ficam de fora', async () => {
+    const ana = person('Ana', ANA, { env: old }), bru = person('Bruno', BRU, { env: old });
+    metDay(ana, TODAY); drink(bru, 1000); bru.S.social.goal = true;
+    await befriend(ana, bru);
+    const fb = ana.sc.state().friends.filter((f) => f.uid === BRU)[0];
+    expect(fb).toMatchObject({ nm: 'Bruno', pct: 50, gl: null, wm: null });
+    expect(weekOf(fb, TODAY).known).toBe(false);
+  });
+  test('quantas tentativas: uma com as regras novas; duas (a segunda no formato antigo) com as antigas; e a recusa de verdade continua chegando à tela', async () => {
+    const novo = [], velho = [], fechado = [];
+    const a = person('Ana', ANA, { FS: spyFS(novo) }); await a.sc.publish(a.payload(), true);
+    expect(novo).toHaveLength(1);
+    const b = person('Bia', BRU, { env: old, FS: spyFS(velho) }); await b.sc.publish(b.payload(), true);
+    expect(velho).toHaveLength(2);
+    const c = person('Caio', CAI, { env: closed, FS: spyFS(fechado) });
+    const e = await err(c.sc.publish(c.payload(), true));
+    expect(e && e.code).toBe('rules');
+    expect(fechado).toHaveLength(2);
+  });
+  test('um erro de rede não vira "formato antigo": uma tentativa só, e a tela recebe "sem conexão" (não "regras")', async () => {
+    const calls = [];
+    const net = Object.assign({}, FS, { setDoc: function (ref) { calls.push(String(ref.path)); return Promise.reject(Object.assign(new Error('sem rede'), { code: 'unavailable' })); } });
+    const a = person('Ana', ANA, { FS: net });
+    const e = await err(a.sc.publish(a.payload(), true));
+    expect(e && e.code).toBe('offline');
+    expect(calls).toHaveLength(1);
+  });
+  test('um perfil que já está no formato antigo (sem gl nem wm) não tenta duas vezes: a recusa vem direto', async () => {
+    const calls = [];
+    const c = person('Caio', CAI, { env: closed, FS: spyFS(calls) });
+    const p = c.payload(); delete p.gl; delete p.wm;
+    const e = await err(c.sc.publish(p, true));
+    expect(e && e.code).toBe('rules');
+    expect(calls).toHaveLength(1);
   });
 });

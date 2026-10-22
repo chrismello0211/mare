@@ -1,6 +1,6 @@
 // Maré — testes da lógica pura dos amigos (public/js/social.js). Rodar: npm test
-// Além de conferir as contas, estes testes guardam os princípios do recurso: nada de ranking, nada de volumes saindo do aparelho,
-// só texto positivo e nenhum dado vindo da nuvem chega à tela sem passar pela limpeza.
+// Além de conferir as contas, estes testes guardam os princípios do recurso: a turma é uma só e tem ranking (decisão do dono na 1.2.0),
+// a meta em ml só sai com um "sim", nunca saem os volumes bebidos, só texto positivo e nenhum dado vindo da nuvem chega à tela sem passar pela limpeza.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as C from '../public/js/core.js';
@@ -192,9 +192,9 @@ describe('o que vai para a nuvem (profilePayload)', () => {
   it('só os campos combinados, nos tipos que as regras do servidor aceitam', () => {
     const S = state({ days: { [T]: dayWith(1234) } });
     const p = SO.profilePayload(S, T);
-    expect(Object.keys(p).sort()).toEqual(['day', 'ins', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v']);
-    expect(p).toEqual({ v: 1, nm: 'Chris', mc: 'estrela', ins: ['concha', 'estrela'], pct: 61, met: false, st: 0, day: T, sh: true });
-    expect(Number.isInteger(p.pct) && Number.isInteger(p.st)).toBe(true);
+    expect(Object.keys(p).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']);
+    expect(p).toEqual({ v: 1, nm: 'Chris', mc: 'estrela', ins: ['concha', 'estrela'], pct: 61, met: false, st: 0, day: T, sh: true, gl: null, wm: 0 }); // meta em ml: só com o "sim"
+    expect(Number.isInteger(p.pct) && Number.isInteger(p.st) && Number.isInteger(p.wm)).toBe(true);
   });
   it('nunca vazam volumes, peso, meta em ml, horários ou localização', () => {
     const S = state({ days: { [T]: dayWith(1234, 2345) }, goal: 2345 });
@@ -264,7 +264,7 @@ describe('o que chega da nuvem (cleanFriend, cleanRequest)', () => {
   it('um perfil bom passa inteiro', () => {
     const f = SO.cleanFriend(BRU, prof(), pair(), ANA);
     expect(f).toMatchObject({ uid: BRU, nm: 'Bruno', mc: 'polvo', ins: ['concha', 'polvo'], pct: 40, met: false, st: 3, day: T, sh: true, since: 2000, mine: null, theirs: null });
-    expect(Object.keys(f).sort()).toEqual(['day', 'ins', 'mc', 'met', 'mine', 'nm', 'pct', 'sh', 'since', 'st', 'theirs', 'uid']); // nenhum horário de atividade do amigo
+    expect(Object.keys(f).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'met', 'mine', 'nm', 'pct', 'sh', 'since', 'st', 'theirs', 'uid', 'wm']); // nenhum horário de atividade do amigo
   });
   it('uid inválido: descarta', () => {
     ['', 'curto', 'a/b' + 'x'.repeat(20), null, undefined, 'x'.repeat(65), 'ã'.repeat(20)].forEach((u) => { expect(SO.cleanFriend(u, prof(), pair(), ANA)).toBeNull(); });
@@ -408,8 +408,8 @@ describe('estado de um amigo hoje (liveOf, statusText)', () => {
   });
 });
 
-describe('sem competição: ordem neutra e textos sempre positivos', () => {
-  it('a lista é alfabética (pt-BR, sem ligar para maiúsculas nem acentos), nunca por progresso', () => {
+describe('ordem por nome (desempate) e textos sempre positivos', () => {
+  it('byName: alfabética em pt-BR, sem ligar para maiúsculas nem acentos, nunca por progresso', () => {
     const mk = (nm, pct, st, uid) => ({ nm: nm, uid: uid || U(nm.toLowerCase()), pct: pct, st: st });
     const list = [mk('Zélia', 100, 99), mk('ana', 0, 0), mk('Álvaro', 50, 5), mk('Bruno', 100, 30), mk('édson', 10, 1)];
     expect(list.slice().sort(SO.byName).map((x) => x.nm)).toEqual(['Álvaro', 'ana', 'Bruno', 'édson', 'Zélia']);
@@ -450,9 +450,297 @@ describe('sem competição: ordem neutra e textos sempre positivos', () => {
       texts.push(t.text, t.sub);
     });
     Object.keys(SO.WAVE_TEXT).forEach((k) => texts.push(SO.WAVE_TEXT[k]));
-    const ruins = /perd|pior|último|ultimo|atrás|atras|falh|fracass|culpa|vergonha|devendo|devedor|ranking|vencedor|campe|derrot|lanterna|preguiç|preguic/i;
+    // a turma tem ranking (1.2.0), mas ninguém é "o último": os textos nunca humilham nem comparam de forma negativa
+    const members = [SO.myMember(state({ days: { [T]: dayWith(500) } }), T), SO.memberOf(SO.cleanFriend(BRU, { v: 1, nm: 'Bruno', mc: 'polvo', ins: [], pct: 10, met: false, st: 0, day: T, sh: true, wm: 3 }, null, ANA), T)];
+    texts.push(SO.turmaWeek(members).text, SO.turmaWeek(members).sub, SO.turmaWeek([members[0]]).text, SO.turmaStreak(members).text, SO.turmaStreak(members).sub,
+      SO.turmaStreak([members[0]]).text, SO.joinedText([{ nm: 'Ana' }]), SO.joinedText([{ nm: 'Ana' }, { nm: 'Bia' }]), SO.joinedText([{ nm: 'Ana' }, { nm: 'Bia' }, { nm: 'Caio' }, { nm: 'Duda' }]));
+    // "nos últimos 7 dias" é só o calendário; o que não pode existir é alguém ser "o último"
+    const ruins = /perd|pior|(^|\s)(o|a|em|ser|ficar|ficou) [uú]ltim[oa](?![a-zà-ú])|atrás|atras|falh|fracass|culpa|vergonha|devendo|devedor|vencedor|campe|derrot|lanterna|preguiç|preguic/i;
     texts.forEach((t) => { expect(t).not.toMatch(ruins); });
     expect(texts.every((t) => typeof t === 'string')).toBe(true);
+  });
+});
+
+describe('turma única: a semana, o ranking e o pódio (1.2.0)', () => {
+  const D = (n) => C.addDays(T, -n); // n dias antes de "hoje"
+  const prof = (o) => Object.assign({ v: 1, nm: 'Bruno', mc: 'polvo', ins: [], pct: 0, met: false, st: 0, day: T, sh: true, gl: null, wm: 0 }, o);
+  let seq = 0;
+  // um amigo como a camada de nuvem entrega e a tela usa (memberOf); name vira o uid, então cada um é único
+  const mk = (name, o) => SO.memberOf(SO.cleanFriend(U(name.toLowerCase() + (seq++)), prof(Object.assign({ nm: name }, o)), null, ANA), T);
+  const names = (list) => list.map((it) => (it.m ? it.m.nm : it.nm));
+
+  describe('o que vai para a nuvem: meta em ml e os 7 dias', () => {
+    it('a meta em ml (gl) só sai com um "sim" de verdade: sem escolha, "não" ou progresso em pausa, vai null', () => {
+      const days = { [T]: dayWith(1234, 2345) };
+      [undefined, null, false, 0, 'true', 1].forEach((g) => {
+        expect(SO.profilePayload(state({ days: days, social: { goal: g } }), T).gl, 'goal ' + JSON.stringify(g)).toBeNull();
+      });
+      expect(SO.profilePayload(state({ days: days, goal: 2345, social: { goal: true } }), T).gl).toBe(2345);
+      expect(SO.profilePayload(state({ days: days, goal: 2345, social: { goal: true, share: false } }), T).gl).toBeNull(); // em pausa, nada do progresso sai
+    });
+    it('a meta que sai é a do dia (a mesma da tela), arredondada e dentro do teto', () => {
+      expect(SO.profilePayload(state({ days: { [T]: dayWith(100, 3000) }, social: { goal: true } }), T).gl).toBe(3000);
+      expect(SO.profilePayload(state({ days: {}, goal: 2500, social: { goal: true } }), T).gl).toBe(2500); // sem registro do dia: a das configurações
+      const huge = state({ days: { [T]: { goal: 99999, entries: [] } }, social: { goal: true } });
+      expect(SO.profilePayload(huge, T).gl).toBe(SO.GOAL_MAX);
+    });
+    it('mesmo com a meta liberada, o que foi bebido nunca sai (nem os litros, nem os horários)', () => {
+      const S = state({ days: { [T]: dayWith(1234, 2345) }, goal: 2345, social: { goal: true } });
+      const json = JSON.stringify(SO.profilePayload(S, T));
+      expect(json).toContain('2345');
+      ['1234', '"ml"', 'entries', 'weight', 'wake'].forEach((x) => { expect(json).not.toContain(x); });
+    });
+    it('wm: um bit por dia (bit 0 = o dia do perfil) para os últimos 7 dias; o oitavo dia e os dias sem meta ficam de fora', () => {
+      const days = { [T]: dayWith(2000), [D(2)]: dayWith(2500), [D(6)]: dayWith(2000), [D(7)]: dayWith(3000), [D(3)]: dayWith(1999) };
+      const p = SO.profilePayload(state({ days: days }), T);
+      expect(p.wm).toBe(1 + 4 + 64); // hoje, anteontem e há 6 dias; D(3) não bateu e D(7) já saiu da janela
+      expect(SO.weekMask(state({ days: {} }), T)).toBe(0);
+      const all = {}; for (let i = 0; i < 9; i++) all[D(i)] = dayWith(2000);
+      expect(SO.weekMask(state({ days: all }), T)).toBe(127);
+    });
+    it('progresso em pausa: sem máscara (wm null) e sem meta (gl null)', () => {
+      const p = SO.profilePayload(state({ days: { [T]: dayWith(2000) }, social: { share: false, goal: true } }), T);
+      expect(p).toMatchObject({ sh: false, wm: null, gl: null, pct: null });
+    });
+    it('samePayload percebe mudança na meta e na semana (senão o perfil novo não seria enviado)', () => {
+      const a = SO.profilePayload(state({ days: { [T]: dayWith(500) }, social: { goal: true } }), T);
+      expect(SO.samePayload(a, Object.assign({}, a))).toBe(true);
+      expect(SO.samePayload(a, Object.assign({}, a, { gl: 3000 }))).toBe(false);
+      expect(SO.samePayload(a, Object.assign({}, a, { gl: null }))).toBe(false);
+      expect(SO.samePayload(a, Object.assign({}, a, { wm: 3 }))).toBe(false);
+    });
+  });
+
+  describe('o que chega da nuvem: gl e wm', () => {
+    const clean = (o) => SO.cleanFriend(BRU, prof(o), null, ANA);
+    it('meta: de 100 a 10000 ml vale; fora disso, ou lixo, é como se a pessoa não mostrasse', () => {
+      expect(clean({ gl: 2500 }).gl).toBe(2500);
+      expect(clean({ gl: 2500.7 }).gl).toBe(2500);
+      expect(clean({ gl: 99999 }).gl).toBe(SO.GOAL_MAX);
+      [null, undefined, '', 0, 99, -50, 'abc', NaN, {}, []].forEach((v) => { expect(clean({ gl: v }).gl, 'gl ' + JSON.stringify(v)).toBeNull(); });
+    });
+    it('semana: máscara de 0 a 127; sem ela, nada (versão antiga do app)', () => {
+      expect(clean({ wm: 5 }).wm).toBe(5);
+      expect(clean({ wm: 999 }).wm).toBe(127);
+      expect(clean({ wm: -4 }).wm).toBe(0);
+      expect(clean({ wm: null }).wm).toBeNull();
+      expect(clean({ wm: undefined }).wm).toBeNull();
+    });
+    it('a cópia guardada no aparelho leva os dois campos (e volta igual)', () => {
+      const f = clean({ gl: 2800, wm: 21 });
+      const st = SO.cleanState({ uid: ANA, code: '', at: 1, friends: [f], reqIn: [], reqOut: [] });
+      expect(st.friends[0]).toMatchObject({ gl: 2800, wm: 21 });
+      expect(SO.profileOfCached(f)).toMatchObject({ gl: 2800, wm: 21 });
+    });
+  });
+
+  describe('weekOf: os 7 dias vistos do dia de quem olha', () => {
+    it('perfil de hoje: o bit i é o dia (hoje − i)', () => {
+      const w = SO.weekOf({ day: T, wm: 0b0000101, sh: true }, T);
+      expect(w).toMatchObject({ known: true, n: 2 });
+      expect(w.days).toEqual([true, false, true, false, false, false, false]);
+    });
+    it('quem não abre o app há alguns dias: a janela anda e os dias sem registro contam como não batidos', () => {
+      const w1 = SO.weekOf({ day: D(1), wm: 0b0000101, sh: true }, T); // ontem batida (bit 0) e anteontem... não: bit 2 = há 3 dias
+      expect(w1.days).toEqual([false, true, false, true, false, false, false]);
+      expect(w1.n).toBe(2);
+      const w3 = SO.weekOf({ day: D(3), wm: 0b1111111, sh: true }, T);
+      expect(w3.days).toEqual([false, false, false, true, true, true, true]); // só cabem 4 dos 7 dias dele na janela de quem olha
+      expect(w3.n).toBe(4);
+      expect(SO.weekOf({ day: D(6), wm: 0b1111111, sh: true }, T).days).toEqual([false, false, false, false, false, false, true]);
+    });
+    it('ausente há 7 dias ou mais: semana conhecida, mas vazia', () => {
+      expect(SO.weekOf({ day: D(7), wm: 0b1111111, sh: true }, T)).toMatchObject({ known: true, n: 0 });
+      expect(SO.weekOf({ day: D(40), wm: 127, sh: true }, T)).toMatchObject({ known: true, n: 0 });
+    });
+    it('fuso à frente (o dia dele é amanhã para mim) conta como hoje', () => {
+      expect(SO.weekOf({ day: C.addDays(T, 1), wm: 1, sh: true }, T).days[0]).toBe(true);
+    });
+    it('sem como saber: sem máscara, em pausa, sem dia ou com um dia que ainda nem chegou', () => {
+      [{ day: T, wm: null, sh: true }, { day: T, wm: undefined, sh: true }, { day: T, wm: 5, sh: false }, { wm: 5, sh: true }, { day: '', wm: 5, sh: true },
+        { day: C.addDays(T, 3), wm: 5, sh: true }, null, undefined].forEach((p) => {
+        expect(SO.weekOf(p, T), JSON.stringify(p)).toMatchObject({ known: false, n: 0 });
+      });
+    });
+    it('máscara hostil (maior que 127) é cortada nos 7 bits', () => {
+      expect(SO.weekOf({ day: T, wm: 100000, sh: true }, T).n).toBeLessThanOrEqual(7);
+      expect(SO.weekOf({ day: T, wm: 255, sh: true }, T).n).toBe(7);
+    });
+  });
+
+  describe('memberOf e myMember', () => {
+    it('memberOf junta o estado de hoje, a semana e a meta do amigo', () => {
+      const m = mk('Ana', { pct: 40, st: 3, gl: 2500, wm: 3 });
+      expect(m).toMatchObject({ nm: 'Ana', me: false, gl: 2500 });
+      expect(m.live).toMatchObject({ kind: 'going', pct: 40, st: 3 });
+      expect(m.week).toMatchObject({ known: true, n: 2 });
+    });
+    it('myMember usa os meus dados mesmo com o progresso em pausa para os amigos (e minha meta aparece só para mim)', () => {
+      const S = state({ days: { [T]: dayWith(1000, 2000), [D(1)]: dayWith(2000) }, social: { share: false, goal: null, nick: 'Chris' } });
+      const me = SO.myMember(S, T);
+      expect(me).toMatchObject({ me: true, nm: 'Chris', gl: 2000 });
+      expect(me.live).toMatchObject({ kind: 'going', pct: 50 });
+      expect(me.week).toMatchObject({ known: true, n: 1 }); // só ontem (hoje ainda não bateu)
+      expect(S.social.share).toBe(false); // não mexe no estado que recebeu
+      expect(S.social.goal).toBeNull();
+    });
+  });
+
+  describe('rankBoard', () => {
+    const board = (list, by) => SO.rankBoard(list, by);
+    it('Hoje: do maior para o menor % (quem bateu a meta vale 100); empate divide a posição (1, 1, 3)', () => {
+      const a = mk('Ana', { pct: 80 }), b = mk('Bia', { pct: 80 }), c = mk('Caio', { pct: 20 }), d = mk('Duda', { met: true, pct: 100 });
+      const r = board([c, a, d, b], 'day');
+      expect(names(r.ranked)).toEqual(['Duda', 'Ana', 'Bia', 'Caio']);
+      expect(r.ranked.map((x) => x.rank)).toEqual([1, 2, 2, 4]);
+      expect(r.ranked.map((x) => x.v)).toEqual([100, 80, 80, 20]);
+      expect(r.rest).toEqual([]);
+    });
+    it('Hoje: empate no % desempata pela sequência, depois pela semana e por fim pelo nome; a posição continua dividida', () => {
+      const a = mk('Ana', { pct: 50, st: 2, wm: 1 }), b = mk('Bia', { pct: 50, st: 5, wm: 1 }), c = mk('Caio', { pct: 50, st: 5, wm: 7 }), d = mk('Alice', { pct: 50, st: 5, wm: 7 });
+      const r = board([a, b, c, d], 'day');
+      expect(names(r.ranked)).toEqual(['Alice', 'Caio', 'Bia', 'Ana']);
+      expect(r.ranked.map((x) => x.rank)).toEqual([1, 1, 1, 1]);
+    });
+    it('Hoje: quem ainda não apareceu hoje, está em pausa ou não publicou perfil fica fora da conta, em ordem alfabética (nunca "em último")', () => {
+      const ok = mk('Ana', { pct: 10 }), away = mk('Zeca', { day: D(2), pct: 90 }), pause = mk('Bia', { sh: false, pct: null }), none = mk('Caio', { day: '' });
+      const r = board([away, ok, pause, none], 'day');
+      expect(names(r.ranked)).toEqual(['Ana']);
+      expect(names(r.rest)).toEqual(['Bia', 'Caio', 'Zeca']);
+    });
+    it('Hoje: quem abriu o app mas ainda não registrou (0%) entra na conta', () => {
+      const idle = mk('Ana', { pct: 0 }), going = mk('Bia', { pct: 5 });
+      const r = board([idle, going], 'day');
+      expect(names(r.ranked)).toEqual(['Bia', 'Ana']);
+      expect(r.ranked[1]).toMatchObject({ rank: 2, v: 0 });
+    });
+    it('Semana: pelo número de dias na meta nos últimos 7; quem não tem a semana conhecida fica à parte', () => {
+      const a = mk('Ana', { wm: 0b1111111 }), b = mk('Bia', { wm: 0b0000111 }), c = mk('Caio', { wm: 0b0000101 }), old = mk('Velho', { wm: null }), pause = mk('Pausa', { sh: false, wm: null });
+      const r = board([c, old, a, pause, b], 'week');
+      expect(names(r.ranked)).toEqual(['Ana', 'Bia', 'Caio']);
+      expect(r.ranked.map((x) => x.v)).toEqual([7, 3, 2]);
+      expect(names(r.rest)).toEqual(['Pausa', 'Velho']);
+    });
+    it('Semana: quem sumiu há dias perde os dias que saíram da janela, não a conta inteira', () => {
+      const gone = mk('Ana', { day: D(4), wm: 0b1111111 }), here = mk('Bia', { wm: 0b0000011 });
+      const r = board([gone, here], 'week');
+      expect(r.ranked.map((x) => [x.m.nm, x.v])).toEqual([['Ana', 3], ['Bia', 2]]);
+    });
+    it('Sequência: pelos dias seguidos na meta; sequência só vale se a pessoa apareceu hoje ou ontem', () => {
+      const a = mk('Ana', { st: 12 }), b = mk('Bia', { st: 3 }), c = mk('Caio', { st: 30, day: D(2) }), d = mk('Duda', { st: 0 });
+      const r = board([b, c, d, a], 'streak');
+      expect(r.ranked.map((x) => [x.m.nm, x.v])).toEqual([['Ana', 12], ['Bia', 3], ['Caio', 0], ['Duda', 0]]); // Caio sumiu há 2 dias: a sequência dele acabou
+      expect(r.ranked.map((x) => x.rank)).toEqual([1, 2, 3, 3]);
+    });
+    it('quem mostra o progresso em pausa ou não tem perfil sai da Sequência também', () => {
+      const r = board([mk('Ana', { st: 4 }), mk('Pausa', { sh: false }), mk('Novo', { day: '' })], 'streak');
+      expect(names(r.ranked)).toEqual(['Ana']);
+      expect(names(r.rest)).toEqual(['Novo', 'Pausa']);
+    });
+    it('visão desconhecida vale "Hoje"; rankId aceita só as três visões', () => {
+      expect(board([mk('Ana', { pct: 5 })], 'xyz').by).toBe('day');
+      expect(board([], undefined).by).toBe('day');
+      ['day', 'week', 'streak'].forEach((v) => { expect(SO.rankId(v)).toBe(v); });
+      ['', null, undefined, 'Hoje', 'WEEK', {}, 3].forEach((v) => { expect(SO.rankId(v)).toBe('day'); });
+      expect(SO.RANKS.map((r) => r.id)).toEqual(['day', 'week', 'streak']);
+    });
+    it('é uma partição estável: todo mundo aparece uma vez, a ordem não depende da ordem de chegada, e a entrada não é alterada', () => {
+      const list = [];
+      for (let i = 0; i < 40; i++) list.push(mk('P' + (i % 7), { pct: (i * 37) % 101, st: (i * 11) % 9, wm: (i * 13) % 128, day: i % 9 === 0 ? D(3) : T, sh: i % 11 !== 0, met: i % 5 === 0 }));
+      ['day', 'week', 'streak'].forEach((by) => {
+        const copy = list.slice(), r1 = board(list, by), r2 = board(list.slice().reverse(), by);
+        expect(list).toEqual(copy);
+        const all = r1.ranked.map((x) => x.m).concat(r1.rest);
+        expect(all).toHaveLength(list.length);
+        expect(new Set(all.map((m) => m.uid)).size).toBe(list.length);
+        expect(r1.ranked.map((x) => x.m.uid)).toEqual(r2.ranked.map((x) => x.m.uid));
+        expect(r1.rest.map((m) => m.uid)).toEqual(r2.rest.map((m) => m.uid));
+        r1.ranked.forEach((x, i) => {
+          expect(x.rank).toBe(1 + r1.ranked.filter((y) => y.v > x.v).length); // a posição é 1 + quantos estão estritamente melhores
+          if (i) expect(r1.ranked[i - 1].v).toBeGreaterThanOrEqual(x.v);
+        });
+      });
+    });
+    it('eu apareço na conta em qualquer visão, mesmo com o progresso em pausa para os amigos', () => {
+      const me = SO.myMember(state({ days: { [T]: dayWith(500) }, social: { share: false } }), T);
+      ['day', 'week', 'streak'].forEach((by) => {
+        expect(board([me, mk('Ana', { pct: 30 })], by).ranked.map((x) => x.m.me)).toContain(true);
+      });
+    });
+  });
+
+  describe('podium', () => {
+    const items = (vs) => { let rank = 0, prev = -1; return vs.map((v, i) => { if (v !== prev) rank = i + 1; prev = v; return { m: { nm: 'P' + i }, rank: rank, v: v }; }); };
+    it('precisa de pelo menos três pessoas, as três com algo a mostrar', () => {
+      expect(SO.podium(items([]))).toBeNull();
+      expect(SO.podium(items([50, 40]))).toBeNull();
+      expect(SO.podium(items([50, 40, 0]))).toBeNull(); // um pódio com zero não anima ninguém
+      expect(SO.podium(items([0, 0, 0]))).toBeNull();
+      expect(SO.podium(items([50, 40, 1]))).not.toBeNull();
+    });
+    it('posições diferentes: 2º, 1º e 3º (o primeiro no meio)', () => {
+      expect(SO.podium(items([90, 70, 50, 30])).map((x) => x.rank)).toEqual([2, 1, 3]);
+      expect(SO.podium(items([90, 70, 50, 30])).map((x) => x.m.nm)).toEqual(['P1', 'P0', 'P2']);
+    });
+    it('com empate entre os três primeiros, vale a ordem da lista (sem trocar quem é "o do meio")', () => {
+      expect(SO.podium(items([80, 80, 50])).map((x) => x.m.nm)).toEqual(['P0', 'P1', 'P2']);
+      expect(SO.podium(items([80, 60, 60])).map((x) => x.m.nm)).toEqual(['P0', 'P1', 'P2']);
+      expect(SO.podium(items([70, 70, 70, 70])).map((x) => x.m.nm)).toEqual(['P0', 'P1', 'P2']);
+    });
+    it('só mostra três, não importa quantos sejam', () => {
+      expect(SO.podium(items([9, 8, 7, 6, 5, 4, 3]))).toHaveLength(3);
+    });
+  });
+
+  describe('resumos da turma', () => {
+    const me = (o) => SO.myMember(state(Object.assign({ days: {} }, o)), T);
+    it('semana: ninguém mais conhecido = quieta; ninguém bateu = semana nova; todo mundo todo dia = perfeita; senão conta as vezes', () => {
+      expect(SO.turmaWeek([me()])).toMatchObject({ kind: 'quiet' });
+      expect(SO.turmaWeek([me(), mk('Ana', { wm: null })])).toMatchObject({ kind: 'quiet' }); // a semana dela é desconhecida
+      expect(SO.turmaWeek([me(), mk('Ana', { wm: 0 })])).toMatchObject({ kind: 'none', met: 0, total: 14 });
+      const days = {}; for (let i = 0; i < 7; i++) days[D(i)] = dayWith(2000);
+      expect(SO.turmaWeek([me({ days: days }), mk('Ana', { wm: 127 })])).toMatchObject({ kind: 'all', met: 14, total: 14, text: 'Semana perfeita!' });
+      const some = SO.turmaWeek([me(), mk('Ana', { wm: 0b11 }), mk('Bia', { wm: 0b1 })]);
+      expect(some).toMatchObject({ kind: 'some', met: 3, total: 21 });
+      expect(some.text).toBe('A turma bateu a meta 3 vezes');
+      expect(SO.turmaWeek([me(), mk('Ana', { wm: 0b1 })]).text).toBe('A turma bateu a meta 1 vez'); // singular
+    });
+    it('sequência: a maior entre quem mostra o progresso', () => {
+      expect(SO.turmaStreak([me()])).toMatchObject({ kind: 'quiet' });
+      expect(SO.turmaStreak([me(), mk('Ana', { st: 0 })])).toMatchObject({ kind: 'none' });
+      expect(SO.turmaStreak([me(), mk('Ana', { st: 12 }), mk('Bia', { st: 3 })])).toMatchObject({ kind: 'some', text: 'A maior sequência da turma: 12 dias' });
+      expect(SO.turmaStreak([me(), mk('Ana', { st: 1 })]).text).toBe('A maior sequência da turma: 1 dia');
+      expect(SO.turmaStreak([me(), mk('Ana', { st: 40, sh: false })])).toMatchObject({ kind: 'quiet' }); // quem está em pausa não conta nem como "conhecido"
+    });
+    it('joinedText: um, dois e vários nomes', () => {
+      const L = (...n) => n.map((x) => ({ nm: x }));
+      expect(SO.joinedText(L('Ana'))).toBe('Ana entrou na turma');
+      expect(SO.joinedText(L('Ana', 'Bia'))).toBe('Ana e Bia entraram na turma');
+      expect(SO.joinedText(L('Ana', 'Bia', 'Caio'))).toBe('Ana, Bia e mais 1 pessoa entraram na turma');
+      expect(SO.joinedText(L('Ana', 'Bia', 'Caio', 'Duda', 'Edu'))).toBe('Ana, Bia e mais 3 pessoas entraram na turma');
+    });
+  });
+
+  describe('arrivals: gente nova na turma', () => {
+    const fr = (uid) => ({ uid: uid, nm: 'x' }), rq = (uid) => ({ uid: uid, nm: 'x' });
+    it('quem chegou depois do estado anterior entra em "joined"; quem aceitou um pedido meu fica só em "accepted"', () => {
+      const prev = { at: 5, friends: [fr(ANA)], reqIn: [], reqOut: [rq(BRU)] };
+      const next = { at: 6, friends: [fr(ANA), fr(BRU), fr(CAI)], reqIn: [], reqOut: [] };
+      const a = SO.arrivals(prev, next);
+      expect(a.accepted.map((x) => x.uid)).toEqual([BRU]);
+      expect(a.joined.map((x) => x.uid)).toEqual([CAI]);
+    });
+    it('sem estado anterior de verdade (aparelho novo, cópia vazia): a lista inteira não é novidade', () => {
+      const next = { friends: [fr(ANA), fr(BRU)], reqIn: [], reqOut: [] };
+      expect(SO.arrivals(null, next).joined).toEqual([]);
+      expect(SO.arrivals({ at: 0, friends: [], reqIn: [], reqOut: [] }, next).joined).toEqual([]);
+      expect(SO.arrivals(undefined, next).joined).toEqual([]);
+    });
+    it('quem já era amigo não é novidade, e quem saiu não aparece', () => {
+      const prev = { at: 5, friends: [fr(ANA), fr(BRU)], reqIn: [], reqOut: [] };
+      expect(SO.arrivals(prev, { at: 6, friends: [fr(ANA), fr(BRU)], reqIn: [], reqOut: [] }).joined).toEqual([]);
+      expect(SO.arrivals(prev, { at: 6, friends: [fr(ANA)], reqIn: [], reqOut: [] }).joined).toEqual([]);
+    });
   });
 });
 

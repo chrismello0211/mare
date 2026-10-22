@@ -75,8 +75,8 @@ function quickHTML() {
 }
 function tipsHTML() {
   const ui = S.ui, ios = isIOS();
-  if (!ui.tip_news) {
-    return tip('news', '🐚', 'Novidades no Maré', 'Cada marco de água agora vira um bichinho do mar para colecionar, e dá para acompanhar o dia de quem você gosta.',
+  if (!ui.tip_news12) {
+    return tip('news12', '🐚', 'Novidades no Maré', 'Os amigos agora formam uma turma só, com ranking, e cada marco de água vira um bichinho do mar para colecionar.',
       ['news', 'Ver as novidades']);
   }
   if (!isStandalone() && !isNative() && !ui.tip_install && (canInstall() || ios || isAndroid())) {
@@ -318,14 +318,16 @@ export function unlockSheet(id) {
     (S.social && S.social.on && S.social.share !== false ? '<p class="note">Seus amigos vão ver essa insígnia no seu perfil.</p>' : '') +
     '<div class="btns">' + btn('close-sheet', 'Que legal!') + btn('reef', 'Ver meu recife', 'ghost') + '</div></div>';
 }
-// Novidades da versão 1.1 (a dica da tela Hoje abre este painel)
+// Novidades das versões 1.1 e 1.2 (a dica da tela Hoje abre este painel)
 export function newsSheet() {
-  const have = unlockedInsignias(S).length;
+  const have = unlockedInsignias(S).length, ni = (e, b, t) => '<div class="news-i"><span class="em" aria-hidden="true">' + e + '</span><div><b>' + b + '</b><p>' + t + '</p></div></div>';
   return sheetHead('Novidades do Maré') +
     '<div class="news-i">' + badge('cavalo', { size: 48 }) + '<div><b>Insígnias do mar</b><p>Cada marco de água vira um bichinho para colecionar: da concha ao narval. ' +
     (have > 1 ? 'Você já tem ' + have + ' de ' + INSIGNIAS.length + '.' : 'Você começa com a concha.') + '</p></div></div>' +
-    '<div class="news-i"><span class="em" aria-hidden="true">🤗</span><div><b>Amigos, sem competição</b><p>Acompanhe o dia de quem você gosta, se a pessoa permitir, e mande um incentivo. Não tem ranking nem comparação de litros.</p></div></div>' +
-    '<div class="btns stk">' + btn('news-friends', 'Conhecer os amigos') + btn('news-go', 'Ver meu recife', 'ghost') + btn('close-sheet', 'Depois', 'ghost') + '</div>';
+    ni('🏆', 'Uma turma, um ranking', 'Os amigos agora formam uma turma só: todo mundo vê todo mundo, com ranking do dia, da semana e da sequência. Cada um decide o que mostra, e a meta em ml só aparece se você deixar.') +
+    ni('🔔', 'Avisos mais espertos', 'Os avisos respeitam seu horário de sono. Dá para escolher saber quando um amigo bate a meta e receber o resumo da semana da turma no domingo.') +
+    ni('🔢', 'Sem número no ícone', 'O número que aparecia no ícone era a conta de copos que faltavam, e parecia notificação. Ele saiu.') +
+    '<div class="btns stk">' + btn('news-friends', 'Conhecer a turma') + btn('news-go', 'Ver meu recife', 'ghost') + btn('close-sheet', 'Depois', 'ghost') + '</div>';
 }
 export function shareText() {
   const st = streak(S.days, today()), m = mascotOf(S);
