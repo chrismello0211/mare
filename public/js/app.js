@@ -2,8 +2,8 @@
 // Toda alteração segue: muda S → save() → afterChange() (lembrete, conquistas, nuvem) → atualiza só o necessário.
 import { ACTIVITY, drink, isWater, mixOn, retired, uid, dayKey, keyToDate, minOf, fmtHM, expectedBy, nextReminderAt, climateBonus, goalToday,
   missionFor, missionProgress, newAchievements, newInsignias, insigniaDates, insigniaById, streak, buildICS, defaults, migrate } from './core.js';
-import { KEY, S, SOC, setS, applyMix, hooks, load, save, clamp, num, plural, byT, shiftYm, today, goalNow, totalNow, otherNow, othersOn, ensureDay,
-  syncTodayGoal, allMl, U, vol, toMl, fromMl, big, esc } from './store.js';
+import { KEY, S, SOC, ACCT, setS, applyMix, hooks, load, save, clamp, num, plural, byT, shiftYm, today, goalNow, totalNow, otherNow, othersOn, ensureDay,
+  syncTodayGoal, allMl, U, vol, toMl, fromMl, big, esc, wait } from './store.js';
 import { $, $$, tween, animBars, onBack, hPush, hBack, toast, hideToast, runToastAction, showBanner, sheetBody, sheetIsOpen, openSheet,
   closeSheet, onSheetClose, confirmSheet, runConfirm, splash, confetti, pop, popBusy, levelY, dropTo, floatEmoji } from './ui.js';
 import { isNative, reducedMotion, onMedia, haptic, registerSW, applyUpdate, notifStatus, requestNotifPermission, showNotification,
@@ -15,8 +15,10 @@ import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboard
 import { friendsView, friendSheet, profileSheet, codeSheet, aboutSheet, friendsSig, inviteInfo, alertsOn, alertsNote, hitOn, weekOn, hitNote, weekNote } from './friends-view.js';
 import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inviteLink, inviteText, fmtCode, profilePayload, liveOf, myLive, turma,
   waveFor, seenWaves, arrivals, joinedText, rankId, errText } from './social.js';
+import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs } from './account.js';
+import { createSheet, signinSheet, resetSheet, resetDoneSheet, deleteSheet } from './account-view.js';
 
-export const APP_VERSION = '1.2.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.3.0'; // aumente a cada deploy, junto com VERSION no sw.js
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'friends', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -26,6 +28,11 @@ let cloud = null, syncState = 'off', cloudOn = false, cloudP = null, cloudFailed
 // frCode = painel "Inserir código"; waving = acenos em andamento; tabHTML = a barra de abas desenhada agora (só mexe quando muda)
 let soc = null, socP = null, socWired = null, frSig = '', frInv = null, frCode = null, tabHTML = '';
 const waving = {};
+// conta (1.3.0): acBusy = uma operação de conta em andamento (um toque duplo não repete) · acLast = como o painel de entrar foi aberto (e-mail fixo, título,
+// again = voltar à conta que o aparelho tinha, swap = trocar os dados daqui pelos de uma conta) · acMail = o último e-mail digitado nos painéis ·
+// acPend = login feito, mas os dados ainda não baixaram (o painel oferece "Tentar de novo") · acSeen = quando o app conferiu pela última vez se o
+// e-mail foi confirmado · wipeP = a limpeza da nuvem do login anterior, ainda em andamento
+let acBusy = false, acLast = {}, acMail = '', acPend = null, acSeen = 0, wipeP = null;
 
 /* ---------- utilidades ---------- */
 const info = () => ({ version: 'v' + APP_VERSION, sync: syncState, push: !!(cloud && cloud.push) });
@@ -114,6 +121,7 @@ function go(t, fromPop) {
   if (t === tab) { window.scrollTo(0, 0); return; }
   const was = tab;
   tab = t;
+  if (t === 'settings') checkVerified();
   if (t !== 'history') ym = '';
   // Hoje é a base do histórico; as outras abas ficam a um "voltar" de distância (botão do Android)
   if (!fromPop) { if (was === 'today') hPush(); else if (t === 'today') hBack(); }
@@ -127,9 +135,10 @@ function go(t, fromPop) {
 onBack(() => { if (ob) obBack(true); else if (tab !== 'today') go('today', true); });
 
 /* ---------- onboarding ---------- */
-function startOnboarding() {
+// rest = quantos dias de registros acabaram de voltar da conta (a tela de boas-vindas muda de texto); 0 = começo normal
+function startOnboarding(rest) {
   const p = S.profile;
-  ob = { step: 0, name: p.name, weight: p.weight, activity: p.activity, wake: p.wake, sleep: p.sleep };
+  ob = { step: 0, name: p.name, weight: p.weight, activity: p.activity, wake: p.wake, sleep: p.sleep, rest: rest || 0 };
   renderOb();
 }
 function renderOb() {
@@ -551,6 +560,11 @@ function readBackup(f) {
     let s = null;
     try { s = sanitize(JSON.parse(String(rd.result))); } catch (e) { s = null; }
     if (!s) { toast('Esse arquivo não parece um backup do Maré.'); return; }
+    if (ACCT.on && S.onboarded) { // com conta, o arquivo é JUNTADO aos registros (substituir apagaria da tela dias da conta e devolveria versões velhas à nuvem)
+      confirmSheet('Juntar o backup à sua conta?', 'Os registros do arquivo (' + plural(Object.keys(s.days).length, 'dia', 'dias') + ') são juntados aos da sua conta: vale o mais recente de cada dia ' +
+        'e nada do que já está aqui é apagado. Seus ajustes continuam como estão.', 'Juntar', false, () => mergeBackup(s));
+      return;
+    }
     confirmSheet('Restaurar backup?', 'Os dados deste aparelho serão substituídos por ' + plural(Object.keys(s.days).length, 'dia', 'dias') +
       ' de registros do backup.', 'Restaurar', false, () => applyBackup(s));
   };
@@ -602,39 +616,74 @@ function applyBackup(s) {
   socTouch();
   toast('Backup restaurado ✓');
 }
+// Aparelho com conta: o arquivo entra por dia, e o mais recente vence (como os dados que chegam da nuvem). Os ajustes não mudam.
+function mergeBackup(s) {
+  const keys = fillDays(s.days);
+  keys.forEach(touch); // o dia que o arquivo trouxe passa a ser o mais recente: sobe para a conta e vence nos outros aparelhos
+  newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); }); // conquistas antigas: sem festa
+  grantInsignias(false);
+  if (s.createdAt && (!S.createdAt || s.createdAt < S.createdAt)) S.createdAt = s.createdAt;
+  save();
+  if (keys.indexOf(today()) >= 0) planReminder();
+  refreshUI(); socTouch();
+  sync(keys);
+  toast(keys.length ? plural(keys.length, 'dia', 'dias') + ' do backup ' + (keys.length === 1 ? 'entrou' : 'entraram') + ' na sua conta ✓' : 'Nada novo no arquivo: sua conta já tinha esses registros.');
+}
 let erasing = false; // saindo dos amigos para apagar tudo: um segundo "Apagar tudo" nesse meio tempo não repete
 function resetAll() {
+  if (ACCT.on) { openSheet(deleteSheet({})); return; } // com conta, apagar é "Excluir conta" (pede a senha)
   confirmSheet('Apagar todos os dados?', 'Registros, medalhas e ajustes deste aparelho serão removidos' +
-    (cloud ? ', inclusive a cópia na nuvem' : '') + '. Não dá para desfazer.', 'Apagar tudo', true, async () => {
-    // Com os amigos ligados, primeiro sai da rede (perfil, convites, amizades). Se não der (sem internet, por exemplo), nada é apagado:
-    // o perfil não pode continuar público na nuvem com o app dizendo que apagou tudo. A pessoa pode tentar de novo ou, se preferir,
-    // apagar só o que é deste aparelho (uma saída para quem não consegue sair dos amigos nunca ficar sem poder apagar os próprios dados).
-    if (S.social.on) {
-      if (erasing) { toast('Apagando…'); return; }
-      erasing = true;
-      toast('Apagando…');
-      try { await exitCloud(); } catch (e) {
-        hideToast(); // o "Apagando…" não pode ficar por cima do aviso de que não deu
-        confirmSheet('Não consegui sair dos amigos', 'Seu perfil continua na nuvem, visível só para quem já é seu amigo, e não deu para apagá-lo agora. ' +
-          'Confira a internet e tente de novo. Se preferir, apague só os dados deste aparelho: o perfil nos amigos só some quando você ativar os amigos de novo e sair.',
-        'Apagar só neste aparelho', true, eraseLocal);
-        return;
-      } finally { erasing = false; }
-    }
-    eraseLocal();
-  });
+    (cloud ? ', inclusive a cópia na nuvem' : '') + '. Não dá para desfazer.' +
+    (ACCT.ended ? ' A sua conta e os dados dela na nuvem não são tocados: para voltar a eles, é só entrar na conta depois.' : ''), 'Apagar tudo', true, () => eraseAll());
 }
-// Apaga o que é deste aparelho (e a cópia na nuvem, se a conexão deixar) e volta para a tela de boas-vindas
-function eraseLocal() {
+// Apaga tudo (neste aparelho e na nuvem, sem conta)
+async function eraseAll() {
+  // Com os amigos ligados, primeiro sai da rede (perfil, convites, amizades). Se não der (sem internet, por exemplo), nada é apagado:
+  // o perfil não pode continuar público na nuvem com o app dizendo que apagou tudo. A pessoa pode tentar de novo ou, se preferir,
+  // apagar só o que é deste aparelho (uma saída para quem não consegue sair dos amigos nunca ficar sem poder apagar os próprios dados).
+  if (S.social.on) {
+    if (erasing) { toast('Apagando…'); return; }
+    erasing = true;
+    toast('Apagando…');
+    try { await exitCloud(); } catch (e) {
+      hideToast(); // o "Apagando…" não pode ficar por cima do aviso de que não deu
+      confirmSheet('Não consegui sair dos amigos', 'Seu perfil continua na nuvem, visível só para quem já é seu amigo, e não deu para apagá-lo agora. ' +
+        'Confira a internet e tente de novo. Se preferir, apague só os dados deste aparelho: o perfil nos amigos só some quando você ativar os amigos de novo e sair.',
+      'Apagar só neste aparelho', true, () => { eraseLocal(); });
+      return;
+    } finally { erasing = false; }
+  }
+  eraseLocal();
+}
+// Apaga o que é deste aparelho (e a cópia na nuvem, se a conexão deixar) e volta para a tela de boas-vindas.
+// keepCloud = true: sair da conta (ou excluí-la, depois de a nuvem já ter sido limpa): a nuvem NÃO é tocada. Devolve a promessa da limpeza da nuvem.
+function eraseLocal(keepCloud) {
   try { if (soc) soc.stop(); } catch (e) { /* a camada de amigos é opcional */ }
-  if (cloud && cloud.wipe) cloud.wipe().catch(() => {});
+  let w = Promise.resolve();
+  if (!keepCloud && cloud && cloud.wipe) {
+    w = cloud.wipe().catch(() => {});
+    wipeP = w;
+    w.then(() => { if (wipeP === w) wipeP = null; }); // quem for trocar de login espera esta limpeza terminar (ver doSignin)
+  }
+  // O aparelho volta a ser novo: sem a dica da conta (se estava no estado "saiu da conta", isso o desfaz) e sem a marca de sincronização, senão, ao entrar
+  // de novo na mesma conta, só viria o que mudou depois dela e o histórico não voltaria. Uma nuvem que não subiu (ou que parou porque a conta saiu)
+  // volta a poder subir quando a pessoa terminar o onboarding.
+  if (!cloud && (cloudFailed || ACCT.ended)) { cloudOn = false; cloudP = null; cloudFailed = false; }
+  clearAcct();
+  try { localStorage.removeItem(MARK_KEY); } catch (e) { /* ignora */ }
+  clearLocal();
+  startOnboarding();
+  return w;
+}
+// O que é deste aparelho sai: lembretes, registros, ajustes e a cópia dos amigos (a nuvem não é tocada aqui; o wipe() dela apaga perfil e amizades)
+function clearLocal() {
+  try { if (soc) soc.stop(); } catch (e) { /* a camada de amigos é opcional */ }
   clearTimeout(remT); scheduleNative(0); clearBadge();
   try { localStorage.removeItem(KEY); } catch (e) { /* ignora */ }
-  dropSocCache(); SOC.st = cleanState(null); frSig = ''; frInv = null; frCode = null; // amigos: o wipe() da nuvem já apagou perfil e amizades
+  dropSocCache(); SOC.st = cleanState(null); frSig = ''; frInv = null; frCode = null;
   if (tab !== 'today') hBack();
   setS(defaults()); save();
   tab = 'today'; dropSt = null; dropSt2 = null;
-  startOnboarding();
 }
 function shareProgress() {
   share(shareText(), location.href.split(/[?#]/)[0]).then((r) => {
@@ -656,24 +705,48 @@ function startCloud() {
 function initCloudLayer() {
   cloudP = import('./firebase-config.js')
     .then((c) => (c.FIREBASE_ENABLED ? import('./firebase.js') : null))
-    .then((m) => (m ? m.initCloud({ state: () => S, onRemote: mergeRemote, onStatus: (st) => { syncState = st; } }) : null))
+    .then((m) => (m ? m.initCloud({ state: () => S, onRemote: mergeRemote, onStatus: (st) => { syncState = st; }, onPrefs: applyRemotePrefs,
+      onEnded: () => { if (!acBusy) endSession(); } }) : null)) // onEnded: o login sumiu com o app aberto (durante uma operação da conta, quem a faz já sabe)
     .then((c) => {
       if (!c) { cloudDown(); return null; }
       cloud = c; syncState = 'on'; SOC.mode = 'ready'; cloudFailed = false;
+      accountSeen(c.acct);
+      checkVerified(); // e-mail ainda sem confirmar: descobre se a pessoa já tocou no link
       syncMeta();
       ensurePush();
       startSocial();
       if (tab === 'friends' && !S.social.on && !ob) render(true); // a tela de entrada ainda mostra o erro de quando a nuvem estava fora
       return c;
     })
-    .catch((e) => { syncState = 'off'; cloudFailed = true; console.warn('[nuvem] desligada:', e && e.message ? e.message : e); cloudDown(); return null; });
+    .catch((e) => {
+      syncState = 'off';
+      if (e && e.code === 'mare/session-ended') { endSession(); return null; } // o aparelho tinha uma conta e o login sumiu: tentar de novo não adianta, é preciso entrar
+      cloudFailed = true; console.warn('[nuvem] desligada:', e && e.message ? e.message : e); cloudDown(); return null;
+    });
+}
+// O aparelho tinha uma conta e o login sumiu (a senha foi trocada em outro lugar, a conta foi desativada…): ao abrir o app (a nuvem recusa subir) ou com o
+// app aberto (firebase.js avisa com onEnded). Nunca vira um login anônimo escondido, porque isso faria o aparelho virar outra pessoa na nuvem (amigos, turma
+// e registros ficariam para trás). O app avisa e pede para entrar de novo; os registros daqui continuam no aparelho. (Ver o bloco "conta".)
+function endSession() {
+  try { if (soc) soc.stop(); } catch (e) { /* ignora */ }
+  try { if (cloud && cloud.dispose) cloud.dispose(); } catch (e) { /* ignora */ }
+  cloud = null; soc = null; socP = null; socWired = null;
+  cloudOn = true; cloudP = Promise.resolve(null); cloudFailed = false; // cloudOn fica ligado: nada tenta subir a nuvem de novo até a pessoa entrar
+  syncState = 'off';
+  ACCT.on = false; ACCT.ended = true;
+  cloudDown();
+  if (S.onboarded && !ob) {
+    refreshPart('tTips');
+    if (tab === 'settings') render(true);
+    toast('Sua conta saiu deste aparelho', { label: 'Entrar de novo', fn: reenter });
+  }
 }
 function cloudDown() {
   SOC.mode = 'off';
   if (tab === 'friends' && S.onboarded && !ob) render(true);
 }
 // Dados da nuvem: por dia, vence a alteração mais recente (campo u, em ms)
-function mergeRemote(days) {
+function fillDays(days) {
   const keys = [];
   Object.keys(days || {}).forEach((k) => {
     const r = days[k], l = S.days[k];
@@ -681,6 +754,10 @@ function mergeRemote(days) {
     S.days[k] = { goal: clamp(+r.goal || goalToday(S, k), 500, 6000), u: +r.u || 0, entries: cleanEntries(r.entries) };
     keys.push(k);
   });
+  return keys; // os dias que mudaram
+}
+function mergeRemote(days) {
+  const keys = fillDays(days);
   if (!keys.length) return;
   newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); }); // sem festa: são conquistas antigas
   grantInsignias(false);
@@ -1043,6 +1120,346 @@ function retrySocial() {
   if (soc) soc.refresh().catch(() => {}); else startSocial();
 }
 
+/* ---------- conta (1.3.0) ---------- */
+// Criar conta = vincular e-mail e senha ao login anônimo que o aparelho já tem: o uid NÃO muda, então registros, amigos e turma ficam como estavam.
+// Entrar numa conta que já existe baixa tudo dela (firebase.js: accountKit().fetchData) e aplica neste aparelho (account.js: restorePlan e applyPlan).
+// A dica 'mare:acct' guarda só uid, e-mail e "confirmado", para a tela desenhar o cartão da conta sem esperar a rede; quem diz se a pessoa está mesmo
+// logada é o login do Firebase (cloud.acct). Se o aparelho tinha conta e o login sumiu, ACCT.ended liga o aviso "Sua conta saiu deste aparelho".
+// A senha nunca é guardada: o campo é lido na hora de enviar e o painel é descartado em seguida.
+const slow = (p, ms) => guard(p, ms).catch((e) => { throw codeOf(e) === 'slow' ? { code: 'mare/slow' } : e; });
+const loadFb = () => import('./firebase-config.js').then((c) => (c.FIREBASE_ENABLED ? import('./firebase.js') : null));
+function kitOf() {
+  return slow(loadFb(), 25000).then((m) => { if (!m || !m.accountKit) throw { code: 'mare/off' }; return slow(m.accountKit(), 30000); });
+}
+function readAcct() { try { return cleanAcct(JSON.parse(localStorage.getItem(ACCT_KEY) || 'null')); } catch (e) { return null; } }
+function setAcct(u) {
+  const a = cleanAcct(u);
+  if (!a) { clearAcct(); return; }
+  try { localStorage.setItem(ACCT_KEY, JSON.stringify(a)); } catch (e) { /* sem espaço: segue sem a dica */ }
+  ACCT.on = true; ACCT.ended = false; ACCT.email = a.email; ACCT.verified = a.verified; ACCT.uid = a.uid;
+}
+function clearAcct() {
+  try { localStorage.removeItem(ACCT_KEY); } catch (e) { /* ignora */ }
+  ACCT.on = false; ACCT.ended = false; ACCT.email = ''; ACCT.verified = false; ACCT.uid = '';
+}
+// O login que a nuvem encontrou manda: com e-mail, o aparelho está numa conta; sem, está anônimo (a dica local e a tela acompanham)
+function accountSeen(a) {
+  const before = JSON.stringify(ACCT);
+  if (a && !a.anon && a.email) setAcct(a); else if (ACCT.on || ACCT.ended) clearAcct();
+  if (JSON.stringify(ACCT) !== before && S.onboarded && !ob) accountRefresh();
+}
+function accountRefresh() {
+  refreshPart('tTips');
+  if (tab === 'settings' || tab === 'friends') render(true);
+}
+// Ajustes mais novos gravados por outro aparelho da mesma conta (chega no começo da sessão, vindo de firebase.js). Os amigos não são ligados nem
+// desligados por aqui, e os lembretes ficam como estão: ligar é do aparelho (precisa da permissão de notificação dele).
+function applyRemotePrefs(p) {
+  if (!S.onboarded || ob || !p) return;
+  applyPrefs(S, p, 'sync');
+  applyMix(); syncTodayGoal(); save(); applyTheme();
+  if (S.reminders.enabled) planReminder();
+  paintTabs();
+  refreshUI();
+}
+// O e-mail foi confirmado (a pessoa tocou no link que chegou)? O app só descobre perguntando: confere ao abrir Ajustes e ao voltar ao app (no máximo a cada 30 s)
+function checkVerified() {
+  if (!cloud || !ACCT.on || ACCT.verified || acBusy || Date.now() - acSeen < 30000) return;
+  acSeen = Date.now();
+  kitOf().then((kit) => slow(kit.refresh(), 15000)).then((u) => {
+    if (u && !u.anon && u.verified && ACCT.on && !ACCT.verified) { setAcct(u); if (tab === 'settings') render(true); }
+  }, () => { /* sem rede: confere na próxima */ });
+}
+// Solta a nuvem deste aparelho (a conta saiu, foi excluída ou o login vai mudar): para a escuta dos amigos e a sincronização e esquece as instâncias
+function dropCloud() {
+  try { if (soc) soc.stop(); } catch (e) { /* ignora */ }
+  try { if (cloud && cloud.dispose) cloud.dispose(); } catch (e) { /* ignora */ }
+  cloud = null; cloudOn = false; cloudP = null; cloudFailed = false; soc = null; socP = null; socWired = null;
+  syncState = 'off'; SOC.mode = 'wait';
+}
+
+// O erro vai para a caixa do painel; se a pessoa já fechou o painel (a operação continua por trás), vai num aviso: nunca falha em silêncio
+const acErr = (t) => {
+  const e = $('#acErr');
+  if (e && sheetIsOpen()) e.textContent = t || ''; else if (t) toast(esc(t));
+  if (t) haptic('medium');
+};
+const acVal = (id) => { const el = $('#' + id); return el ? String(el.value || '') : ''; };
+const acRemember = () => { const e = $('#acEmail'); if (e && e.value) acMail = cleanEmail(e.value); };
+const acOpen = () => sheetIsOpen() && !!$('[data-action^="ac-"]', sheetBody); // há um painel da conta aberto (se a pessoa o fechou no meio, nada reabre sozinho)
+const acClose = () => { if (acOpen()) closeSheet(); }; // fecha o painel da conta, e só ele
+const acFail = (el, e) => { acBusy = false; busyBtn(el, false); acErr(authText(codeOf(e))); };
+
+function openCreate() { if (ACCT.on || ACCT.ended) return; openSheet(createSheet({ email: acMail })); }
+function openSignin(extra) {
+  acLast = extra || {};
+  if (acLast.email) acMail = acLast.email;
+  openSheet(signinSheet(Object.assign({}, acLast, { email: acMail })));
+}
+function reenter() {
+  if (!ACCT.ended) return;
+  openSignin({ again: true, email: ACCT.email, fixed: true, title: 'Entrar de novo', note: 'Digite a senha da conta para voltar a guardar seus dados nela. Os registros que estão neste aparelho continuam aqui.' });
+}
+
+async function doCreate(el) {
+  if (acBusy) return;
+  const email = cleanEmail(acVal('acEmail')), pw = acVal('acPw'), bad = createProblem(email, pw);
+  acMail = email;
+  if (bad) { acErr(bad); return; }
+  acBusy = true; busyBtn(el, true, 'Criando…'); acErr('');
+  let c = null, kit = null, u = null;
+  try {
+    if (!cloud && cloudFailed) reconnectCloud(); // ficou sem internet ao abrir o app e agora voltou
+    c = await slow(cloudReady(), 25000); // o login anônimo do aparelho é o que vira conta: a nuvem precisa estar no ar
+    if (!c) throw { code: 'mare/off' };
+    kit = await kitOf();
+    u = await slow(kit.create(email, pw), 30000);
+  } catch (e) {
+    // a resposta pode ter se perdido no caminho (rede lenta): se o aparelho já está na conta com este e-mail, deu certo
+    const cur = kit ? kit.current() : null;
+    if (cur && !cur.anon && cur.email === email) u = cur; else { acFail(el, e); return; }
+  }
+  setAcct(u);
+  try { if (c) await slow(c.afterLink(), 15000); } catch (e) { /* os ajustes sobem na próxima abertura */ }
+  acBusy = false;
+  acClose();
+  toast('Conta criada ✓ Enviamos um link de confirmação para o seu e-mail.');
+  accountRefresh();
+}
+
+// Entrar numa conta que já existe. Três jeitos de chegar aqui (acLast diz qual):
+//  • tela de boas-vindas (acLast = {}): o aparelho não tem nada ainda; entra e baixa tudo;
+//  • "Já tenho conta" em Ajustes (acLast.swap): os dados deste aparelho serão trocados pelos da conta;
+//  • "Entrar de novo" (acLast.again): o aparelho já era desta conta e o login sumiu; só volta a guardar nela, e só se for a MESMA conta.
+// A senha é conferida ANTES de qualquer coisa mudar (kit.check, num segundo login que só existe na memória): senha errada, internet fora ou painel fechado
+// não custam nada. Só depois disso o aparelho largou o login anterior (amigos e cópia anônima na nuvem), e os registros daqui só saem quando os da conta
+// já chegaram (applyAccount). Se algo falhar no meio, os registros deste aparelho continuam nele.
+async function doSignin(el) {
+  if (acBusy) return;
+  const email = cleanEmail(acVal('acEmail')), pw = acVal('acPw'), bad = signInProblem(email, pw);
+  acMail = email;
+  if (bad) { acErr(bad); return; }
+  acBusy = true; busyBtn(el, true, 'Entrando…'); acErr('');
+  const again = !!acLast.again && ACCT.ended, swap = !!acLast.swap && !again && S.onboarded;
+  let kit = null, u = null, left = false;
+  try {
+    kit = await kitOf();
+    const chk = await slow(kit.check(email, pw), 30000);
+    // o e-mail pode ter sido recadastrado e hoje apontar para outra pessoa: voltar "à mesma conta" só vale se o uid for o que o aparelho tinha
+    if (again && chk.uid !== ACCT.uid) throw { code: 'mare/other-account' };
+    if (swap) { await leaveOldLogin(); left = true; } else if (!again) dropCloud();
+    if (wipeP) await Promise.race([wipeP, wait(30000)]); // uma limpeza anterior da nuvem termina antes de trocar de login (senão ela perderia a permissão no meio)
+    u = await slow(kit.signIn(email, pw), 30000);
+  } catch (e) {
+    if (left) reconnectCloud(); // o aparelho largou o login anterior e a troca não saiu: volta a sincronizar com um login anônimo (os registros daqui seguem intactos)
+    acFail(el, e);
+    return;
+  }
+  if (again) {
+    acBusy = false;
+    setAcct(u);
+    acClose();
+    reconnectCloud();
+    toast('Pronto, você voltou para a sua conta ✓');
+    accountRefresh();
+    return;
+  }
+  finishSignin(kit, u, swap);
+}
+// Troca de conta ("Já tenho conta"), com a senha já conferida: o aparelho deixa o login anônimo que tinha. Sai dos amigos (perfil, convites, amizades: tudo ou
+// nada; se não der, nada mudou), apaga a cópia desse login na nuvem e solta a nuvem. Os registros daqui só saem quando os da conta chegarem.
+async function leaveOldLogin() {
+  if (S.social.on) {
+    try { await exitCloud(); } catch (e) { throw { code: 'mare/leave-failed' }; }
+    afterLeft();
+  }
+  if (cloud && cloud.wipe) { try { await slow(cloud.wipe(), 60000); } catch (e) { /* o que sobrar da cópia anônima fica sem dono; prender a entrada por isso seria pior */ } }
+  dropCloud();
+}
+// Já está dentro da conta: baixa tudo o que ela guarda e aplica neste aparelho. Sem internet agora, o painel oferece "Tentar de novo" (sem pedir a senha).
+async function finishSignin(kit, u, swap) {
+  let data = null;
+  try { data = await slow(kit.fetchData(), 35000); } catch (e) {
+    acBusy = false;
+    acPend = { kit: kit, u: u, swap: !!swap };
+    if (acOpen()) openSheet(signinSheet({ stage: 'retry', err: authText(codeOf(e)) }));
+    else { toast(authText('mare/no-data')); abandonSignin(); } // sem painel para oferecer "tentar de novo": o login que ficou pela metade não pode ficar escondido
+    return;
+  }
+  acBusy = false; acPend = null;
+  applyAccount(u, data);
+}
+function retrySignin(el) {
+  if (acBusy || !acPend) return;
+  acBusy = true; busyBtn(el, true, 'Tentando…');
+  finishSignin(acPend.kit, acPend.u, acPend.swap);
+}
+// Entrou na conta, os dados não vieram e a pessoa desistiu (fechou o painel): sai desse login, para o aparelho não ficar numa conta que a tela não mostra.
+// Numa troca de conta, o aparelho continua com os registros dele e volta a sincronizar (com um login anônimo novo).
+function abandonSignin() {
+  const p = acPend;
+  acPend = null;
+  if (!p) return;
+  try { Promise.resolve(p.kit.signOut()).catch(() => {}); } catch (e) { /* ignora */ }
+  if (p.swap) reconnectCloud();
+}
+onSheetClose(() => { if (acPend && !acBusy) abandonSignin(); }); // fechou o "Quase lá" (botão, fundo, Esc, arrastar ou "voltar") sem tentar de novo
+// Aplica neste aparelho o que a conta guardava: registros, ajustes, amigos. Sem o backup dos ajustes (conta que o administrador criou para quem nunca gravou),
+// o que a nuvem já sabia (horários, unidade, apelido) pré-preenche o onboarding e só falta peso e atividade.
+// Antes de tudo, o que era deste aparelho sai de uma vez, já com os dados da conta em mãos (troca de conta, ou sobra de uma entrada que não terminou):
+// nada se mistura. Só um convite aberto por link sobrevive (se o onboarding ainda não terminou).
+function applyAccount(u, data) {
+  const inv = S.onboarded ? '' : S.ui.invite;
+  clearLocal();
+  if (inv) S.ui.invite = inv;
+  const plan = restorePlan(data), keys = fillDays(data.days);
+  newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); }); // conquistas antigas: sem festa
+  grantInsignias(false); // as insígnias dos registros (delas sai o mascote automático)
+  const done = applyPlan(S, plan);
+  S.ui.tip_news12 = 1; // quem chega pela conta não precisa da dica de novidades
+  applyMix();
+  setAcct(u);
+  if (done) {
+    ob = null; tab = 'today'; dropSt = null; dropSt2 = null;
+    syncTodayGoal(); save(); applyTheme();
+    acClose();
+    render(); planReminder(); persistStorage();
+    startCloud();
+    toast('Bem-vindo de volta! ' + (keys.length ? plural(keys.length, 'dia', 'dias') + ' de registros ' + (keys.length === 1 ? 'voltou' : 'voltaram') + ' ✓' : 'Seus ajustes voltaram ✓'));
+  } else {
+    save();
+    acClose();
+    startOnboarding(keys.length);
+    toast(plan.found ? 'Conta encontrada ✓ Confirme alguns dados para terminar.' : 'Você entrou na conta ✓ Ela ainda não tinha registros.');
+  }
+}
+// "Já tenho conta" em Ajustes (o aparelho está sem conta e já tem dados): os dados daqui são trocados pelos da conta, sem misturar. O painel avisa, e NADA
+// sai deste aparelho até a senha ser conferida (ver doSignin); antes, o app apagava tudo e só então pedia a senha: errar a senha custava os registros.
+function switchAccount() {
+  if (ACCT.on || ACCT.ended || !S.onboarded) return;
+  const n = Object.keys(S.days).length;
+  openSignin({ swap: true, title: 'Entrar numa conta que já existe',
+    note: 'Digite o e-mail e a senha da conta. Depois de entrar, ' + (n ? 'os registros deste aparelho (' + plural(n, 'dia', 'dias') + ') são trocados' : 'os dados deste aparelho são trocados') +
+      ' pelos da conta. ' + (S.social.on ? 'Seu perfil nos amigos também sai, porque ele é deste aparelho. ' : '') + 'Se quiser guardar os de agora, faça um backup antes (Ajustes, Seus dados).' });
+}
+
+async function doReset(el) {
+  if (acBusy) return;
+  const email = cleanEmail(acVal('acEmail')), bad = resetProblem(email);
+  acMail = email;
+  if (bad) { acErr(bad); return; }
+  acBusy = true; busyBtn(el, true, 'Enviando…'); acErr('');
+  try {
+    const kit = await kitOf();
+    await slow(kit.reset(email), 25000);
+  } catch (e) {
+    // e-mail sem conta: a resposta é a mesma de quando existe (não revela quais e-mails têm conta)
+    if (codeOf(e) !== 'auth/user-not-found') { acFail(el, e); return; }
+  }
+  acBusy = false;
+  if (acOpen()) openSheet(resetDoneSheet(email)); else toast('Enviamos o link para ' + esc(email) + ' ✓ Olhe também a caixa de spam.');
+}
+// Trocar a senha de quem já está na conta: manda o link de redefinição para o próprio e-mail dela
+async function sendPassLink(el) {
+  if (acBusy || !ACCT.on) return;
+  acBusy = true; busyBtn(el, true, 'Enviando…');
+  try {
+    const kit = await kitOf();
+    await slow(kit.reset(ACCT.email), 25000);
+    toast('Enviamos o link para ' + esc(ACCT.email) + ' ✓ Olhe também a caixa de spam.');
+  } catch (e) { toast(authText(codeOf(e))); } finally { acBusy = false; busyBtn(el, false); }
+}
+async function resendMail(el) {
+  if (acBusy || !ACCT.on) return;
+  acBusy = true; busyBtn(el, true, 'Enviando…');
+  try {
+    const kit = await kitOf();
+    const u = await slow(kit.resend(), 25000);
+    if (u && u.verified) { setAcct(u); toast('Seu e-mail já está confirmado ✓'); if (tab === 'settings') render(true); }
+    else toast('Enviamos o link para ' + esc(ACCT.email) + ' ✓ Olhe também a caixa de spam.');
+  } catch (e) { toast(authText(codeOf(e))); } finally { acBusy = false; busyBtn(el, false); }
+}
+
+// Sair da conta neste aparelho: envia o que falta (e espera o servidor confirmar), tira o push deste aparelho e só então encerra o login. A conta e os
+// dados na nuvem ficam intactos; o aparelho volta à tela de boas-vindas. force = a pessoa aceitou sair mesmo sem confirmar o envio (sem internet).
+async function signOutFlow(force) {
+  if (acBusy) { toast('Aguarde um instante…'); return; }
+  acBusy = true;
+  toast('Saindo…');
+  try {
+    let c = cloud;
+    if (!c && !force) { // a nuvem ainda está subindo (ou não subiu): sem ela não dá para saber se o que há aqui já está na conta
+      if (cloudFailed) reconnectCloud();
+      c = await slow(cloudReady(), 25000);
+      if (!c) throw { code: 'mare/pending' };
+    }
+    if (c) await c.detach(12000, !!force); // force: não espera nada, mas ainda tira o push deste aparelho da conta
+  } catch (e) {
+    acBusy = false; hideToast();
+    if (codeOf(e) === 'mare/pending') {
+      confirmSheet('Ainda há registros por enviar', 'Alguns registros ainda não chegaram à sua conta (a internet pode estar fora). Se sair agora, eles ficam só neste aparelho e se perdem quando ele sair da conta. ' +
+        'O mais seguro é conectar à internet e tentar de novo.', 'Sair mesmo assim', true, () => signOutFlow(true));
+    } else toast(authText(codeOf(e)));
+    return;
+  }
+  try {
+    const kit = await kitOf();
+    await slow(kit.signOut(), 15000);
+  } catch (e) {
+    acBusy = false; hideToast();
+    dropCloud(); reconnectCloud(); // a nuvem já tinha sido solta (e a marca de sincronização apagada): sobe de novo, e a pessoa tenta outra vez
+    toast(authText(codeOf(e)));
+    return;
+  }
+  clearAcct();
+  dropCloud();
+  acBusy = false;
+  hideToast();
+  eraseLocal(true);
+  toast('Você saiu da conta. Seus dados continuam guardados nela.');
+}
+
+// Excluir a conta: senha (reautentica) → apaga tudo na nuvem (lido do servidor, nunca de um cache) → sai da turma → apaga o login → apaga o aparelho. Cada
+// etapa só segue se a anterior deu certo. Sem a nuvem no ar nada é apagado (excluir só o login deixaria os dados para trás). A saída da turma vem por último
+// porque é a única etapa sem volta: se algo falhar antes dela, o aparelho reenvia o que tem (a conta nunca fica sem os dados por causa de uma exclusão
+// incompleta); se falhar depois, a tela já reflete que a turma saiu e avisa.
+async function doDelete(el) {
+  if (acBusy) return;
+  const pw = acVal('acPw');
+  if (!pw) { acErr(authText('auth/missing-password')); return; }
+  acBusy = true; busyBtn(el, true, 'Excluindo…'); acErr('');
+  let c = null, w = null, left = false;
+  const heal = () => { if (c && c.resync) { try { c.resync(); } catch (e) { /* ignora */ } } };
+  try {
+    const kit = await kitOf();
+    try { await slow(kit.reauth(pw), 25000); } catch (e) { throw isBadLogin(codeOf(e)) ? { code: 'bad-pw' } : e; } // senha errada: para aqui, nada foi apagado
+    if (!cloud && cloudFailed) reconnectCloud(); // a nuvem não subiu ao abrir o app (sem internet) e agora a internet voltou
+    c = await slow(cloudReady(), 25000);
+    if (!c || !c.wipe) throw { code: 'mare/off' };
+    w = c.wipe({ social: false, strict: true }); // a turma sai logo abaixo, depois de tudo o mais ter dado certo
+    await slow(w, 120000);
+    if (S.social.on) {
+      try { await exitCloud(); } catch (e) { throw { code: 'mare/leave-failed' }; } // perfil, convites e amizades: tudo ou nada
+      left = true;
+    }
+    await slow(kit.deleteUser(), 30000);
+  } catch (e) {
+    if (w) w.then(heal, heal); // a limpeza pode terminar depois de a tela desistir: devolve à nuvem o que este aparelho tem
+    acBusy = false; busyBtn(el, false);
+    if (left) afterLeft(); // a turma já saiu da nuvem: o aparelho passa a refletir isso
+    const code = codeOf(e), t = authText(code);
+    acErr((code === 'bad-pw' ? 'Senha incorreta. Confira e tente de novo.' : t !== authText('unknown') ? t : errText(code)) + // erros da saída dos amigos vêm no vocabulário deles
+      (left ? ' A sua turma já tinha saído da nuvem; para voltar a ela, ative os Amigos de novo e use um convite.' : ''));
+    return;
+  }
+  clearAcct();
+  dropCloud();
+  acBusy = false;
+  acClose();
+  eraseLocal(true);
+  toast('Conta excluída. Seus dados saíram da nuvem e deste aparelho.');
+}
+
 /* ---------- ações (data-action) ---------- */
 const A = {
   'close-sheet': () => closeSheet(),
@@ -1164,6 +1581,31 @@ const A = {
   },
   'ob-notif': () => { finishOb(); enableReminders(); }, // mesmo toque: a permissão continua válida
   'ob-finish': () => finishOb(),
+  // conta (1.3.0)
+  'ac-create': () => { acRemember(); openCreate(); },
+  'ac-do-create': (el) => doCreate(el),
+  'ac-signin': () => openSignin({}), // boas-vindas: "Entrar na conta"
+  'ac-back': () => { acRemember(); openSignin(acLast); }, // esqueci a senha → voltar ao painel de entrar, do mesmo jeito que foi aberto
+  'ac-switch': () => { acRemember(); switchAccount(); },
+  'ac-do-signin': (el) => doSignin(el),
+  'ac-retry': (el) => retrySignin(el),
+  'ac-forgot': () => { acRemember(); openSheet(resetSheet({ email: acMail })); },
+  'ac-do-reset': (el) => doReset(el),
+  'ac-reenter': () => reenter(),
+  'ac-resend': (el) => resendMail(el),
+  'ac-pass': (el) => sendPassLink(el),
+  'ac-out': () => confirmSheet('Sair da conta?', 'Este aparelho volta ao início e os registros saem daqui. Eles continuam guardados na conta <b>' + esc(emailShort(ACCT.email)) +
+    '</b>: para vê-los de novo, é só entrar com o e-mail e a senha.', 'Sair', true, () => signOutFlow(false)),
+  'ac-del': () => openSheet(deleteSheet({})),
+  'ac-do-delete': (el) => doDelete(el),
+  'ac-eye': (el) => {
+    const i = $('#acPw'), show = !!i && i.type === 'password';
+    if (!i) return;
+    i.type = show ? 'text' : 'password';
+    el.textContent = show ? 'Ocultar' : 'Mostrar';
+    el.setAttribute('aria-pressed', show ? 'true' : 'false');
+    el.setAttribute('aria-label', show ? 'Ocultar a senha' : 'Mostrar a senha');
+  },
 };
 
 /* ---------- eventos ---------- */
@@ -1208,6 +1650,10 @@ document.addEventListener('keydown', (e) => {
   if (t.id === 'eMl') saveEntry();
   else if (t.id === 'frCode') findCode($('[data-action="fr-find"]', sheetBody));
   else if (t.id === 'frNick') t.blur(); // fecha o teclado; o botão Ativar fica à vista
+  else if (t.id === 'acEmail' || t.id === 'acPw') { // painéis da conta: Enter vai do e-mail à senha e, no último campo, aperta o botão principal
+    const pw = $('#acPw'), go1 = $('[data-primary]', sheetBody);
+    if (t.id === 'acEmail' && pw) pw.focus(); else if (go1 && !go1.disabled) go1.click();
+  }
   else if (t.id === 'obName') { const w = $('#obWeight'); if (w) w.focus(); }
   else if (/^ob/.test(t.id)) obNext();
   else t.blur(); // dispara o "change" e fecha o teclado
@@ -1235,6 +1681,7 @@ function onResume() {
   refreshClimate(false);
   if (soc && S.social.on && SOC.st.err) soc.refresh().catch(() => {}); // a escuta caiu enquanto o app estava longe: tenta de novo agora
   retryCloudIfDown();
+  checkVerified();
 }
 function handleURL() {
   const q = location.search, add = /[?&]add=(\d+)/.exec(q), t = /[?&]tab=(\w+)/.exec(q), inv = codeFromURL(q);
@@ -1250,6 +1697,9 @@ function handleURL() {
 /* ---------- início ---------- */
 function boot() {
   hooks.saveError = () => { toast('Não consegui salvar no aparelho. Libere espaço ou saia da navegação privada.'); };
+  hooks.saved = () => { if (cloud && ACCT.on) cloud.syncPrefs(); }; // com conta, os ajustes vão para a nuvem a cada alteração (junto com o resto: em lote, no máximo a cada 1,5 s)
+  const hint = readAcct();
+  if (hint) { ACCT.on = true; ACCT.email = hint.email; ACCT.verified = hint.verified; ACCT.uid = hint.uid; } // o cartão da conta já nasce desenhado
   setS(load());
   SOC.st = S.social.on ? cleanState(readSocCache()) : cleanState(null); // primeira pintura dos amigos, antes da nuvem responder
   applyTheme();

@@ -129,6 +129,7 @@ function makeWorld() {
     leave: async () => {
       W.calls.push('stop'); W.started = false; // como o leave() real: desliga a escuta ANTES de tentar (quem chama é que a religa se a saída falhar)
       await chk('leave');
+      if (W.acct) W.acct.calls.push('leave'); // a ordem entre a saída da turma, a limpeza da nuvem e o login é conferida pelos testes
       // o que o aparelho ainda tinha guardado quando cada saída chegou à nuvem (o teste confere que o app só apaga depois de sair)
       try { (W.leaveSnaps = W.leaveSnaps || []).push(JSON.parse(localStorage.getItem('mare:v1'))); } catch (e) { /* sem cópia */ }
       W.started = false; W.pairs = {}; W.joined = null;
@@ -146,20 +147,176 @@ function makeWorld() {
   return W;
 }
 
-export async function initCloud() {
+// ---- conta (1.3.0): o login por e-mail e senha de mentira ----
+// seed.acct = { users: { 'ana@exemplo.com': { pw, uid, verified, cloud: { prefs, user, profile, days } } }, user: { uid, email, verified, anon } | null,
+//   dialect: 'new' | 'old' (como o Firebase responde a senha errada: invalid-credential, ou wrong-password e user-not-found), remotePrefs: { u, prefs },
+//   lat: quanto cada passo do login demora, em ms (12 por padrão; window.__acct.lat muda no meio do teste) }.
+// seed.acct.fail = { operação: código } faz a primeira chamada daquela operação falhar. Sem seed.acct.user o aparelho nasce com o login anônimo (o uid de sempre). O login e as contas criadas ficam em localStorage ('fake:auth'): recarregar a
+// página mantém tudo, como o IndexedDB do Firebase. window.__acct dá ao teste o que aconteceu (calls, sent, resets…) e os controles (fail, verify, end).
+// calls também recebe 'wipe' e 'leave' (a ordem entre login, limpeza da nuvem e saída da turma é o que os testes conferem); atSignIn guarda, a cada
+// signIn, o que já tinha acontecido (limpezas, saída da turma e quantos dias o aparelho ainda tinha); end() imita o login que some com o app aberto.
+const mkAuthErr = (code) => { const e = new Error(code); e.code = code; return e; };
+const whoOf = (u) => (u ? { uid: u.uid, email: u.email || '', verified: !!u.verified, anon: !!u.anon } : null);
+function makeAcct() {
+  const seed = (window.__fakeSeed && window.__fakeSeed.acct) || {};
+  let kept = null;
+  try { kept = JSON.parse(localStorage.getItem('fake:auth') || 'null'); } catch (e) { kept = null; }
+  const A = {
+    users: kept ? kept.users : Object.assign({}, seed.users || {}),
+    user: kept ? kept.user : (seed.user === undefined ? { uid: ME, email: '', verified: false, anon: true } : seed.user),
+    dialect: seed.dialect || 'new', lat: seed.lat || 12, fail: Object.assign({}, seed.fail || {}), calls: [], sent: [], resets: [], linked: 0, detached: 0, disposed: 0, resynced: 0, wiped: 0, prefsSynced: 0,
+    detachForce: 0, wipeOpts: [], atSignIn: [], synced: [], watching: false, hooks: null, strayOut: 0, wipeBusy: 0, signInDuringWipe: 0,
+    remotePrefs: seed.remotePrefs || null,
+  };
+  // como o firebase.js: com conta, o app é avisado quando o login some com o app aberto (a escuta termina em dispose/detach)
+  A.fire = () => { setTimeout(() => { if (A.watching && A.hooks && A.hooks.onEnded) A.hooks.onEnded(); }, 0); };
+  A.end = () => { A.user = null; A.save(); A.fire(); };
+  A.localDays = () => { try { return Object.keys((JSON.parse(localStorage.getItem('mare:v1')) || {}).days || {}).length; } catch (e) { return -1; } };
+  A.save = () => { try { localStorage.setItem('fake:auth', JSON.stringify({ users: A.users, user: A.user })); } catch (e) { /* sem espaço */ } };
+  A.verify = (email) => { if (A.users[email]) A.users[email].verified = true; A.save(); }; // "a pessoa tocou no link do e-mail"
+  A.chk = async (name) => {
+    A.calls.push(name);
+    await sleep(A.lat);
+    if (A.fail[name]) { const c = A.fail[name]; if (!A.fail.keep) delete A.fail[name]; throw mkAuthErr(c); }
+  };
+  A.bad = (known) => mkAuthErr(A.dialect === 'old' ? (known ? 'auth/wrong-password' : 'auth/user-not-found') : 'auth/invalid-credential');
+  A.save();
+  return A;
+}
+
+export async function accountKit() {
+  const W = window.__fake || (window.__fake = makeWorld());
+  const A = window.__acct || (window.__acct = makeAcct());
+  W.acct = A;
+  return {
+    current: () => whoOf(A.user),
+    async create(email, pw) {
+      await A.chk('create');
+      if (!A.user) throw mkAuthErr('mare/no-session');
+      if (!A.user.anon) throw mkAuthErr('auth/provider-already-linked');
+      const e = String(email).toLowerCase();
+      if (A.users[e]) throw mkAuthErr('auth/email-already-in-use');
+      A.users[e] = { pw: pw, uid: A.user.uid, verified: false, cloud: null };
+      A.user = { uid: A.user.uid, email: e, verified: false, anon: false };
+      A.sent.push(e);
+      A.save();
+      return whoOf(A.user);
+    },
+    // confere e-mail e senha SEM mexer no login do aparelho (o firebase.js entra num segundo app, só na memória, e sai em seguida)
+    async check(email, pw) {
+      await A.chk('check');
+      const e = String(email).toLowerCase(), rec = A.users[e];
+      if (!rec || rec.pw !== pw) throw A.bad(!!rec);
+      return whoOf({ uid: rec.uid, email: e, verified: !!rec.verified, anon: false });
+    },
+    async signIn(email, pw) {
+      await A.chk('signIn');
+      const e = String(email).toLowerCase(), rec = A.users[e];
+      if (!rec || rec.pw !== pw) throw A.bad(!!rec);
+      if (A.wipeBusy) A.signInDuringWipe++; // a limpeza da nuvem do login anterior ainda não terminou: o app tem que esperar por ela antes de trocar de login
+      A.atSignIn.push({ wiped: A.wiped, left: W.calls.indexOf('leave') >= 0, days: A.localDays(), user: A.user ? A.user.uid : null });
+      A.user = { uid: rec.uid, email: e, verified: !!rec.verified, anon: false };
+      A.save();
+      return whoOf(A.user);
+    },
+    // como o SDK: as operações de login andam em fila. Quem religa a nuvem logo depois (initCloud) espera esta saída terminar antes de olhar o login
+    async signOut() {
+      const p = (async () => { await A.chk('signOut'); A.user = null; A.save(); A.fire(); })();
+      A.outP = p;
+      try { await p; } finally { if (A.outP === p) A.outP = null; }
+    },
+    async reset(email) {
+      await A.chk('reset');
+      const e = String(email).toLowerCase();
+      if (!A.users[e] && A.dialect === 'old') throw mkAuthErr('auth/user-not-found');
+      A.resets.push(e);
+    },
+    async resend() {
+      await A.chk('resend');
+      if (!A.user || A.user.anon) throw mkAuthErr('mare/no-session');
+      if (!A.users[A.user.email].verified) A.sent.push(A.user.email);
+      return whoOf(Object.assign({}, A.user, { verified: !!A.users[A.user.email].verified }));
+    },
+    async refresh() {
+      await A.chk('refresh');
+      if (!A.user) return null;
+      if (!A.user.anon && A.users[A.user.email]) { A.user.verified = !!A.users[A.user.email].verified; A.save(); }
+      return whoOf(A.user);
+    },
+    async reauth(pw) {
+      await A.chk('reauth');
+      if (!A.user || A.user.anon) throw mkAuthErr('mare/no-session');
+      if (A.users[A.user.email].pw !== pw) throw A.bad(true);
+    },
+    async deleteUser() {
+      await A.chk('deleteUser');
+      if (!A.user) throw mkAuthErr('mare/no-session'); // como o firebase.js: sem login não há o que apagar (e não finge que apagou)
+      if (A.user.email) delete A.users[A.user.email];
+      A.user = null; A.save(); A.fire(); // o SDK avisa a escuta do login: o app não pode tratar isso como "a conta saiu"
+    },
+    async fetchData() {
+      await A.chk('fetchData');
+      if (!A.user) throw mkAuthErr('mare/no-session');
+      const c = (A.users[A.user.email] && A.users[A.user.email].cloud) || {};
+      return { uid: A.user.uid, prefs: c.prefs || null, user: c.user || null, profile: c.profile || null, days: c.days || {} };
+    },
+  };
+}
+
+export async function initCloud(hooks) {
   window.__cloudInit = (window.__cloudInit || 0) + 1;
   // seed.initFail = quantas das primeiras tentativas de ligar a nuvem falham (como abrir o app sem internet); depois ela sobe normalmente
   if (window.__cloudInit <= ((window.__fakeSeed && window.__fakeSeed.initFail) || 0)) throw new Error('sem rede (simulado)');
   const W = window.__fake || (window.__fake = makeWorld());
-  return {
-    uid: ME, push: false, syncDays() {}, syncMeta() { window.__metaSynced = (window.__metaSynced || 0) + 1; },
+  const A = window.__acct || (window.__acct = makeAcct());
+  W.acct = A;
+  if (A.outP) { try { await A.outP; } catch (e) { /* quem pediu a saída trata o erro */ } }
+  // como o firebase.js de verdade: o login que o aparelho pode usar é o que combina com o que ele sabe de si (com conta lembrada, só o login DESSA conta;
+  // sem conta, só o anônimo); qualquer outro é descartado. Sem login e COM uma conta lembrada, não cria um login anônimo por baixo dos panos.
+  let hint = null;
+  try { hint = JSON.parse(localStorage.getItem('mare:acct') || 'null'); } catch (e) { hint = null; }
+  if (hint && !hint.uid) hint = null;
+  const mine = (u) => (hint ? !u.anon && u.uid === hint.uid : !!u.anon);
+  if (A.user && !mine(A.user)) { A.user = null; A.save(); A.strayOut++; }
+  if (!A.user) {
+    if (hint) { const e = new Error('mare/session-ended'); e.code = 'mare/session-ended'; throw e; }
+    A.user = { uid: ME, email: '', verified: false, anon: true };
+    A.save();
+  }
+  A.hooks = hooks;
+  A.watching = !!(A.user && !A.user.anon && A.user.email);
+  const cloud = {
+    uid: A.user.uid, acct: whoOf(A.user), push: false,
+    syncDays(keys) { A.synced.push((keys || []).slice()); },
+    syncMeta() { window.__metaSynced = (window.__metaSynced || 0) + 1; },
+    syncPrefs() { A.prefsSynced++; }, flush() {}, resync() { A.resynced++; },
+    // criar a conta acabou de acontecer: a nuvem passa a enxergar o login com e-mail (e a escuta do login começa)
+    afterLink: async () => { await A.chk('afterLink'); A.linked++; cloud.acct = whoOf(A.user); A.watching = true; },
+    // sair da conta: envia o que falta e espera; o teste pode fazer falhar com A.fail.detach = 'mare/pending'. force = a pessoa insistiu: não espera nada
+    detach: async (wait, force) => {
+      if (force) { A.calls.push('detach'); A.detachForce++; } else await A.chk('detach');
+      A.detached++; cloud.dispose();
+    },
+    dispose() { A.disposed++; A.watching = false; },
     enablePush: async () => { window.__pushEnabled = (window.__pushEnabled || 0) + 1; return true; },
-    // wipeHang (teste): o apagar da nuvem nunca responde (sem internet). O app não pode depender dele para largar as escutas do aparelho
-    wipe: async () => { if (W.wipeHang) await new Promise(() => {}); try { await W.api.leave(); } catch (e) { /* como o firebase.js real */ } },
+    // wipeHang (teste): o apagar da nuvem nunca responde (sem internet). O app não pode depender dele para largar as escutas do aparelho.
+    // opts.social = false: quem chama sai da turma depois (excluir a conta); sem isso o wipe sai da turma por conta própria, como o firebase.js real
+    wipe: async (opts) => {
+      A.wiped++; A.wipeBusy++; A.calls.push('wipe'); A.wipeOpts.push(opts || null);
+      try {
+        if (W.wipeHang) await new Promise(() => {});
+        if (W.wipeLat) await sleep(W.wipeLat); // wipeLat (teste): a limpeza demora esse tanto (ms) para terminar
+        if (A.fail.wipe) { const c = A.fail.wipe; delete A.fail.wipe; throw mkAuthErr(c); }
+        if (!(opts && opts.social === false)) { try { await W.api.leave(); } catch (e) { /* como o firebase.js real */ } }
+      } finally { A.wipeBusy--; }
+    },
     // como o createSocial real: a cópia guardada no aparelho é o estado de partida (a lista continua à vista enquanto a nuvem não responde)
     social: (cache) => {
       if (cache && !W.cacheUsed) { W.cacheUsed = true; if (!W.st.friends.length && !W.st.reqIn.length && !W.st.reqOut.length) W.st = Object.assign({}, W.st, cleanState(cache)); }
       return W.api;
     },
   };
+  // ajustes mais novos gravados por outro aparelho da mesma conta: chegam logo depois que a nuvem sobe
+  if (A.remotePrefs && A.user && !A.user.anon && hooks && hooks.onPrefs) setTimeout(() => { hooks.onPrefs(A.remotePrefs.prefs, A.remotePrefs.u); A.remotePrefs = null; }, 40);
+  return cloud;
 }

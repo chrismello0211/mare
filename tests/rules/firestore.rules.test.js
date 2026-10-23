@@ -730,3 +730,96 @@ describe('avisos dos amigos (1.1.1): a escolha em users/{uid}.social e o registr
     await no(getDoc(doc(as(BRU), 'pushq', ANA))); // nem um amigo aprovado
   });
 });
+
+describe('backup dos ajustes da conta (1.3.0): users/{uid}/backup/prefs', () => {
+  // Quem tem conta (e-mail e senha, ou Google depois) carrega a claim "email" no login; o login anônimo, não.
+  const acct = (u) => env.authenticatedContext(u, { email: u.slice(0, 3) + '@example.com' }).firestore();
+  const prefs = (o) => Object.assign({ v: 1, u: Date.now(), j: JSON.stringify({ p: { name: 'Ana', weight: 62 } }) }, o);
+  const mine = (who, u) => doc(who, 'users', u || ANA, 'backup', 'prefs');
+  const seedPrefs = (u, o) => seed((d) => setDoc(doc(d, 'users', u || ANA, 'backup', 'prefs'), prefs(o)));
+
+  test('quem tem conta grava, atualiza e lê os próprios ajustes', async () => {
+    await ok(setDoc(mine(acct(ANA)), prefs()));
+    await ok(setDoc(mine(acct(ANA)), prefs({ u: Date.now() + 1000, j: '{"p":{"name":"Ana Paula"}}' })));
+    const s = (await ok(getDoc(mine(acct(ANA))))).data();
+    if (s.j !== '{"p":{"name":"Ana Paula"}}' || s.v !== 1) throw new Error('não guardou o que foi gravado');
+  });
+  test('o login anônimo (sem e-mail) NÃO grava: o peso nunca vai para a nuvem de quem não criou conta', async () => {
+    await no(setDoc(mine(as(ANA)), prefs()));
+    await no(setDoc(doc(as(ANA), 'users', ANA, 'backup', 'prefs'), prefs(), { merge: true }));
+    await seedPrefs(ANA);
+    await no(setDoc(mine(as(ANA)), prefs({ u: Date.now() + 5 }))); // nem atualizar
+    await no(updateDoc(mine(as(ANA)), { j: '{}' }));
+    await ok(getDoc(mine(as(ANA)))); // o dono ainda lê (e apaga) o que houver, mesmo sem a claim
+  });
+  test('sem login: nada', async () => {
+    await seedPrefs(ANA);
+    await no(getDoc(mine(anon())));
+    await no(setDoc(mine(anon()), prefs()));
+    await no(deleteDoc(mine(anon())));
+    await no(getDocs(collection(anon(), 'users', ANA, 'backup')));
+  });
+  test('ninguém mexe nos ajustes de outra pessoa, nem com conta, nem um amigo aprovado', async () => {
+    await seedPair();
+    await seedPrefs(ANA);
+    for (const who of [acct(BRU), as(BRU), acct(CAI)]) {
+      await no(getDoc(mine(who)));
+      await no(setDoc(mine(who), prefs()));
+      await no(updateDoc(mine(who), { j: '{}' }));
+      await no(deleteDoc(mine(who)));
+      await no(getDocs(collection(who, 'users', ANA, 'backup')));
+    }
+    const s = (await ok(getDoc(mine(acct(ANA))))).data();
+    if (s.j.indexOf('Ana') < 0) throw new Error('os ajustes não podiam mudar');
+  });
+  test('o dono lista a própria pasta de backup e apaga os ajustes (o "apagar tudo" e a exclusão da conta dependem disso)', async () => {
+    await seedPrefs(ANA);
+    const l = await ok(getDocs(collection(acct(ANA), 'users', ANA, 'backup')));
+    if (l.size !== 1) throw new Error('devia listar 1 documento');
+    await ok(deleteDoc(mine(as(ANA)))); // anônimo também apaga (um login que já teve conta e perdeu a claim não fica com lixo)
+    if ((await ok(getDoc(mine(acct(ANA))))).exists()) throw new Error('não apagou');
+    await ok(deleteDoc(mine(acct(ANA)))); // apagar o que não existe não é erro
+  });
+  test('só existe o documento "prefs"', async () => {
+    await no(setDoc(doc(acct(ANA), 'users', ANA, 'backup', 'outro'), prefs()));
+    await no(setDoc(doc(acct(ANA), 'users', ANA, 'backup', 'prefs2'), prefs()));
+    await no(setDoc(doc(acct(ANA), 'users', ANA, 'backup', 'x', 'y', 'z'), prefs()));
+  });
+  test('formato: só v, u e j, todos presentes, v = 1, u número positivo e j texto de 2 a 4000 letras', async () => {
+    const w = (o) => setDoc(mine(acct(ANA)), o);
+    await ok(w(prefs()));
+    await no(w(prefs({ extra: 1 })));
+    await no(w(prefs({ nome: 'Ana' })));
+    await no(w(without(prefs(), 'v')));
+    await no(w(without(prefs(), 'u')));
+    await no(w(without(prefs(), 'j')));
+    await no(w(prefs({ v: 2 })));
+    await no(w(prefs({ v: '1' })));
+    await no(w(prefs({ u: 0 })));
+    await no(w(prefs({ u: -5 })));
+    await no(w(prefs({ u: '123' })));
+    await no(w(prefs({ u: null })));
+    await no(w(prefs({ u: serverTimestamp() })));
+    await no(w(prefs({ j: { p: 1 } })));
+    await no(w(prefs({ j: ['{}'] })));
+    await no(w(prefs({ j: null })));
+    await no(w(prefs({ j: 5 })));
+    await no(w(prefs({ j: '' })));
+    await no(w(prefs({ j: '{' + 'x'.repeat(0) })));
+    await ok(w(prefs({ j: '{}' })));
+    await ok(w(prefs({ j: '"' + 'a'.repeat(3998) + '"' }))); // 4000 letras
+    await no(w(prefs({ j: '"' + 'a'.repeat(3999) + '"' }))); // 4001
+    await no(w(prefs({ j: 'a'.repeat(100000) })));
+  });
+  test('um merge que deixaria o documento fora do formato também é recusado', async () => {
+    await ok(setDoc(mine(acct(ANA)), prefs()));
+    await no(setDoc(mine(acct(ANA)), { extra: 1 }, { merge: true }));
+    await no(updateDoc(mine(acct(ANA)), { v: 3 }));
+    await ok(updateDoc(mine(acct(ANA)), { u: Date.now() + 9, j: '{"a":1}' }));
+  });
+  test('os ajustes não passam pelo documento users/{uid}: o formato de lá continua fechado', async () => {
+    await no(setDoc(doc(acct(ANA), 'users', ANA), { j: '{}', v: 1, u: 1 }));
+    await no(setDoc(doc(acct(ANA), 'users', ANA), { backup: { prefs: {} } }));
+    await ok(setDoc(doc(acct(ANA), 'users', ANA), { goal: 2000, tz: 'America/Fortaleza' }));
+  });
+});

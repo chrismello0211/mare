@@ -9,13 +9,14 @@
 import { WATERS, OTHERS, ACTIVITY, INSIGNIAS, ACHIEVEMENTS, drink, isOther, dayTotal, dayOther, otherCounted, mixOn, isMet, calcGoal, goalToday, expectedBy,
   dayWindow, streak, bestStreak, insigniaById, unlockedInsignias, mascotOf, reefFor, missionFor, missionProgress, stats, insights, dayKey, keyToDate,
   addDays, minOf, fmtHM, fmtNum } from './core.js';
-import { S, esc, clamp, plural, byT, p2, cap, MONTHS, today, longDate, shortDate, relDay, goalNow, totalNow, otherNow, othersOn, allMl,
+import { S, ACCT, esc, clamp, plural, byT, p2, cap, MONTHS, today, longDate, shortDate, relDay, goalNow, totalNow, otherNow, othersOn, allMl,
   firstName, U, vol, unitL, fromMl, big, compact, presets } from './store.js';
 import { svgI, sheetHead, dropSVG } from './ui.js';
 import { badge } from './art.js';
 import { isIOS, isAndroid, iosVersion, isStandalone, isNative, canInstall, notifStatus } from './platform.js';
 import { att, btn, sbtn, sec, row, stack, sw, seg, empty, stat, tip, steps, shareIco } from './kit.js';
 import { crewHTML, settingsFriendsHTML, tabDots } from './friends-view.js';
+import { accountHTML, accountTip } from './account-view.js';
 
 /* ---------- peças ---------- */
 // btn, sbtn, sec, row, stack, sw, seg, empty, stat, tip, steps e shareIco vêm de kit.js (compartilhadas com friends-view.js)
@@ -75,6 +76,9 @@ function quickHTML() {
 }
 function tipsHTML() {
   const ui = S.ui, ios = isIOS();
+  // Conta (1.3.0): a dica mais importante vai primeiro. Só aparece a partir do segundo dia de uso (quem acabou de chegar ainda não tem o que perder)
+  // e some para sempre se for dispensada: o cartão em Ajustes continua lá. Quem já tem conta, ou perdeu o login e vê o aviso em Ajustes, não vê a dica.
+  if (!ACCT.on && !ACCT.ended && !ui.tip_account && Object.keys(S.days).length >= 2) return accountTip();
   if (!ui.tip_news12) {
     return tip('news12', '🐚', 'Novidades no Maré', 'Os amigos agora formam uma turma só, com ranking, e cada marco de água vira um bichinho do mar para colecionar.',
       ['news', 'Ver as novidades']);
@@ -361,7 +365,7 @@ export function settingsView(info) {
   const p = S.profile, g = S.goal, r = S.reminders, st = notifStatus(), on = r.enabled && st !== 'denied' && st !== 'install', u = unitL();
   const numIn = (field, val, label, mode) => '<input class="in num" type="text" inputmode="' + mode + '" autocomplete="off" data-field="' + field +
     '" value="' + val + '" aria-label="' + label + '">';
-  return '<header class="page-h"><h1 class="h1">Ajustes</h1></header>' +
+  return '<header class="page-h"><h1 class="h1">Ajustes</h1></header>' + accountHTML() +
     sec('Perfil') + '<div class="group">' +
       row('Nome', '', '<input class="in" type="text" data-field="name" value="' + esc(p.name) + '" placeholder="Opcional" maxlength="30" ' +
         'autocomplete="given-name" autocapitalize="words" enterkeyhint="done" aria-label="Nome">') +
@@ -402,8 +406,8 @@ export function settingsView(info) {
       stack('Unidade', '', seg('unit', p.unit, [['ml', 'Mililitros (ml)'], ['oz', 'Onças (oz)']], 'Unidade')) + '</div>' +
     sec('Seus dados') + '<div class="group">' +
       stack('Backup', 'Guarde uma cópia dos registros ou leve para outro aparelho', sbtn('export', 'Exportar') + ' ' + sbtn('import', 'Importar')) +
-      row('Apagar tudo', 'Remove registros e ajustes deste aparelho', sbtn('reset', 'Apagar', 'ghost danger')) + '</div>' +
-    '<p class="about">Maré ' + esc(info.version || '') + ' · ' + (info.sync === 'on' ? 'seus dados ficam no aparelho, com cópia na nuvem' : 'seus dados ficam neste aparelho') +
+      (ACCT.on ? '' : row('Apagar tudo', 'Remove registros e ajustes deste aparelho', sbtn('reset', 'Apagar', 'ghost danger'))) + '</div>' +
+    '<p class="about">Maré ' + esc(info.version || '') + ' · ' + (ACCT.on ? 'seus dados ficam no aparelho e na sua conta' : info.sync === 'on' ? 'seus dados ficam neste aparelho; a cópia na nuvem só volta com uma conta' : 'seus dados ficam neste aparelho') +
       '.<br>A meta diária é uma estimativa e não substitui orientação médica. Com doença renal ou cardíaca, siga a recomendação do seu médico.' +
       '<br>Previsão do tempo: Open-Meteo.com (CC BY 4.0).</p>';
 }
@@ -413,14 +417,19 @@ export function settingsView(info) {
 export const OB_STEPS = 6;
 const next = (label) => btn('ob-next', label || 'Continuar', 'block');
 const OB = [
-  () => ({
+  (ob) => ({
     b: '<div class="ob-hero"><div class="drop-wrap" id="obDrop">' + dropSVG('od', { pct: '', num: '', sub: '', label: 'Gota de água enchendo' }) + '</div></div>' +
-      '<h1 class="ob-title center">Beba água no seu ritmo</h1><p class="ob-text center">O Maré calcula sua meta, lembra você nos momentos certos e ' +
-      'transforma cada copo em progresso.</p>',
-    f: next('Começar') + '<p class="ob-fine">Leva menos de 1 minuto. Já usa o Maré? <button type="button" data-action="import">Restaurar backup</button></p>',
+      (ob.rest
+        ? '<h1 class="ob-title center">Encontramos sua conta</h1><p class="ob-text center">Seus ' + plural(ob.rest, 'dia', 'dias') + ' de registros já estão aqui. ' +
+          'Falta só confirmar alguns dados para calcular a sua meta.</p>'
+        : '<h1 class="ob-title center">Beba água no seu ritmo</h1><p class="ob-text center">O Maré calcula sua meta, lembra você nos momentos certos e ' +
+          'transforma cada copo em progresso.</p>'),
+    f: ob.rest ? next('Continuar')
+      : next('Começar') + '<p class="ob-fine">Leva menos de 1 minuto. Já usa o Maré? <button type="button" data-action="ac-signin">Entrar na conta</button> · ' +
+        '<button type="button" data-action="import">Restaurar backup</button></p>',
   }),
   (ob) => ({
-    b: '<h1 class="ob-title">Vamos personalizar</h1><p class="ob-text">Seu peso define a base da meta. Tudo fica guardado só no seu aparelho.</p>' +
+    b: '<h1 class="ob-title">Vamos personalizar</h1><p class="ob-text">Seu peso define a base da meta e não aparece para ninguém. ' + (ACCT.on ? 'Ele fica no seu aparelho e na sua conta.' : 'Ele fica no seu aparelho (e na sua conta, se você criar uma).') + '</p>' +
       '<label class="field"><span>Como podemos te chamar?</span><input class="in wide" id="obName" type="text" value="' + esc(ob.name) +
       '" placeholder="Seu nome (opcional)" maxlength="30" autocomplete="given-name" autocapitalize="words" enterkeyhint="next"></label>' +
       '<div class="field"><span class="field-t" id="obWl">Seu peso</span><div class="weight"><button type="button" data-action="ob-weight" data-n="-1" ' +

@@ -7,7 +7,7 @@
 // Princípios (guardados por tests/social.test.js): a turma é uma só e tem ranking (decisão do dono na 1.2.0); a meta em ml só aparece se a pessoa
 // deixar; nunca os litros bebidos nem os horários; textos sempre positivos (ninguém é "o último": quem não entra na conta fica numa lista à parte).
 import { INSIGNIAS, mascotOf, addDays, keyToDate } from './core.js';
-import { S, SOC, esc, plural, today, shortDate, vol } from './store.js';
+import { S, SOC, ACCT, esc, plural, today, shortDate, vol } from './store.js';
 import { sheetHead } from './ui.js';
 import { notifStatus } from './platform.js';
 import { badge } from './art.js';
@@ -55,6 +55,9 @@ function members(t) { return [myMember(S, t)].concat(SOC.st.friends.map((f) => m
 function notice() {
   const st = SOC.st;
   let e = '', t = '', retry = false;
+  // A conta saiu deste aparelho (1.3.0): tentar de novo não adianta, é preciso entrar. O botão leva ao painel de entrada.
+  if (ACCT.ended) return '<div class="notice" role="status"><span class="em" aria-hidden="true">⚠️</span><span class="nt">Sua conta saiu deste aparelho. Entre de novo para voltar à sua turma.</span>' +
+    '<button type="button" data-action="ac-reenter">Entrar de novo</button></div>';
   if (SOC.mode === 'off') { e = '☁️'; t = 'Sem conexão com a nuvem do Maré. Você vê o que o app guardou da última vez.'; retry = true; }
   else if (st.err) { e = st.err === 'offline' ? '📡' : '☁️'; t = st.err === 'offline' ? 'Sem internet agora: mostrando o que o Maré viu por último.' : errText(st.err); retry = true; }
   else if (SOC.mode === 'wait' || !st.ready) { e = '🌊'; t = 'Atualizando sua turma…'; }
@@ -384,5 +387,5 @@ export function settingsFriendsHTML() {
 export function friendsSig() {
   const st = SOC.st;
   return JSON.stringify([SOC.mode, st.ready, st.err, st.code, st.friends, st.reqIn, st.reqOut, S.social, S.ui.frRank, S.profile.unit, today(), mascotOf(S).id,
-    myLive(S, today()), notifStatus(), !!S.ui.tip_fpush]);
+    myLive(S, today()), notifStatus(), !!S.ui.tip_fpush, ACCT.ended]);
 }

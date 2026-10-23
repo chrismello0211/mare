@@ -21,3 +21,7 @@ export function rules110(rules) {
   s = cut(s, 'a regra do mapa social', /\n\s*&& \(!\('social' in d\)[\s\S]*?social\.week is bool\)\)\)/, '');
   return s;
 }
+// Regras da 1.2.x (antes da conta, 1.3.0): users/{uid} não tem a subcoleção backup (os ajustes da conta). Quem lê ou grava ali é recusado.
+export function rules12x(rules) {
+  return cut(rules, 'a regra do backup dos ajustes', /\n\s*match \/backup\/\{doc\} \{[^}]*\}/, '');
+}

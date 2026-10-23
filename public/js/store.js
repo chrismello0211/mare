@@ -10,7 +10,10 @@ export function setS(v) { S = v; applyMix(); }
 // "Somar outros líquidos na meta" só vale com a segunda gota ligada: com ela desligada, os registros desse tipo ficam escondidos
 // e não podem entrar na conta. Chame depois de mudar S.profile.mix ou S.profile.others.
 export function applyMix() { setMix(S.profile.others !== false && S.profile.mix === true); }
-export const hooks = { saveError: null };
+export const hooks = { saveError: null, saved: null }; // saved: chamado depois de cada save() que deu certo (o app.js usa para mandar os ajustes da conta à nuvem)
+// Conta (1.3.0), como a tela enxerga: o app.js alimenta a partir da dica guardada no aparelho (mare:acct) e do login. on = este aparelho está
+// numa conta (e-mail e senha); ended = tinha conta e o login sumiu (por exemplo, a senha foi trocada em outro aparelho): a tela pede para entrar de novo.
+export const ACCT = { on: false, email: '', verified: false, uid: '', ended: false };
 // Amigos, como a tela enxerga: o app.js alimenta a partir da camada de nuvem (social-cloud.js) e da cópia guardada no aparelho.
 // mode: 'off' = nuvem indisponível · 'wait' = ainda conectando · 'ready' = pronta. st = { ready, err, code, friends, reqIn, reqOut, at }.
 export const SOC = { mode: 'wait', st: cleanState(null) };
@@ -20,10 +23,12 @@ export function load() {
 }
 let warned = false;
 export function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(S)); return true; } catch (e) {
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {
     if (!warned && hooks.saveError) { warned = true; hooks.saveError(e); }
     return false;
   }
+  if (hooks.saved) { try { hooks.saved(); } catch (e) { /* o gancho não pode derrubar o salvar */ } }
+  return true;
 }
 
 /* ---------- texto e números ---------- */

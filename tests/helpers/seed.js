@@ -25,7 +25,7 @@ export async function seed(page, o) {
       goal: { mode: 'manual', manual: 2800, climate: false, bonus: 0, temp: null, day: '' },
       cups: [150, 250, 350, 500], last: opt.last || 'water', reminders: Object.assign({ enabled: false, interval: 90, smart: true, nextAt: 0 }, opt.reminders || {}),
       days: days, achievements: opt.medals ? { first: 1, goal: 1, s3: 1, s7: 1, s14: 1, s30: 1, early: 1, sunset: 1, mission: 1, m10: 1, weekend: 1, d10: 1 } : {}, missions: {}, insignias: ins, social: Object.assign({ on: false, nick: '', share: true, code: '' }, opt.social || {}),
-      ui: Object.assign({ tip_install: 1, tip_climate: 1, tip_news12: 1 }, opt.ui || {}),
+      ui: Object.assign({ tip_install: 1, tip_climate: 1, tip_news12: 1, tip_account: 1 }, opt.ui || {}), // tip_account: 1 = a dica da conta (1.3.0) já foi dispensada
     }));
   }, o || {});
 }

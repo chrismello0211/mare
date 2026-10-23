@@ -20,8 +20,9 @@ vi.mock('../../public/js/firebase-config.js', () => ({ firebaseConfig: { apiKey:
 vi.mock('https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js', () => ({ initializeApp: () => ({ app: 'de-mentira' }) }));
 vi.mock('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js', () => ({
   initializeAuth: () => ({}), getAuth: () => ({}), indexedDBLocalPersistence: {}, browserLocalPersistence: {}, connectAuthEmulator: () => {},
-  onAuthStateChanged: (auth, cb) => { setTimeout(() => { cb({ uid: H.uid }); }, 0); return () => {}; },
-  signInAnonymously: () => Promise.resolve(),
+  // o login do aparelho é anônimo (como o do app sem conta): desde a 1.3.0 o firebase.js só adota o login que combina com o estado do aparelho
+  onAuthStateChanged: (auth, cb) => { setTimeout(() => { cb({ uid: H.uid, isAnonymous: true }); }, 0); return () => {}; },
+  signInAnonymously: () => Promise.resolve(), signOut: () => Promise.resolve(),
 }));
 vi.mock('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js', async () => {
   const real = await import('firebase/firestore');

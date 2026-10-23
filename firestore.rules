@@ -27,12 +27,26 @@ service cloud.firestore {
         && d.entries is list && d.entries.size() <= 200
         && d.goal is number && d.total is number;
     }
+    // Backup dos AJUSTES da conta (1.3.0): users/{uid}/backup/prefs guarda nome, peso, atividade, metas, copos, tema e as escolhas dos amigos
+    // como um texto JSON ("j", até 4000 letras; o app valida o conteúdo ao restaurar), para a pessoa recuperar o app em outro aparelho.
+    // "u" é a hora (ms) da última gravação, para o aparelho saber qual cópia é a mais nova. Só grava quem TEM CONTA: a claim "email" do
+    // login (o login anônimo não a tem). Assim o peso nunca vai para a nuvem de quem não criou conta, nem por engano de um aplicativo.
+    // O dono lê e apaga; ninguém mais.
+    function validPrefs(d) {
+      return d.keys().hasOnly(['v', 'u', 'j']) && d.keys().hasAll(['v', 'u', 'j'])
+        && d.v == 1 && d.u is number && d.u > 0
+        && d.j is string && d.j.size() >= 2 && d.j.size() <= 4000;
+    }
     match /users/{uid} {
       allow read, delete: if isOwner(uid);
       allow create, update: if isOwner(uid) && validUser(request.resource.data);
       match /days/{day} {
         allow read, delete: if isOwner(uid);
         allow create, update: if isOwner(uid) && validDay(day, request.resource.data);
+      }
+      match /backup/{doc} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && doc == 'prefs' && 'email' in request.auth.token && validPrefs(request.resource.data);
       }
     }
 
