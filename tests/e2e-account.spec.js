@@ -109,7 +109,7 @@ test.describe('sem conta', () => {
     await expect(page.getByRole('button', { name: 'Apagar', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Excluir', exact: true })).toHaveCount(0);
     await expect(page.locator('.about')).toContainText('a cópia na nuvem só volta com uma conta'); // sem conta, a cópia na nuvem não ajuda quem perde o aparelho
-    await expect(page.locator('.about')).toContainText('v1.3.0');
+    await expect(page.locator('.about')).toContainText('v1.4.0');
   });
 
   test('a dica da conta vem primeiro, só a partir do segundo dia; dispensar não tira o cartão de Ajustes', async ({ page }) => {

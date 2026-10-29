@@ -196,18 +196,32 @@ describe('sequência', () => {
 describe('insígnias (bichinhos do mar)', () => {
   const L = (n) => n * 1000; // litros → ml
   const withIns = (ids) => { const S = C.defaults(); ids.forEach((id, i) => { S.insignias[id] = 1000 + i; }); return S; };
-  it('catálogo: 10 bichinhos em ordem crescente, a primeira de graça e o cavalo-marinho aos 100 L', () => {
-    expect(C.INSIGNIAS.map((x) => x.id)).toEqual(['concha', 'estrela', 'baiacu', 'tartaruga', 'cavalo', 'polvo', 'agua-viva', 'golfinho', 'baleia', 'narval']);
+  it('catálogo: 15 bichinhos em ordem crescente, a primeira de graça e o cavalo-marinho aos 100 L', () => {
+    expect(C.INSIGNIAS.map((x) => x.id)).toEqual(['concha', 'estrela', 'baiacu', 'tartaruga', 'cavalo', 'polvo', 'agua-viva', 'golfinho', 'arraia-manta', 'baleia', 'orca', 'narval',
+      'peixe-pescador', 'lula-gigante', 'perola']);
+    // a escada (1.4.0): as dez antigas não mudaram de marco; as cinco novas entram entre elas e depois do narval
+    expect(C.INSIGNIAS.map((x) => x.at)).toEqual([0, 10, 30, 60, 100, 175, 275, 400, 550, 700, 850, 1000, 1300, 1600, 2000]);
     expect(C.INSIGNIAS[0].at).toBe(0);
     expect(C.insigniaById('cavalo')).toMatchObject({ n: 'Cavalo-marinho', at: 100 });
     for (let i = 1; i < C.INSIGNIAS.length; i++) expect(C.INSIGNIAS[i].at, C.INSIGNIAS[i].id).toBeGreaterThan(C.INSIGNIAS[i - 1].at);
     C.INSIGNIAS.forEach((x) => {
       ['n', 'e', 'fact', 'cheer'].forEach((k) => { expect(typeof x[k] === 'string' && x[k].length >= (k === 'e' ? 1 : 4), x.id + '.' + k).toBe(true); });
       expect(/^[a-z-]+$/.test(x.id)).toBe(true);
+      expect(x.id.length, x.id + ' cabe no limite de 16 letras do mascote nas regras').toBeLessThanOrEqual(16);
       expect(C.insigniaIndex(x.id)).toBe(C.INSIGNIAS.indexOf(x));
     });
+    expect(new Set(C.INSIGNIAS.map((x) => x.n)).size).toBe(C.INSIGNIAS.length); // nomes e emojis não se repetem
+    expect(new Set(C.INSIGNIAS.map((x) => x.e)).size).toBe(C.INSIGNIAS.length);
     expect(C.insigniaById('xyz')).toBeNull();
     expect(C.insigniaIndex('xyz')).toBe(-1);
+  });
+  it('a escada não tem buracos: nenhum intervalo passa de 400 L (~5 meses a 2,5 L por dia) e, a partir dos 400 L, nenhum cresce de uma vez', () => {
+    const at = C.INSIGNIAS.map((x) => x.at), gaps = at.slice(1).map((v, i) => v - at[i]);
+    expect(Math.max.apply(null, gaps)).toBeLessThanOrEqual(400);
+    const from = at.indexOf(400);
+    for (let i = from + 1; i < gaps.length; i++) expect(gaps[i], 'intervalo antes de ' + C.INSIGNIAS[i + 1].id).toBeLessThanOrEqual(gaps[i - 1] * 2); // 150 → 300 é o maior salto
+    // só o último bichinho fecha o recife
+    expect(C.INSIGNIAS.filter((x) => /Recife completo/.test(x.cheer)).map((x) => x.id)).toEqual(['perola']);
   });
   it('levelFor: a insígnia atual e o progresso até a próxima, pela água acumulada', () => {
     expect(C.levelFor(0)).toMatchObject({ id: 'concha', i: 0, p: 0 });
@@ -218,9 +232,27 @@ describe('insígnias (bichinhos do mar)', () => {
     expect(C.levelFor(L(99.9)).id).toBe('tartaruga');
     expect(C.levelFor(L(100)).id).toBe('cavalo');
     expect(C.levelFor(L(100)).next.id).toBe('polvo');
-    const top = C.levelFor(L(1000));
-    expect(top).toMatchObject({ id: 'narval', next: null, p: 1 });
-    expect(C.levelFor(L(5000)).id).toBe('narval'); // passou do fim do recife
+    // os marcos novos (1.4.0) e as pontas de cada intervalo
+    expect(C.levelFor(L(549.9)).id).toBe('golfinho');
+    expect(C.levelFor(L(550))).toMatchObject({ id: 'arraia-manta', i: 8, p: 0 });
+    expect(C.levelFor(L(550)).next.id).toBe('baleia');
+    expect(C.levelFor(L(625)).p).toBeCloseTo(0.5); // 550 → 700
+    expect(C.levelFor(L(699.9)).id).toBe('arraia-manta');
+    expect(C.levelFor(L(700)).id).toBe('baleia');
+    expect(C.levelFor(L(849.9)).id).toBe('baleia');
+    expect(C.levelFor(L(850)).id).toBe('orca');
+    expect(C.levelFor(L(999.9)).id).toBe('orca');
+    const nar = C.levelFor(L(1000));
+    expect(nar).toMatchObject({ id: 'narval', i: 11 });
+    expect(nar.next.id).toBe('peixe-pescador'); // o narval já não fecha o recife
+    expect(C.levelFor(L(1300)).id).toBe('peixe-pescador');
+    expect(C.levelFor(L(1599.9)).id).toBe('peixe-pescador');
+    expect(C.levelFor(L(1600)).id).toBe('lula-gigante');
+    expect(C.levelFor(L(1999.9))).toMatchObject({ id: 'lula-gigante' });
+    expect(C.levelFor(L(1999.9)).p).toBeCloseTo(0.9998, 3);
+    const top = C.levelFor(L(2000));
+    expect(top).toMatchObject({ id: 'perola', i: 14, next: null, p: 1 });
+    expect(C.levelFor(L(5000)).id).toBe('perola'); // passou do fim do recife
   });
   it('newInsignias: só o que a água já alcançou e ainda não foi guardado; nada é retirado', () => {
     expect(C.newInsignias(C.defaults(), 0).map((x) => x.id)).toEqual(['concha']);
@@ -249,8 +281,8 @@ describe('insígnias (bichinhos do mar)', () => {
     expect(less.p).toBe(0);
     expect(less.leftMl).toBe(L(55));
     expect(C.reefFor(withIns(['concha', 'estrela']), L(999))).toMatchObject({ leftMl: 0, p: 1 }); // concessão ainda por fazer
-    const full = C.reefFor(withIns(C.INSIGNIAS.map((x) => x.id)), L(1200));
-    expect(full).toMatchObject({ have: 10, next: null, p: 1, leftMl: 0 });
+    const full = C.reefFor(withIns(C.INSIGNIAS.map((x) => x.id)), L(2300));
+    expect(full).toMatchObject({ have: 15, next: null, p: 1, leftMl: 0 });
     expect(C.reefFor(C.defaults(), 0).cur.id).toBe('concha'); // sem nada guardado, mostra a primeira
   });
   it('insigniaDates data cada marco pelo gole que fez a soma de água passar dele (outros líquidos não contam)', () => {

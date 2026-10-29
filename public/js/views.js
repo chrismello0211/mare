@@ -326,7 +326,7 @@ export function unlockSheet(id) {
 export function newsSheet() {
   const have = unlockedInsignias(S).length, ni = (e, b, t) => '<div class="news-i"><span class="em" aria-hidden="true">' + e + '</span><div><b>' + b + '</b><p>' + t + '</p></div></div>';
   return sheetHead('Novidades do Maré') +
-    '<div class="news-i">' + badge('cavalo', { size: 48 }) + '<div><b>Insígnias do mar</b><p>Cada marco de água vira um bichinho para colecionar: da concha ao narval. ' +
+    '<div class="news-i">' + badge('cavalo', { size: 48 }) + '<div><b>Insígnias do mar</b><p>Cada marco de água vira um bichinho para colecionar: da concha à pérola. ' +
     (have > 1 ? 'Você já tem ' + have + ' de ' + INSIGNIAS.length + '.' : 'Você começa com a concha.') + '</p></div></div>' +
     ni('🏆', 'Uma turma, um ranking', 'Os amigos agora formam uma turma só: todo mundo vê todo mundo, com ranking do dia, da semana e da sequência. Cada um decide o que mostra, e a meta em ml só aparece se você deixar.') +
     ni('🔔', 'Avisos mais espertos', 'Os avisos respeitam seu horário de sono. Dá para escolher saber quando um amigo bate a meta e receber o resumo da semana da turma no domingo.') +

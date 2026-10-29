@@ -9,7 +9,7 @@ import { tube, part } from './tube.mjs';
 const f = (n) => Math.round(n * 10) / 10;
 const INK = '#23324B', BLUSH = '#FF8DA1';
 const eye = (x, y, r) => { r = r || 1; return `<ellipse cx="${f(x)}" cy="${f(y)}" rx="${f(2.7 * r)}" ry="${f(3.3 * r)}" fill="${INK}"/><circle cx="${f(x + 0.9 * r)}" cy="${f(y - 1.2 * r)}" r="${f(1.05 * r)}" fill="#fff"/>`; };
-const cheek = (x, y, r) => { r = r || 1; return `<ellipse cx="${f(x)}" cy="${f(y)}" rx="${f(3.4 * r)}" ry="${f(2.1 * r)}" fill="${BLUSH}" opacity=".6"/>`; };
+const cheek = (x, y, r, c, o) => { r = r || 1; return `<ellipse cx="${f(x)}" cy="${f(y)}" rx="${f(3.4 * r)}" ry="${f(2.1 * r)}" fill="${c || BLUSH}" opacity="${o || '.6'}"/>`; }; // c, o: cor e opacidade, para corpos em que o rosa padrão fica sujo
 const smile = (x, y, w, r) => { w = w || 5; r = r || 1; return `<path d="M${f(x - w / 2)} ${f(y)}Q${f(x)} ${f(y + w * 0.6)} ${f(x + w / 2)} ${f(y)}" fill="none" stroke="${INK}" stroke-width="${f(1.6 * r)}" stroke-linecap="round"/>`; };
 // rostinho de frente: dois olhos, duas bochechas e um sorriso
 const front = (x, y, gap, s) => { gap = gap || 14; s = s || 1; return `<g class="fc">` + eye(x - gap / 2, y, s) + eye(x + gap / 2, y, s) + cheek(x - gap / 2 - 5 * s, y + 5.2 * s, s) + cheek(x + gap / 2 + 5 * s, y + 5.2 * s, s) + smile(x, y + 4.6 * s, 5 * s, s) + `</g>`; };
@@ -20,12 +20,24 @@ const bub = (list) => list.map((b) => `<circle class="bb" cx="${b[0]}" cy="${b[1
 // barbatana de cauda (duas pontas), ancorada no começo da linha-guia; dorsal e peitoral dependem da meia-largura w do corpo
 const FLUKES = () => 'M2 0C0 -5 -3 -11 -10 -15C-9 -9 -8 -4 -5 0C-8 4 -9 9 -10 15C-3 11 0 5 2 0Z';
 
+// contorno simétrico: a metade direita em curvas cúbicas [c1x, c1y, c2x, c2y, x, y], do eixo de cima até o eixo de baixo; a esquerda é o espelho (x → 100 − x)
+const symPath = (start, segs) => {
+  const m = (x) => f(100 - x);
+  let d = `M${f(start[0])} ${f(start[1])}`;
+  segs.forEach((s) => { d += `C${f(s[0])} ${f(s[1])} ${f(s[2])} ${f(s[3])} ${f(s[4])} ${f(s[5])}`; });
+  for (let i = segs.length - 1; i >= 0; i--) {
+    const s = segs[i], from = i ? [segs[i - 1][4], segs[i - 1][5]] : start;
+    d += `C${m(s[2])} ${f(s[3])} ${m(s[0])} ${f(s[1])} ${m(from[0])} ${f(from[1])}`;
+  }
+  return d + 'Z';
+};
+
 export const C = {};
 
 /* 1 — Concha (vieira) · 0 L */
-C.concha = () => {
-  const R = 40, cx = 50, cy = 78, n = 7, a0 = -170, a1 = -10;
-  const P = [], Cc = [];
+// leque da vieira: contorno com 7 gomos e as nervuras que saem da dobradiça (cx, cy); R = raio. Serve à concha e à concha da pérola.
+const fan = (cx, cy, R, n) => {
+  const a0 = -170, a1 = -10, P = [], Cc = [];
   for (let k = 0; k <= n; k++) { const a = (a0 + (k * (a1 - a0)) / n) * Math.PI / 180; P.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]); }
   for (let k = 0; k < n; k++) { const a = (a0 + ((k + 0.5) * (a1 - a0)) / n) * Math.PI / 180; Cc.push([cx + (R + 9) * Math.cos(a), cy + (R + 9) * Math.sin(a)]); }
   let d = `M${cx} ${cy}L${f(P[0][0])} ${f(P[0][1])}`;
@@ -33,6 +45,10 @@ C.concha = () => {
   d += 'Z';
   let ridges = '';
   for (let k = 1; k < n; k++) { const a = (a0 + (k * (a1 - a0)) / n) * Math.PI / 180; ridges += `M${cx} ${cy - 2}L${f(cx + (R + 1) * Math.cos(a))} ${f(cy + (R + 1) * Math.sin(a))}`; }
+  return { d, ridges };
+};
+C.concha = () => {
+  const { d, ridges } = fan(50, 78, 40, 7);
   return `<g class="cr"><path d="M30 80Q32 71 40 72L60 72Q68 71 70 80Q71 88 60 88L40 88Q29 88 30 80Z" fill="#F08F7C"/>` +
     `<path d="${d}" fill="#FFB9A8"/><path d="${ridges}" fill="none" stroke="#F4917F" stroke-width="2" stroke-linecap="round" opacity=".55"/>` +
     hl('M26 52Q32 36 46 31Q36 40 33 56Z', 0.5) +
@@ -163,7 +179,22 @@ C.golfinho = () => {
     `<g class="fc">` + eye(74, 41, 1.3) + cheek(70, 50, 1.05) + `<path d="M81 52Q87 57 93 54" fill="none" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/></g></g></g>`;
 };
 
-/* 9 — Baleia · 700 L */
+/* 9 — Arraia-manta · 550 L */
+C['arraia-manta'] = () => {
+  const COL = '#37B5C9', DARK = '#2493AD', LIGHT = '#E2F8F8';
+  const wings = symPath([50, 27], [[66, 26, 82, 35, 95, 53], [84, 57, 68, 58, 57, 70], [54, 72, 51, 75, 50, 78]]);
+  const tail = tube([[50, 74], [50, 85], [53, 93], [58, 98]], [[0, 7], [0.5, 4], [1, 1.4]], 10);
+  const horn = (k) => k ? 'M55 31C54 24 58 19 65 18C63 22 62 26 63 33Z' : 'M45 31C46 24 42 19 35 18C37 22 38 26 37 33Z';
+  const patch = (k) => k ? 'M64 54C70 49 78 48 85 51C79 55 72 57 66 62Z' : 'M36 54C30 49 22 48 15 51C21 55 28 57 34 62Z';
+  return `<g class="cr"><g transform="translate(50 50) scale(.93) translate(-50 -52)">` +
+    `<path d="${tail}" fill="${DARK}"/><path d="${horn(0)}" fill="${DARK}"/><path d="${horn(1)}" fill="${DARK}"/>` +
+    `<path d="${wings}" fill="${COL}"/>` +
+    `<path d="${patch(0)}" fill="${LIGHT}" opacity=".9"/><path d="${patch(1)}" fill="${LIGHT}" opacity=".9"/>` +
+    hl('M14 50C24 40 36 33 47 31C37 37 30 44 24 55Z', 0.45) +
+    `<g class="fc">` + eye(39.5, 41, 1.25) + eye(60.5, 41, 1.25) + cheek(33, 47.5, 1.15, '#FF9CAD', '.85') + cheek(67, 47.5, 1.15, '#FF9CAD', '.85') + smile(50, 46, 6, 1.1) + `</g></g></g>`;
+};
+
+/* 10 — Baleia · 700 L */
 C.baleia = () => {
   const COL = '#4C8FE0', DARK = '#356FC0', LIGHT = '#D4E9FF';
   const spine = [[20, 36], [24, 50], [36, 62], [54, 68], [72, 64], [85, 56]];
@@ -183,7 +214,29 @@ C.baleia = () => {
     `<g class="fc">` + eye(76, 55, 1.2) + cheek(72, 63, 1) + `<path d="M80 62Q85 66 88 61" fill="none" stroke="${INK}" stroke-width="1.5" stroke-linecap="round"/></g></g></g>`;
 };
 
-/* 10 — Narval · 1000 L */
+/* 11 — Orca · 850 L (olha para a esquerda: assim o recife não fica só com bichos virados para a direita) */
+C.orca = () => {
+  const COL = '#3C4E7C', DARK = '#2A3556', WHITE = '#F7FBFF', GREY = '#93A0C2';
+  const spine = [[10, 62], [24, 62], [42, 60], [60, 56], [73, 52], [80, 50]];
+  const prof = [[0, 5], [0.16, 14], [0.4, 28], [0.7, 42], [0.9, 44], [1, 40]];
+  const body = tube(spine, prof, 26);
+  // a barriga branca começa fina no rabo e engrossa até o queixo
+  const bAt = (t) => { const P = [[0.08, 1], [0.26, 0.55], [0.42, 0.3], [0.8, 0.22], [1, 0.08]]; for (let i = 1; i < P.length; i++) if (t <= P[i][0]) return P[i - 1][1] + (P[i][1] - P[i - 1][1]) * (t - P[i - 1][0]) / (P[i][0] - P[i - 1][0]); return P[P.length - 1][1]; };
+  const belly = tube(spine, prof, 30, { a: 1, b: bAt, t0: 0.08, t1: 0.985 });
+  const dorsal = (w) => `M8 ${-w + 3}C6 ${-w - 9} 0 ${-w - 18} -4 ${-w - 22}C-5 ${-w - 12} -8 ${-w - 4} -11 ${-w + 3}Z`;
+  const flip = (w) => `M4 ${w - 12}C-3 ${w - 6} -9 ${w + 4} -7 ${w + 12}C1 ${w + 9} 7 ${w + 2} 10 ${w - 11}Z`;
+  const flukes = () => 'M2 0C0 -5 -4 -12 -12 -17C-10 -10 -9 -4 -6 0C-9 4 -10 10 -12 17C-4 12 0 5 2 0Z';
+  return `<g class="cr"><g transform="translate(100 0) scale(-1 1)"><g transform="translate(50 52) scale(.9) translate(-50 -52)">` +
+    part(spine, prof, 0.01, flukes, `fill="${DARK}"`) + part(spine, prof, 0.47, dorsal, `fill="${DARK}"`) +
+    `<path d="${body}" fill="${COL}"/><path d="${belly}" fill="${WHITE}"/>` +
+    `<ellipse cx="38" cy="50" rx="7" ry="3.2" fill="${GREY}" transform="rotate(-6 38 50)"/>` +
+    part(spine, prof, 0.68, flip, `fill="${DARK}"`) +
+    `<ellipse cx="65" cy="39" rx="8.5" ry="4.5" fill="${WHITE}" transform="rotate(22 65 39)"/>` +
+    hl('M56 38Q63 31 74 30Q66 35 62 43Z', 0.3) +
+    `<g class="fc">` + eye(77, 47, 1.55) + cheek(70, 58, 1.1) + `<path d="M79 56Q85 61 91 56" fill="none" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/></g></g></g></g>`;
+};
+
+/* 12 — Narval · 1000 L */
 C.narval = () => {
   const COL = '#A9C6F2', DARK = '#7FA3DB', LIGHT = '#F2F8FF';
   const spine = [[12, 66], [26, 66], [44, 63], [62, 58], [76, 54], [84, 52]];
@@ -205,5 +258,65 @@ C.narval = () => {
     `<g class="fc">` + eye(77, 53, 1.35) + cheek(72, 62, 1.1) + `<path d="M81 62Q87 66 91 61" fill="none" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/></g></g></g>`;
 };
 
+/* 13 — Peixe-pescador · 1300 L */
+C['peixe-pescador'] = () => {
+  const COL = '#6A5BE0', DARK = '#4A3EB8', LIGHT = '#B8AEF6', GLOW = '#FFE066';
+  const cx = 47, cy = 57, rx = 31, ry = 27, at = (deg) => [cx + rx * Math.cos(deg * Math.PI / 180), cy + ry * Math.sin(deg * Math.PI / 180)];
+  const b1 = at(160), b2 = at(20);
+  const belly = `M${f(b1[0])} ${f(b1[1])}A${rx} ${ry} 0 0 0 ${f(b2[0])} ${f(b2[1])}Q${cx} 73 ${f(b1[0])} ${f(b1[1])}Z`;
+  // dentes em cima do sorriso: pontos da curva M49 60 Q64 74 78 58
+  const q = (t) => [(1 - t) * (1 - t) * 49 + 2 * (1 - t) * t * 64 + t * t * 78, (1 - t) * (1 - t) * 60 + 2 * (1 - t) * t * 74 + t * t * 58];
+  const fangs = [0.36, 0.58, 0.8].map((t) => { const p = q(t); return `<polygon points="${f(p[0] - 2.4)},${f(p[1] + 0.6)} ${f(p[0] + 2.4)},${f(p[1] + 0.6)} ${f(p[0] + 0.3)},${f(p[1] - 6)}" fill="#fff"/>`; }).join('');
+  const dots = [[30, 47, 1.9], [39, 40, 1.5], [24, 56, 1.4], [46, 36, 1.2], [33, 57, 1.2]].map((d) => `<circle cx="${d[0]}" cy="${d[1]}" r="${d[2]}" fill="${LIGHT}" opacity=".85"/>`).join('');
+  return `<g class="cr"><g transform="translate(50 54) scale(.95) translate(-50 -54)">` +
+    `<path d="M24 57C16 49 10 44 5 42C8 52 8 62 5 72C10 70 17 66 24 60Z" fill="${DARK}"/>` +
+    `<path d="M30 36C27 27 31 20 38 20C37 25 38 31 42 35Z" fill="${DARK}"/>` +
+    `<path d="M58 34C58 15 76 9 84 21" fill="none" stroke="${DARK}" stroke-width="2.6" stroke-linecap="round"/>` +
+    `<circle class="bb" cx="84" cy="23" r="11.5" fill="#FFF3B0" opacity=".6"/><circle cx="84" cy="23" r="6.6" fill="${GLOW}"/><circle class="hl" cx="82.2" cy="21.2" r="2.1" fill="#fff" opacity=".9"/>` +
+    `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${COL}"/><path d="${belly}" fill="${LIGHT}" opacity=".55"/>` + dots +
+    `<path d="M38 63C30 62 26 68 28 75C34 75 40 71 42 65Z" fill="${DARK}"/>` +
+    hl('M24 50Q27 38 38 33Q31 41 31 55Z', 0.4) +
+    `<path d="M49 60Q64 74 78 58" fill="none" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>` + fangs +
+    `<g class="fc">` + eye(63, 45, 1.5) + cheek(51, 53, 1.15) + `</g></g></g>`;
+};
+
+/* 14 — Lula-gigante · 1600 L */
+C['lula-gigante'] = () => {
+  const COL = '#EF5B6E', DARK = '#CC3F59', LIGHT = '#FFC2CB';
+  const mantle = 'M50 4C61 12 69 27 69 42C69 52 61 59 50 59C39 59 31 52 31 42C31 27 39 12 50 4Z';
+  const fin = (k) => k ? 'M55 8C64 11 72 18 76 28C68 31 61 30 57 26Z' : 'M45 8C36 11 28 18 24 28C32 31 39 30 43 26Z';
+  const mir = (s) => s.map((p) => [100 - p[0], p[1]]);
+  const arms = [[[54, 56], [55, 68], [53, 80], [57, 89]], [[59, 55], [63, 66], [63, 77], [59, 85]], [[64, 52], [71, 61], [73, 71], [69, 79]]];
+  const tents = [[[46, 57], [41, 70], [47, 83], [43, 96]]];
+  const aw = [[0, 10], [0.5, 6.4], [1, 2.4]];
+  let t = '';
+  tents.concat(tents.map(mir)).forEach((s) => {
+    t += `<path d="${tube(s, [[0, 5], [0.8, 2.8], [1, 2.8]], 10)}" fill="${COL}"/><ellipse cx="${s[3][0] + (s[3][0] < 50 ? 0.6 : -0.6)}" cy="${s[3][1] - 3}" rx="3.2" ry="5.4" fill="${COL}"/>` +
+      `<circle cx="${s[3][0]}" cy="${s[3][1] - 5}" r="1" fill="${LIGHT}"/><circle cx="${s[3][0]}" cy="${s[3][1] - 1.6}" r="1" fill="${LIGHT}"/>`;
+  });
+  arms.concat(arms.map(mir)).forEach((s) => { t += `<path d="${tube(s, aw, 9)}" fill="${COL}"/>`; });
+  const spots = [[50, 18, 2], [44, 26, 1.6], [57, 25, 1.7], [50, 32, 1.5]].map((d) => `<circle cx="${d[0]}" cy="${d[1]}" r="${d[2]}" fill="${DARK}" opacity=".55"/>`).join('');
+  return `<g class="cr"><g transform="translate(50 52) scale(.93) translate(-50 -52)"><g transform="rotate(10 50 52)">` + t +
+    `<path d="${fin(0)}" fill="${DARK}"/><path d="${fin(1)}" fill="${DARK}"/>` +
+    `<path d="${mantle}" fill="${COL}"/>` + spots +
+    hl('M38 40C37 28 41 18 47 10C44 22 44 32 46 44Z', 0.5) +
+    `<g class="fc">` + eye(40.5, 43, 1.55) + eye(59.5, 43, 1.55) + cheek(34.5, 51, 1.05) + cheek(65.5, 51, 1.05) + smile(50, 49, 7, 1.15) + `</g></g></g></g>`;
+};
+
+/* 15 — Pérola · 2000 L (a concha do começo, de volta: agora aberta, com a pérola dentro) */
+C.perola = () => {
+  const COL = '#8F7BE0', DARK = '#6F5BC8', IN = '#D8CEF7', GOLD = '#FFD25E';
+  const { d, ridges } = fan(50, 72, 40, 7);
+  const star = (cx, cy, r) => `<polygon class="bb" points="${poly(cx, cy, [r, r * 0.3, r, r * 0.3, r, r * 0.3, r, r * 0.3], -90).map((q) => f(q[0]) + ',' + f(q[1])).join(' ')}" fill="${GOLD}"/>`;
+  return `<g class="cr"><path d="${d}" fill="${COL}"/><path d="${ridges}" fill="none" stroke="${DARK}" stroke-width="2" stroke-linecap="round" opacity=".55"/>` +
+    `<ellipse cx="50" cy="73" rx="38" ry="8.5" fill="${IN}"/>` +
+    `<circle cx="50" cy="62.5" r="20" fill="#FFF7FA"/><path d="M37.5 77.4A19.5 19.5 0 0 0 68.3 69.2Q52 76 37.5 77.4Z" fill="#EFD3E4"/>` +
+    hl('M33.5 55C34 48 39 43 46 42C41.5 46 39.5 51 40 58Z', 0.95) +
+    `<path d="M11 71C30 82 70 82 89 71C92 86 74 95 50 95C26 95 8 86 11 71Z" fill="${COL}"/>` +
+    `<path d="M14 75C32 85 68 85 86 75" fill="none" stroke="${DARK}" stroke-width="2" stroke-linecap="round" opacity=".5"/>` +
+    star(17, 25, 6.5) + star(82, 22, 5.5) + star(91, 50, 3.6) + star(9, 48, 3.2) +
+    front(50, 61, 14, 1.2) + `</g>`;
+};
+
 // ordem do recife (a mesma de INSIGNIAS em core.js)
-export const ORDER = ['concha', 'estrela', 'baiacu', 'tartaruga', 'cavalo', 'polvo', 'agua-viva', 'golfinho', 'baleia', 'narval'];
+export const ORDER = ['concha', 'estrela', 'baiacu', 'tartaruga', 'cavalo', 'polvo', 'agua-viva', 'golfinho', 'arraia-manta', 'baleia', 'orca', 'narval', 'peixe-pescador', 'lula-gigante', 'perola'];

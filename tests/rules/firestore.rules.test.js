@@ -90,7 +90,7 @@ describe('profiles: o perfil que os amigos veem', () => {
       ['campo a mais', prof({ peso: 70 })], ['sem nome', without(prof(), 'nm')], ['nome vazio', prof({ nm: '' })],
       ['nome com 81 letras', prof({ nm: 'a'.repeat(81) })], ['nome que não é texto', prof({ nm: 5 })], ['mascote vazio', prof({ mc: '' })],
       ['mascote enorme', prof({ mc: 'm'.repeat(17) })], ['ins não é lista', prof({ ins: 'concha' })],
-      ['ins com 13 itens', prof({ ins: Array.from({ length: 13 }, (_, i) => 'x' + i) })], ['pct 101', prof({ pct: 101 })],
+      ['ins com 25 itens', prof({ ins: Array.from({ length: 25 }, (_, i) => 'x' + i) })], ['pct 101', prof({ pct: 101 })],
       ['pct negativo', prof({ pct: -1 })], ['pct decimal', prof({ pct: 50.5 })], ['pct texto', prof({ pct: '50' })],
       ['met texto', prof({ met: 'sim' })], ['st negativo', prof({ st: -1 })], ['st gigante', prof({ st: 10000 })],
       ['st decimal', prof({ st: 1.5 })], ['dia inválido', prof({ day: 'hoje' })], ['sem sh', without(prof(), 'sh')],
@@ -106,17 +106,19 @@ describe('profiles: o perfil que os amigos veem', () => {
     const bad = [
       ['item número', prof({ ins: [5] })], ['item mapa', prof({ ins: [{ a: 1 }] })], ['item nulo', prof({ ins: [null] })],
       ['item booleano', prof({ ins: [true] })], ['item com 25 letras', prof({ ins: [big] })], ['item de 70 mil letras', prof({ ins: ['y'.repeat(70000)] })],
-      ['item ruim na última posição (12ª)', prof({ ins: Array.from({ length: 11 }, () => okId).concat([big]) })],
+      ['item ruim na última posição (24ª)', prof({ ins: Array.from({ length: 23 }, () => okId).concat([big]) })],
+      ['item ruim logo depois dos 12 primeiros (13º)', prof({ ins: Array.from({ length: 12 }, () => okId).concat([7]) })],
       ['item ruim no meio', prof({ ins: [okId, okId, okId, 7, okId] })], ['ins nulo', prof({ ins: null })],
     ];
     for (const [nome, d] of bad) await no(setDoc(doc(as(ANA), 'profiles', ANA), d), nome);
     await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ ins: [] })));
-    await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ ins: ['concha', 'estrela', 'baiacu', 'tartaruga', 'cavalo', 'polvo', 'agua-viva', 'golfinho', 'baleia', 'narval'] })));
+    await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ ins: ['concha', 'estrela', 'baiacu', 'tartaruga', 'cavalo', 'polvo', 'agua-viva', 'golfinho', 'arraia-manta', 'baleia', 'orca', 'narval', 'peixe-pescador', 'lula-gigante', 'perola'] }))); // as 15 da 1.4.0
     await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ ins: ['a'.repeat(24)] }))); // no limite
     await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ ins: ['insignia-nova-de-uma-versao-futura'.slice(0, 24)] }))); // um id que o servidor nunca viu: sem lista fixa
   });
-  test('aceita nome no limite (80, folga para acentos e emoji) e 12 insígnias', async () => {
+  test('aceita nome no limite (80, folga para acentos e emoji) e até 24 insígnias (hoje são 15)', async () => {
     await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ nm: 'a'.repeat(80), ins: Array.from({ length: 12 }, (_, i) => 'x' + i) })));
+    await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ ins: Array.from({ length: 24 }, (_, i) => 'x' + i) }))); // no limite
   });
   test('o apelido mais pesado que o app permite (20 emojis = 80 bytes) é aceito', async () => {
     await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ nm: '🐙'.repeat(20) })));

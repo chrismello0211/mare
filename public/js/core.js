@@ -29,8 +29,13 @@ export const ACTIVITY = {
 };
 
 // Insígnias: um bichinho do mar para cada marco de ÁGUA acumulada (a soma de água e água com gás de todos os dias; os outros líquidos
-// não entram). at = litros para desbloquear. A arte de cada uma está em art.js (mesmo id). e = emoji só para textos de compartilhar.
-// O ritmo foi pensado para quem bebe cerca de 2,5 L por dia: a 2ª sai em ~4 dias, o cavalo-marinho (100 L) em ~6 semanas e o narval em ~13 meses.
+// não entram). at = litros para desbloquear; a lista TEM que ficar em ordem crescente de at. A arte de cada uma está em art.js (mesmo id;
+// o desenho vem de scripts/art/creatures.mjs, rode "npm run art"). e = emoji só para textos de compartilhar (nada do Unicode 12 em diante).
+// O ritmo foi pensado para quem bebe cerca de 2,5 L de água por dia: a 2ª sai em ~4 dias, o cavalo-marinho (100 L) em ~6 semanas, o golfinho
+// (400 L) em ~5 meses, o narval (1.000 L) em ~13 meses e a pérola (2.000 L) em ~2 anos. Até os 400 L os intervalos crescem aos poucos; dali até
+// os 1.000 L há um bichinho a cada 150 L (~2 meses) e depois a cada 300 ou 400 L, para nunca haver um buraco longo sem novidade (1.4.0).
+// Os ids são guardados no aparelho, na nuvem e no perfil dos amigos: nunca renomeie nem tire um; só acrescente (e mantenha o id com até 16
+// letras, que é o limite do mascote nas regras do Firestore). Depois de mexer aqui, confira o limite de itens de "ins" em firestore.rules.
 export const INSIGNIAS = [
   { id: 'concha', n: 'Concha', e: '🐚', at: 0, cheer: 'Todo grande recife começa com uma conchinha.',
     fact: 'Toda concha cresce uma camadinha de cada vez, igualzinho à sua constância.' },
@@ -48,10 +53,20 @@ export const INSIGNIAS = [
     fact: 'Uma água-viva é feita de cerca de 95% de água. Quase como a gente!' },
   { id: 'golfinho', n: 'Golfinho', e: '🐬', at: 400, cheer: 'Que salto! Você virou referência de constância.',
     fact: 'Golfinhos dormem com metade do cérebro de cada vez, para continuar nadando e respirando.' },
+  { id: 'arraia-manta', n: 'Arraia-manta', e: '🐟', at: 550, cheer: 'Planando! Você já passou da metade do caminho até os mil litros.',
+    fact: 'A arraia-manta "voa" debaixo da água, batendo as nadadeiras como asas. Algumas chegam a 7 metros de ponta a ponta.' },
   { id: 'baleia', n: 'Baleia', e: '🐋', at: 700, cheer: 'Gigante! É muita água e muita dedicação.',
     fact: 'A baleia-azul é o maior animal que já existiu, maior até que qualquer dinossauro.' },
-  { id: 'narval', n: 'Narval', e: '🦄', at: 1000, cheer: 'Recife completo! Você é lenda da hidratação.',
+  { id: 'orca', n: 'Orca', e: '🐳', at: 850, cheer: 'Rainha dos mares! Força, esperteza e muita constância.',
+    fact: 'A orca é o maior golfinho do mundo. Ela vive em família, em grupos geralmente liderados pela fêmea mais velha.' },
+  { id: 'narval', n: 'Narval', e: '🦄', at: 1000, cheer: 'Mil litros! Você é lenda da hidratação.',
     fact: 'O "chifre" do narval é um dente que cresce em espiral e pode passar de 2 metros.' },
+  { id: 'peixe-pescador', n: 'Peixe-pescador', e: '🎣', at: 1300, cheer: 'Até no fundo do mar você brilha. Falta pouco para fechar o recife!',
+    fact: 'A luzinha na ponta da "vara de pescar" é acesa por bactérias que moram ali e vivem em parceria com o peixe.' },
+  { id: 'lula-gigante', n: 'Lula-gigante', e: '🦑', at: 1600, cheer: 'Lenda das profundezas! Seu recife está quase completo.',
+    fact: 'A lula-gigante tem olhos do tamanho de um prato, entre os maiores do reino animal. A lenda do Kraken pode ter nascido dela.' },
+  { id: 'perola', n: 'Pérola', e: '💎', at: 2000, cheer: 'Recife completo! De uma conchinha a uma pérola: foi gole a gole.',
+    fact: 'A pérola nasce quando um grãozinho entra na ostra e ela o cobre, camadinha por camadinha, durante anos. Paciência e constância, como as suas.' },
 ];
 
 /* ---------- datas (fuso local do aparelho) ---------- */

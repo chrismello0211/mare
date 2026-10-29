@@ -38,6 +38,10 @@ describe('arte das insígnias', () => {
     expect(svg).toContain('class="fc"'); // todo bichinho tem rostinho
     expect(svg).not.toMatch(/\sid=|<use|<defs|url\(#|clip-path|<image|<script|<style|<foreignObject|\bon\w+=|href=/i);
     expect(svg).not.toMatch(/NaN|undefined|Infinity|null/);
+    // toda forma declara a própria cor (fill): é nisso que a silhueta da insígnia bloqueada mexe ([fill] vira uma cor só),
+    // e uma forma sem fill ficaria preta e estragaria a silhueta
+    (svg.match(/<(?:path|circle|ellipse|polygon)\b[^>]*>/g) || []).forEach((tag) => { expect(tag, 'forma sem fill em ' + id).toMatch(/\sfill="/); });
+    expect(svg).not.toMatch(/<(?:rect|line|polyline|text)\b/); // só as formas que o CSS da silhueta e o teste de medalhão conhecem
     expect(svg).not.toMatch(/[^\x20-\x7E]/); // só ASCII: nada de caractere estranho dentro do desenho
     expect(svg.length).toBeLessThan(9000); // leve: o app inteiro carrega do cache, mas o art.js pesa em toda atualização
     // todo número de coordenada é finito e razoável (o quadro é 100×100; as peças podem sair um pouco)

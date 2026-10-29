@@ -18,7 +18,7 @@ import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inv
 import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs } from './account.js';
 import { createSheet, signinSheet, resetSheet, resetDoneSheet, deleteSheet } from './account-view.js';
 
-export const APP_VERSION = '1.3.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.4.0'; // aumente a cada deploy, junto com VERSION no sw.js
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'friends', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;

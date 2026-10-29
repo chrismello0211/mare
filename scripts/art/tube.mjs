@@ -49,6 +49,7 @@ function smoothPath(pts, move) {
 }
 // spine: pontos de controle; prof: [[t, largura], ...] com t de 0 a 1; n: estações.
 // opt: { a, b, t0, t1 }: faixa entre as frações a e b da meia-largura (1 = lado +N, -1 = lado -N) e trecho t0..t1 da linha.
+// a e b podem ser uma função de t (0..1) para a faixa afinar numa ponta (como a barriga branca da orca).
 export function tube(spine, prof, n, opt) {
   n = n || 18;
   opt = opt || {};
@@ -61,9 +62,9 @@ export function tube(spine, prof, n, opt) {
     const p = all[k], p0 = all[Math.max(0, k - 1)], p1 = all[Math.min(200, k + 1)];
     let tx = p1[0] - p0[0], ty = p1[1] - p0[1];
     const m = Math.hypot(tx, ty) || 1; tx /= m; ty /= m;
-    const w = widthAt(prof, t) / 2;
-    A.push([p[0] + -ty * w * a, p[1] + tx * w * a]);
-    B.push([p[0] + -ty * w * b, p[1] + tx * w * b]);
+    const w = widthAt(prof, t) / 2, ka = typeof a === 'function' ? a(t) : a, kb = typeof b === 'function' ? b(t) : b;
+    A.push([p[0] + -ty * w * ka, p[1] + tx * w * ka]);
+    B.push([p[0] + -ty * w * kb, p[1] + tx * w * kb]);
   }
   const w0 = widthAt(prof, t0) / 2, w1 = widthAt(prof, t1) / 2;
   let d = smoothPath(A, true);

@@ -87,14 +87,18 @@ service cloud.firestore {
     function areFriends(a, b) {
       return exists(pairPath(a, b)) && get(pairPath(a, b)).data.st == 'active';
     }
-    // Cada item de "ins" é um texto curto (o app guarda ids como "agua-viva"). Sem listar os ids aqui: insígnia nova não exige regra nova.
+    // Cada item de "ins" é um texto curto (o app guarda ids como "agua-viva"). Sem listar os ids aqui: insígnia nova não exige regra nova,
+    // até 24 insígnias na lista (o app tem 15 desde a 1.4.0). Se um dia passar de 24: some mais um insAt, aumente o limite e o teste em
+    // tests/rules/firestore.rules.test.js.
     function insAt(l, i) {
       return l.size() <= i || (l[i] is string && l[i].size() <= 24);
     }
     function insOk(l) {
-      return l is list && l.size() <= 12
+      return l is list && l.size() <= 24
         && insAt(l, 0) && insAt(l, 1) && insAt(l, 2) && insAt(l, 3) && insAt(l, 4) && insAt(l, 5)
-        && insAt(l, 6) && insAt(l, 7) && insAt(l, 8) && insAt(l, 9) && insAt(l, 10) && insAt(l, 11);
+        && insAt(l, 6) && insAt(l, 7) && insAt(l, 8) && insAt(l, 9) && insAt(l, 10) && insAt(l, 11)
+        && insAt(l, 12) && insAt(l, 13) && insAt(l, 14) && insAt(l, 15) && insAt(l, 16) && insAt(l, 17)
+        && insAt(l, 18) && insAt(l, 19) && insAt(l, 20) && insAt(l, 21) && insAt(l, 22) && insAt(l, 23);
     }
     function validProfile(d) {
       return d.keys().hasOnly(['v', 'nm', 'mc', 'ins', 'pct', 'met', 'st', 'day', 'sh', 'gl', 'wm'])

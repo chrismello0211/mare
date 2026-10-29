@@ -769,9 +769,9 @@ test.describe('painéis', () => {
     await expect(sheet(page).locator('.wk-row .dt')).toHaveCount(7);
     await expect(sheet(page).locator('.wk-row .dt.on')).toHaveCount(5);
     await expect(sheet(page).locator('.wk-row small')).toHaveCount(7); // a letra do dia da semana embaixo de cada bolinha
-    await expect(sheet(page)).toContainText('2 de 10');
-    await expect(sheet(page).locator('.reef .rf')).toHaveCount(10);
-    await expect(sheet(page).locator('.reef .rf.off')).toHaveCount(8);
+    await expect(sheet(page)).toContainText('2 de 15');
+    await expect(sheet(page).locator('.reef .rf')).toHaveCount(15);
+    await expect(sheet(page).locator('.reef .rf.off')).toHaveCount(13);
     await expect(sheet(page)).not.toContainText('Remover'); // a turma é uma só: não dá para tirar uma pessoa só
     await page.evaluate((u) => window.__fake.person(u, { pct: 80 }), UID.caio); // ele bebeu mais com o painel aberto
     await expect(sheet(page)).toContainText('80% da meta de hoje');

@@ -84,17 +84,31 @@ test('ajustes: onças e tema escuro', async ({ page }) => {
 /* ---------- insígnias (bichinhos do mar) ---------- */
 const sheetOf = (page) => page.locator('#sheetBody');
 const stored = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('mare:v1')));
+// Geometria de cada medalhão do recife (a arte tem que caber no quadro 100×100; bloqueada vira uma cor só; conquistada tem cor e rostinho)
+const reefGeo = (page) => page.evaluate(() => [].slice.call(document.querySelectorAll('.reef .rf')).map((rf) => {
+  const g = rf.querySelector('svg > g.cr'), b = g.getBBox(), lock = rf.classList.contains('off');
+  const fills = [].slice.call(g.querySelectorAll('[fill]:not([fill="none"])')).map((e) => getComputedStyle(e).fill);
+  return { name: rf.querySelector('b').textContent, x: b.x, y: b.y, r: b.x + b.width, bt: b.y + b.height, lock: lock, fills: fills.filter((f, i, a) => a.indexOf(f) === i).length,
+    face: getComputedStyle(g.querySelector('.fc')).display };
+}));
+const checkGeo = (x) => {
+  expect(x.x, x.name + ' passa da esquerda').toBeGreaterThanOrEqual(-1);
+  expect(x.y, x.name + ' passa do topo').toBeGreaterThanOrEqual(-1);
+  expect(x.r, x.name + ' passa da direita').toBeLessThanOrEqual(101);
+  expect(x.bt, x.name + ' passa da base').toBeLessThanOrEqual(101);
+  if (x.lock) { expect(x.fills, x.name + ' bloqueada tem uma cor só').toBe(1); expect(x.face).toBe('none'); } else { expect(x.fills, x.name).toBeGreaterThan(1); expect(x.face).not.toBe('none'); }
+};
 
 test('jornada: insígnia atual, recife com silhuetas e o painel de cada bichinho', async ({ page }) => {
   await seed(page, { history: [26, 2500], insignias: { concha: 30, estrela: 20, baiacu: 10, tartaruga: 3 } }); // 65 L de água
   await page.goto('/');
   await tab(page, 'Jornada').click();
   await expect(page.locator('.level .lv-n')).toHaveText('Tartaruga-marinha');
-  await expect(page.locator('.level .lv-k')).toHaveText('Insígnia 4 de 10');
+  await expect(page.locator('.level .lv-k')).toHaveText('Insígnia 4 de 15');
   await expect(page.locator('.level .lv-s')).toContainText('Faltam 35 L para Cavalo-marinho');
   await expect(page.locator('.level .lv-s')).toContainText('65 L de água');
-  await expect(page.locator('.reef .rf')).toHaveCount(10);
-  await expect(page.locator('.reef .rf.off')).toHaveCount(6);
+  await expect(page.locator('.reef .rf')).toHaveCount(15);
+  await expect(page.locator('.reef .rf.off')).toHaveCount(11);
   // bloqueada: o nome aparece, o bichinho é uma silhueta e a curiosidade fica escondida
   await page.getByRole('button', { name: /^Cavalo-marinho, bloqueada, desbloqueia com 100 L/ }).click();
   const sheet = sheetOf(page);
@@ -198,7 +212,7 @@ test('quem já usava o Maré ganha as insígnias de uma vez e só a mais alta é
   await page.locator('#tTips').getByRole('button', { name: 'Ver as novidades' }).click();
   await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Novidades do Maré');
   await expect(sheetOf(page)).toContainText('Insígnias do mar');
-  await expect(sheetOf(page)).toContainText('Você já tem 4 de 10');
+  await expect(sheetOf(page)).toContainText('Você já tem 4 de 15');
   await sheetOf(page).getByRole('button', { name: 'Depois' }).click();
   await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
 });
@@ -251,20 +265,43 @@ test('insígnias: a arte cabe no medalhão e a silhueta da bloqueada funciona', 
   await seed(page, { history: [30, 2500], insignias: { concha: 90, estrela: 80, baiacu: 70, tartaruga: 60, cavalo: 50 } }); // 75 L
   await page.goto('/');
   await tab(page, 'Jornada').click();
-  const geo = await page.evaluate(() => [].slice.call(document.querySelectorAll('.reef .rf')).map((rf) => {
-    const g = rf.querySelector('svg > g.cr'), b = g.getBBox(), lock = rf.classList.contains('off');
-    const fills = [].slice.call(g.querySelectorAll('[fill]:not([fill="none"])')).map((e) => getComputedStyle(e).fill);
-    return { name: rf.querySelector('b').textContent, x: b.x, y: b.y, r: b.x + b.width, bt: b.y + b.height, lock: lock, fills: fills.filter((f, i, a) => a.indexOf(f) === i).length,
-      face: getComputedStyle(g.querySelector('.fc')).display };
-  }));
-  expect(geo.length).toBe(10);
-  geo.forEach((x) => {
-    expect(x.x, x.name + ' passa da esquerda').toBeGreaterThanOrEqual(-1);
-    expect(x.y, x.name + ' passa do topo').toBeGreaterThanOrEqual(-1);
-    expect(x.r, x.name + ' passa da direita').toBeLessThanOrEqual(101);
-    expect(x.bt, x.name + ' passa da base').toBeLessThanOrEqual(101);
-    if (x.lock) { expect(x.fills, x.name + ' bloqueada tem uma cor só').toBe(1); expect(x.face).toBe('none'); } else { expect(x.fills, x.name).toBeGreaterThan(1); expect(x.face).not.toBe('none'); }
-  });
+  const geo = await reefGeo(page);
+  expect(geo.length).toBe(15);
+  expect(geo.filter((x) => x.lock).length).toBe(10); // as dez de cima (do polvo à pérola) ainda são silhueta
+  geo.forEach(checkGeo);
+});
+
+test('recife completo: a pérola fecha a escada, nada fica bloqueado e toda a arte, colorida, cabe no medalhão', async ({ page }) => {
+  await seed(page, { history: [840, 2500], medals: true }); // 2.100 L e nenhuma insígnia guardada: tudo é concedido de uma vez
+  await page.goto('/');
+  await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Nova insígnia!', { timeout: 9000 });
+  await expect(sheetOf(page).locator('.ins-n')).toHaveText('Pérola'); // só a mais alta é comemorada
+  await expect(sheetOf(page)).toContainText('Recife completo!');
+  await expect(sheetOf(page)).toContainText('A pérola nasce quando um grãozinho entra na ostra');
+  await sheetOf(page).getByRole('button', { name: 'Ver meu recife' }).click();
+  await expect(page.locator('#sheet')).toBeHidden();
+  const st = await stored(page);
+  expect(Object.keys(st.insignias).length).toBe(15);
+  await expect(page.locator('.level .lv-n')).toHaveText('Pérola');
+  await expect(page.locator('.level .lv-k')).toHaveText('Insígnia 15 de 15');
+  await expect(page.locator('.level .lv-s')).toContainText('Você completou o recife!');
+  await expect(page.locator('.level .lv-s')).toContainText('2.100 L de água');
+  await expect(page.locator('.level .bar')).toHaveAttribute('aria-label', 'Recife completo');
+  await expect(page.locator('.card-h.out', { hasText: 'Seu recife' }).locator('small')).toHaveText('15 de 15');
+  await expect(page.locator('.reef .rf')).toHaveCount(15);
+  await expect(page.locator('.reef .rf.off')).toHaveCount(0);
+  await expect(page.locator('.rf.cur')).toContainText('Pérola');
+  const geo = await reefGeo(page);
+  expect(geo.length).toBe(15);
+  geo.forEach(checkGeo); // com tudo colorido: cada bichinho tem mais de uma cor, rostinho e fica dentro do quadro
+  // o painel de cada uma das cinco novas mostra a curiosidade
+  for (const [nome, trecho] of [['Arraia-manta', 'voa'], ['Orca', 'maior golfinho'], ['Peixe-pescador', 'bactérias'], ['Lula-gigante', 'olhos do tamanho de um prato'], ['Pérola', 'grãozinho']]) {
+    await page.getByRole('button', { name: new RegExp('^' + nome + ', conquistada em') }).click();
+    await expect(sheetOf(page).locator('#sheetTitle')).toHaveText(nome);
+    await expect(sheetOf(page).locator('.fact')).toContainText(trecho);
+    await sheetOf(page).locator('.btns').getByRole('button', { name: /Fechar|É o seu mascote/ }).click();
+    await expect(page.locator('#sheet')).toBeHidden();
+  }
 });
 
 test('voltar do Android fecha o painel e depois volta para Hoje', async ({ page }) => {

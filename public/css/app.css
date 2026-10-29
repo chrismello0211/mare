@@ -428,7 +428,7 @@ body.no-tabs .wrap { padding-bottom: 20px; padding-bottom: calc(20px + env(safe-
 .bdg.lock .hl, .bdg.lock .fc, .bdg.lock .bb, .bdg.s .bb { display: none; }
 /* o medalhão sobre o card azul da Jornada precisa de um anel mais claro */
 .level .bdg { --ring: rgba(255,255,255,.9); }
-/* "Seu recife": as 10 insígnias */
+/* "Seu recife": todas as insígnias, 5 por linha (4 em tela estreita); com 15 são 3 linhas cheias */
 .reef { display: grid; grid-template-columns: repeat(5, 1fr); grid-gap: 14px 6px; gap: 14px 6px; margin-bottom: 14px; padding: 18px 10px 14px; border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow); }
 .rf { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 0; text-align: center; }
 .rf .bdg { font-size: 46px; transition: transform .15s; }

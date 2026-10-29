@@ -7,7 +7,7 @@ Regras que valem para as três:
 - **Nenhuma apaga contas nem registros.** As que gravam algo (`attach-email` e `migrate-days`) só gravam com `--apply`; sem ele, mostram o que fariam e o comando exato para gravar.
 - **Para gravar, só vale o uid inteiro** (o da prévia). Apelido e começo do uid servem para olhar, nunca para gravar: eles podem apontar para outra conta.
 - Senhas nunca são lidas, mostradas nem guardadas. E-mails saem mascarados (`ma***@gmail.com`), exceto o que você mesmo digitou na prévia.
-- Foram testadas contra o emulador do Firestore e um Auth de mentira, **nunca contra o projeto de verdade**. A primeira vez no projeto real é sempre a prévia (que só lê).
+- Foram testadas contra o emulador do Firestore e um Auth de mentira, e passaram a ser usadas no projeto de verdade em 29/10/2026 (o caso da Marianne: `inspect`, `migrate-days`, `attach-email`; a troca de e-mail do plano C é uma linha avulsa, sem teste). Em qualquer conta, a primeira vez é sempre a prévia (que só lê).
 
 Preparo (uma vez, e depois de cada `git pull` que mude `functions/package.json`):
 
@@ -22,7 +22,8 @@ Apelido com espaço precisa de aspas: `"Mari Souza"`.
 
 1. Sempre comece com o **`inspect`**: ele mostra quem é quem e o uid de cada conta.
 2. A pessoa **nunca criou conta** e perdeu o celular (o caso mais comum): **`attach-email`**. Ela volta com a mesma conta: registros, amigos e turma.
-3. A pessoa **já criou uma conta nova** no aparelho novo (o e-mail já está em uso): **`migrate-days`**. Copia os registros da conta antiga para a nova; amigos e turma ela refaz pelo código do convite.
+3. A pessoa **já criou uma conta nova** no aparelho novo (o e-mail já está em uso) e a conta nova **ainda não tem amigos**: o **plano C** (seção 4), que devolve o e-mail à conta antiga. Ela volta com a mesma conta: registros, amigos e turma, sem deixar ninguém "fantasma" na turma.
+4. A pessoa já criou a conta nova **e já tem amigos nela**, ou o plano C não deu certo: **`migrate-days`** (o plano B, seção 3). Copia os registros da conta antiga para a nova; amigos e turma ela refaz pelo código do convite. **Atenção:** a conta antiga continua como membro da turma e ninguém consegue tirá-la de lá ("Sair da turma" só existe no aparelho dono dela); os amigos veem duas pessoas com o mesmo apelido até o administrador resolver.
 
 ## 1. `inspect.mjs`: quem é quem
 
@@ -84,6 +85,24 @@ Copia os dias que faltam, **junta** os dias que os dois lados têm (une os regis
 Segurança: um dia que o destino ainda não tinha só é criado se continuar inexistente na hora de gravar; um dia juntado só é alterado se continuar como a prévia o leu. Se a pessoa registrar algo no meio da cópia, o comando para com a mensagem "O destino mudou durante a cópia" e **é seguro repetir**: ele recalcula e continua de onde parou. Rodar de novo depois de terminar não grava nada.
 
 **Não copia** amigos nem a turma (a pessoa os refaz pelo código do convite) e **não apaga** nada na origem. Peça para a pessoa **fechar o Maré de vez** (tirar da lista de aplicativos abertos) e abrir de novo **sem registrar nada antes**: os registros chegam sozinhos na abertura.
+
+## 4. Plano C: devolver o e-mail à conta antiga (a pessoa já criou conta nova)
+
+Foi o caminho que funcionou no caso real (a recuperação da Marianne, 23 a 29/10/2026). Vale quando a **conta nova ainda não tem amigos** (ou quase nada): em vez de copiar os registros para a nova (plano B), o e-mail sai da conta nova e vai para a **antiga**, e a pessoa volta com ela inteira, amigos e turma incluídos. **Ordem importa:**
+
+1. **A pessoa sai da conta nova** no celular novo: Ajustes → Conta → **Sair da conta**. O aparelho volta à tela de boas-vindas. (Se o e-mail da conta nova for trocado **com o app aberto** nela, o app mostra "Sua conta saiu deste aparelho" e o botão "Entrar de novo" só aceita o e-mail daquela conta: aí ela precisa de **Ajustes → Apagar tudo** e depois **Entrar na conta**, que é o que a própria mensagem do app diz. Por isso este passo vem primeiro.)
+2. **Copiar os dias da conta nova para a antiga** (a **origem é a nova** e o **destino é a antiga**, ao contrário do plano B): `node scripts/admin/migrate-days.mjs <uid da nova> <uid da antiga>` (prévia) e depois com `--apply` e os uids inteiros. A antiga precisa ter login (conta anônima serve).
+3. **Liberar o e-mail:** renomear a conta nova para um endereço de mentira que nunca receberá nada (`descartada-…@mare.invalid`; `.invalid` é um domínio reservado que não existe). É uma linha em cima do Admin SDK, **sem teste automático** (não é uma ferramenta do repositório; troque o uid pelo da conta nova, inteiro, e o texto depois de `descartada-` por qualquer coisa):
+
+   ```bash
+   node -e "import('./scripts/admin/lib.mjs').then(async m=>{const c=m.connect();const u=await c.auth.updateUser('<uid inteiro da conta nova>',{email:'descartada-qualquer-coisa@mare.invalid'});console.log('ok',u.uid,m.maskEmail(u.email))}).catch(e=>console.error('erro',e.code||e))"
+   ```
+
+   Para desfazer, a mesma linha com o e-mail anterior. A conta nova **não é apagada**: sobra no Firebase só com o endereço de mentira (apagar é com o dono, pelo console de Authentication, e é permanente).
+4. **Ligar o e-mail à conta antiga:** `node scripts/admin/attach-email.mjs <uid da antiga> <e-mail da pessoa>` (prévia) e depois **`--apply --forget-devices`** (tira os avisos push do celular quebrado e confere que o Firebase gera o link de senha).
+5. **A pessoa**, no celular: **Entrar na conta → Esqueci a senha → Enviar o link**, criar a senha pelo e-mail (olhar o **spam**), voltar ao Maré → **Já criei a senha, entrar**. Se o e-mail não chegar em 5 minutos, o plano de reserva é repetir o passo 4 com `--with-temp-password` (senha aleatória que ninguém conhece; ela continua definindo a dela pelo link).
+
+Depois de entrar, conferir com `node scripts/admin/inspect.mjs --friends --name <apelido>`: a conta antiga aparece com login "e-mail e senha", os dias e os amigos de volta.
 
 ## O que não volta (nenhuma das duas)
 
