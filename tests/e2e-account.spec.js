@@ -109,13 +109,13 @@ test.describe('sem conta', () => {
     await expect(page.getByRole('button', { name: 'Apagar', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Excluir', exact: true })).toHaveCount(0);
     await expect(page.locator('.about')).toContainText('a cópia na nuvem só volta com uma conta'); // sem conta, a cópia na nuvem não ajuda quem perde o aparelho
-    await expect(page.locator('.about')).toContainText('v1.4.0');
+    await expect(page.locator('.about')).toContainText('v1.5.0');
   });
 
   test('a dica da conta vem primeiro, só a partir do segundo dia; dispensar não tira o cartão de Ajustes', async ({ page }) => {
     // um dia só: ainda não há o que perder
     await stubFriendsCloud(page);
-    await seed(page, { todayMl: 500, ui: { tip_account: 0, tip_news12: 0 } });
+    await seed(page, { todayMl: 500, ui: { tip_account: 0, tip_news15: 0 } });
     await page.goto('/');
     await expect(page.locator('.tip')).toContainText('Novidades no Maré');
     await page.evaluate(() => sessionStorage.clear());
@@ -123,7 +123,7 @@ test.describe('sem conta', () => {
     const p2 = await page.context().newPage();
     p2.on('pageerror', (e) => { errors.push(e.message); });
     await stubFriendsCloud(p2);
-    await seed(p2, { history: [2, 1500], todayMl: 500, ui: { tip_account: 0, tip_news12: 0 } });
+    await seed(p2, { history: [2, 1500], todayMl: 500, ui: { tip_account: 0, tip_news15: 0 } });
     await p2.goto('/');
     await expect(p2.locator('.tip')).toHaveCount(1);
     await expect(p2.locator('.tip')).toContainText('Proteja seus dados');
@@ -340,6 +340,7 @@ test.describe('entrar', () => {
     expect(s.social).toMatchObject({ on: true, nick: 'Mari', share: true });
     expect(Object.keys(s.days)).toHaveLength(5);
     expect(s.ui.tip_news12).toBe(1);
+    expect(s.ui.tip_news15).toBe(1); // quem chega pela conta não vê o cartão de novidades
     expect(await hint(page)).toEqual({ uid: MARI_UID, email: MARI, verified: true });
     expect((await acct(page)).user).toMatchObject({ uid: MARI_UID, email: MARI });
     await tabS(page).click();

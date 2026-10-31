@@ -6,14 +6,14 @@
 // Campos: #frNick (entrada), #frNickIn (data-field="nick", no perfil), #frCode (código de convite).
 // Princípios (guardados por tests/social.test.js): a turma é uma só e tem ranking (decisão do dono na 1.2.0); a meta em ml só aparece se a pessoa
 // deixar; nunca os litros bebidos nem os horários; textos sempre positivos (ninguém é "o último": quem não entra na conta fica numa lista à parte).
-import { INSIGNIAS, mascotOf, addDays, keyToDate } from './core.js';
+import { INSIGNIAS, ACHIEVEMENTS, mascotOf, addDays, keyToDate } from './core.js';
 import { S, SOC, ACCT, esc, plural, today, shortDate, vol } from './store.js';
 import { sheetHead } from './ui.js';
 import { notifStatus } from './platform.js';
 import { badge } from './art.js';
 import { btn, sbtn, sec, row, sw, seg, empty, att, shareIco, tip } from './kit.js';
 import { MAX_FRIENDS, NICK_MAX, WEEK, RANKS, rankId, rankBoard, podium, memberOf, myMember, weekOf, turma, turmaWeek, turmaStreak, fmtCode,
-  liveOf, statusText, waveFor, waveIn, WAVE_TEXT, myLive, ringOf, unseenWaves, firstNick, profilePayload, errText } from './social.js';
+  liveOf, statusText, waveFor, waveIn, WAVE_TEXT, myLive, ringOf, unseenWaves, firstNick, profilePayload, medalsShown, errText } from './social.js';
 
 /* ---------- peças ---------- */
 // Avatar: o mascote num medalhão com um anel de progresso em volta. ring = ringOf(...) ou null (sem anel). size em px.
@@ -236,13 +236,13 @@ function introView(ctx) {
     feat('🔒', 'Só entra quem aceita', 'Ninguém aparece para a turma sem aceitar um convite, e você sai quando quiser.') +
     feat('👋', 'Acenos e parabéns', 'Mande um incentivo para quem está se esforçando ou bateu a meta.') + '</ul>' +
     '<section class="card see"><div class="card-h"><h2>O que a turma vê</h2></div>' +
-    '<p class="see-k ok">Veem</p><p class="see-t">Seu apelido, seu mascote e suas insígnias (marcos, nunca o total de litros), a porcentagem da meta de hoje, sua sequência e quais dos últimos 7 dias você bateu a meta.</p>' +
+    '<p class="see-k ok">Veem</p><p class="see-t">Seu apelido, seu mascote e suas insígnias (marcos, nunca o total de litros), a porcentagem da meta de hoje, sua sequência, quais dos últimos 7 dias você bateu a meta e as medalhas que você conquistou.</p>' +
     '<p class="see-k">Só se você deixar</p><p class="see-t">A sua meta do dia em ml. Com ela e a porcentagem dá para estimar quanto você bebeu, por isso o Maré pergunta antes.</p>' +
     '<p class="see-k no">Nunca veem</p><p class="see-t">Os registros de cada gole, os horários, seu peso, sua localização e seu nome completo.</p></section>' +
     '<section class="card"><label class="lbl" for="frNick">Seu apelido</label><input class="in wide" id="frNick" type="text" maxlength="' + NICK_MAX +
     '" autocomplete="off" autocapitalize="words" enterkeyhint="done" placeholder="Como seus amigos te chamam?" value="' + esc(nick) + '">' +
     '<small class="fld-h">É o nome que aparece para seus amigos.</small>' +
-    '<div class="row nb">' + '<div class="row-l"><span>Mostrar meu progresso do dia</span><small>Porcentagem da meta, sequência e os últimos 7 dias. Desligado, seus amigos veem só o apelido e as insígnias.</small></div>' +
+    '<div class="row nb">' + '<div class="row-l"><span>Mostrar meu progresso do dia</span><small>Porcentagem da meta, sequência, os últimos 7 dias e as medalhas. Desligado, seus amigos veem só o apelido e as insígnias.</small></div>' +
     '<div class="row-c">' + sw('fr-share', share, 'Mostrar meu progresso do dia aos amigos') + '</div></div>' +
     '<div class="err" id="frErr" role="alert">' + (off ? errText('off') : '') + '</div>' +
     '<button class="btn block" type="button" id="frCta" data-action="fr-join">' + inv.cta + '</button>' + // sempre ativo: com a nuvem fora, tocar tenta subi-la de novo
@@ -260,6 +260,14 @@ function insTile(x, on, cur, pick) {
   }
   return '<div class="rf' + (on ? '' : ' off') + (cur ? ' cur' : '') + '"' + (on ? '' : ' aria-label="' + x.n + ', ainda bloqueada"') + '>' + b + cap + '</div>';
 }
+// As medalhas (as de hábito da Jornada, não as insígnias) de quem a turma vê, 1.5.0. Só as conquistadas, em fichas: a turma nunca vê a lista do que falta
+// a alguém. list = medalsShown(perfil): nula (versão antiga do app do amigo, ou progresso em pausa) ou vazia = o bloco nem aparece.
+function medalsBlock(list) {
+  if (!list || !list.length) return '';
+  return '<div class="card-h out"><h2>Medalhas</h2><small>' + list.length + ' de ' + ACHIEVEMENTS.length + '</small></div>' +
+    '<ul class="mchips" role="list">' + list.map((a) => '<li class="mchip" title="' + a.d + '"><span class="em" aria-hidden="true">' + a.e + '</span>' + a.t +
+      '<span class="sr">: ' + a.d + '</span></li>').join('') + '</ul>';
+}
 export function friendSheet(uid) {
   const f = SOC.st.friends.filter((x) => x.uid === uid)[0];
   if (!f) return '';
@@ -273,26 +281,28 @@ export function friendSheet(uid) {
     (w.known ? '<div class="card-h out"><h2>Últimos 7 dias</h2><small>' + w.n + ' de ' + WEEK + ' na meta</small></div>' + weekStrip(w, t) : '') +
     '<div class="card-h out"><h2>Insígnias</h2><small>' + f.ins.length + ' de ' + INSIGNIAS.length + '</small></div>' +
     '<div class="reef mini">' + INSIGNIAS.map((x) => insTile(x, !!got[x.id], x.id === f.mc, false)).join('') + '</div>' +
+    medalsBlock(medalsShown(f)) +
     (f.since ? '<p class="note center">Na turma desde ' + shortDate(f.since) + '</p>' : '') +
     '<div class="btns stk"><button class="btn' + (wv.done ? ' ghost' : '') + '" type="button" data-action="fr-wave" data-id="' + f.uid + '"' + (wv.done ? ' disabled' : '') + '>' + wLabel + '</button>' +
     btn('close-sheet', 'Fechar', 'ghost') + '</div></div>';
 }
 // "Meu perfil": como os amigos me veem. Troca de mascote, apelido e as chaves de privacidade ficam aqui.
 export function profileSheet() {
-  const sc = mine(), t = today(), l = liveOf(profilePayload(S, t), t), mas = mascotOf(S), got = S.insignias || {}, me = myMember(S, t);
+  const sc = mine(), t = today(), pp = profilePayload(S, t), l = liveOf(pp, t), mas = mascotOf(S), got = S.insignias || {}, me = myMember(S, t);
   const goalNote = sc.goal === true ? 'Seus amigos veem a meta do dia ao lado da porcentagem. Dá para estimar quanto você bebeu.' : 'Desligado: seus amigos não veem a sua meta em ml.';
   return sheetHead('Meu perfil') + '<div class="fs"><div class="fs-av">' + avatar(mas.id, 104, ringOf(l)) + '</div>' +
     '<p class="fs-nm" id="frNm">' + esc(sc.nick || 'Amigo') + '</p><p class="fs-s ' + l.kind + '">' + statusText(l) + '</p>' +
     (me.week.known ? weekStrip(me.week, t) : '') +
     '<label class="lbl lft" for="frNickIn">Apelido</label><input class="in wide" id="frNickIn" type="text" data-field="nick" maxlength="' + NICK_MAX +
     '" autocomplete="off" autocapitalize="words" enterkeyhint="done" value="' + esc(sc.nick) + '" aria-label="Apelido que seus amigos veem">' +
-    '<div class="row nb lft"><div class="row-l"><span>Mostrar meu progresso do dia</span><small>Porcentagem da meta, sequência e os últimos 7 dias.</small></div><div class="row-c">' +
+    '<div class="row nb lft"><div class="row-l"><span>Mostrar meu progresso do dia</span><small>Porcentagem da meta, sequência, os últimos 7 dias e as medalhas.</small></div><div class="row-c">' +
     sw('fr-share', sc.share !== false, 'Mostrar meu progresso do dia aos amigos') + '</div></div>' +
     '<div class="row nb lft"><div class="row-l"><span>Mostrar minha meta em ml</span><small>' + goalNote + '</small></div><div class="row-c">' +
     sw('fr-goal', sc.goal === true, 'Mostrar minha meta em ml aos amigos') + '</div></div>' +
     '<div class="card-h out"><h2>Meu mascote</h2><small>toque para trocar</small></div>' +
     '<div class="reef mini">' + INSIGNIAS.map((x) => insTile(x, !!got[x.id], x.id === mas.id, true)).join('') + '</div>' +
-    '<p class="note center">Sua turma vê seu mascote, as insígnias que você conquistou' + (sc.share !== false ? ', a porcentagem da meta de hoje, a sequência e quais dos últimos 7 dias você bateu a meta' : '') +
+    medalsBlock(medalsShown(pp)) + // com o progresso em pausa o perfil não leva medalhas (md nulo): o bloco some, como some para os amigos
+    '<p class="note center">Sua turma vê seu mascote, as insígnias que você conquistou' + (sc.share !== false ? ', as medalhas, a porcentagem da meta de hoje, a sequência e quais dos últimos 7 dias você bateu a meta' : '') +
     (sc.goal === true && sc.share !== false ? ' e a sua meta em ml' : '') + '. Nunca os registros de cada gole.</p><div class="btns stk">' + btn('close-sheet', 'Fechar', 'ghost') + '</div></div>';
 }
 // "Inserir código": d = { raw, who, err }. who = { code, uid, nm, mc } depois que o código foi encontrado.
@@ -315,7 +325,8 @@ export function aboutSheet() {
   return sheetHead('Como funciona a privacidade') +
     '<p class="sheet-text">Os amigos do Maré formam uma turma só: quem entra vê todo mundo e todo mundo vê quem entra, com um ranking para animar. Você decide quando entrar e o que aparece de você.</p>' +
     '<p class="see-k ok">A turma vê</p><ul class="bul">' + li('seu apelido, seu mascote e suas insígnias (marcos, como ter passado de 100 litros, nunca o seu total)') +
-    li('a porcentagem da meta de hoje que você fez, sua sequência e quais dos últimos 7 dias você bateu a meta (se você deixar o progresso ligado)') + '</ul>' +
+    li('a porcentagem da meta de hoje que você fez, sua sequência e quais dos últimos 7 dias você bateu a meta (se você deixar o progresso ligado)') +
+    li('as medalhas que você conquistou, como a Semana fluida (também só se você deixar o progresso ligado; nunca o dia nem a hora em que cada uma veio)') + '</ul>' +
     '<p class="see-k">Só se você deixar</p><ul class="bul">' + li('a sua meta do dia em ml. Com ela e a porcentagem dá para estimar quanto você bebeu; por isso fica desligada até você escolher, e dá para mudar em Ajustes a qualquer hora') + '</ul>' +
     '<p class="see-k no">Ninguém vê</p><ul class="bul">' + li('os registros de cada gole nem os horários') + li('seu peso e a unidade que você usa') +
     li('sua localização') + li('seu nome completo (só o apelido)') + '</ul>' +
@@ -375,7 +386,7 @@ export function settingsFriendsHTML() {
   if (!sc.on) return sec('Amigos') + '<div class="group">' + row('Amigos', 'Forme uma turma com quem você gosta e acompanhem o dia uns dos outros.', sbtn('fr-intro', 'Conhecer')) + '</div>';
   return sec('Amigos') + '<div class="group">' +
     row('Meu perfil público', esc(sc.nick || 'Amigo') + ' · o que seus amigos veem', sbtn('fr-profile', 'Abrir')) +
-    row('Mostrar meu progresso do dia', 'Porcentagem da meta, sequência e os últimos 7 dias. Desligado, seus amigos veem só o apelido e as insígnias.',
+    row('Mostrar meu progresso do dia', 'Porcentagem da meta, sequência, os últimos 7 dias e as medalhas. Desligado, seus amigos veem só o apelido e as insígnias.',
       sw('fr-share', sc.share !== false, 'Mostrar meu progresso do dia aos amigos')) +
     row('Mostrar minha meta em ml', 'Seus amigos veem a meta do dia ao lado da porcentagem. Dá para estimar quanto você bebeu.',
       sw('fr-goal', sc.goal === true, 'Mostrar minha meta em ml aos amigos')) +

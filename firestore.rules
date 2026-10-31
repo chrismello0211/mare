@@ -52,7 +52,8 @@ service cloud.firestore {
 
     /* ---------- amigos (1.1.0) ----------
        profiles/{uid}      perfil que os AMIGOS veem: nome escolhido, mascote, insígnias, % da meta de hoje, sequência, quais dos
-                           últimos 7 dias bateram a meta ("wm", 7 bits) e, SÓ se a pessoa deixar, a meta do dia em ml ("gl").
+                           últimos 7 dias bateram a meta ("wm", 7 bits), quais medalhas a pessoa tem ("md", uma máscara de até 24
+                           bits, na ordem de ACHIEVEMENTS em public/js/core.js; 1.5.0) e, SÓ se a pessoa deixar, a meta do dia em ml ("gl").
                            Só o dono escreve; só o dono e amigos aprovados leem. Sem volumes bebidos, peso, localização e
                            sem horários: nenhum documento público leva carimbo de hora (nem "u"), para quem tem o convite ou é
                            amigo não ficar sabendo quando a pessoa abre o app.
@@ -101,13 +102,14 @@ service cloud.firestore {
         && insAt(l, 18) && insAt(l, 19) && insAt(l, 20) && insAt(l, 21) && insAt(l, 22) && insAt(l, 23);
     }
     function validProfile(d) {
-      return d.keys().hasOnly(['v', 'nm', 'mc', 'ins', 'pct', 'met', 'st', 'day', 'sh', 'gl', 'wm'])
+      return d.keys().hasOnly(['v', 'nm', 'mc', 'ins', 'pct', 'met', 'st', 'day', 'sh', 'gl', 'wm', 'md'])
         && d.keys().hasAll(['v', 'nm', 'mc', 'ins', 'met', 'st', 'day', 'sh'])
         && d.v == 1 && isName(d.nm) && isMascot(d.mc)
         && insOk(d.ins)
         && (!('pct' in d) || d.pct == null || (d.pct is int && d.pct >= 0 && d.pct <= 100))
         && (!('gl' in d) || d.gl == null || (d.gl is int && d.gl >= 0 && d.gl <= 10000))
         && (!('wm' in d) || d.wm == null || (d.wm is int && d.wm >= 0 && d.wm <= 127))
+        && (!('md' in d) || d.md == null || (d.md is int && d.md >= 0 && d.md <= 16777215))
         && d.met is bool && d.st is int && d.st >= 0 && d.st <= 9999
         && isDay(d.day) && d.sh is bool;
     }

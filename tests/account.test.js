@@ -21,7 +21,7 @@ function used() {
   S.days = { '2026-10-20': { goal: 2300, u: 5, entries: [{ id: 'a', t: 1, ml: 250, d: 'water' }] } };
   S.insignias = { concha: 1, estrela: 2 };
   Object.assign(S.social, { on: true, nick: 'Mari', share: false, code: 'ABCD2345', push: false, goal: true, hit: true, week: false });
-  S.ui = { tip_news12: 1, tip_install: 1, invite: 'ZZZZ2222', crewAt: '2026-10-20', unseenIns: ['estrela'], wv: { x: 1 }, frRank: 'week' };
+  S.ui = { tip_news12: 1, tip_news15: 1, tip_install: 1, invite: 'ZZZZ2222', crewAt: '2026-10-20', unseenIns: ['estrela'], wv: { x: 1 }, frRank: 'week' };
   return S;
 }
 
@@ -183,13 +183,13 @@ describe('backup dos ajustes: o que sai do aparelho', () => {
     expect(A.prefsSnapshot(used()).reminders).toEqual({ interval: 60, smart: false });
   });
   it('dos recados (ui) só vão os dispensados (tip_*) e a visão do ranking', () => {
-    expect(A.prefsSnapshot(used()).ui).toEqual({ tip_install: 1, tip_news12: 1, frRank: 'week' });
+    expect(A.prefsSnapshot(used()).ui).toEqual({ tip_install: 1, tip_news12: 1, tip_news15: 1, frRank: 'week' }); // o cartão de novidades da 1.5.0 também viaja: quem entra em outro aparelho não o vê de novo
     const S = used(); S.ui = { tip_a: 0, tip_b: 1, 'tip_com espaço': 1, 'tip_': 1, tip_ok: true, frRank: 'inventado', outro: 1 };
     expect(A.prefsSnapshot(S).ui).toEqual({ tip_b: 1, tip_ok: 1, frRank: 'day' });
   });
   it('é estável: o mesmo estado dá sempre o mesmo texto (senão o app regravaria à toa)', () => {
     const a = A.prefsPack(used(), 5).j, S = used();
-    S.ui = { frRank: 'week', tip_install: 1, tip_news12: 1 }; // outra ordem das chaves
+    S.ui = { frRank: 'week', tip_install: 1, tip_news15: 1, tip_news12: 1 }; // outra ordem das chaves
     expect(A.prefsPack(S, 9).j).toBe(a);
     S.profile.weight = 62;
     expect(A.prefsPack(S, 9).j).not.toBe(a);
@@ -303,7 +303,7 @@ describe('aplicar ajustes ao app', () => {
     expect(S.cups).toEqual([120, 200, 300, 450]); expect(S.last).toBe('sparkling'); expect(S.lastO).toBe('tea');
     expect(S.reminders).toMatchObject({ interval: 60, smart: false, enabled: true, nextAt: 999 });
     expect(S.social).toMatchObject({ on: true, nick: 'Mari', share: false, goal: true, push: false, hit: true, week: false, code: 'KEEP2345' });
-    expect(S.ui).toMatchObject({ tip_install: 1, tip_news12: 1, frRank: 'week' });
+    expect(S.ui).toMatchObject({ tip_install: 1, tip_news12: 1, tip_news15: 1, frRank: 'week' });
     expect(S.createdAt).toBe(1700000000000); // a mais antiga
   });
   it('sincronizar (ajustes mais novos de outro aparelho): igual, mas não liga nem desliga os amigos', () => {

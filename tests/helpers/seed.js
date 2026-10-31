@@ -1,7 +1,7 @@
 // Maré — estado de partida dos testes de interface (usado por e2e.spec.js e e2e-friends.spec.js).
 // Estado pronto, pulando o onboarding. É montado dentro do navegador para usar o fuso do aparelho emulado.
 // Opções: todayMl, entries [[ml, bebida]], history [dias, ml por dia] (para ter litros acumulados), insignias { id: há quantos dias },
-// profile, social, ui, last, medals, reminders.
+// profile, social, ui, last, medals (true = as 12 medalhas; ou uma lista de ids, como ['first', 's7']), reminders.
 export async function seed(page, o) {
   await page.addInitScript((opt) => {
     if (sessionStorage.getItem('mare:seeded')) return; // só na 1ª carga: recarregar mantém o que o teste fez
@@ -19,13 +19,15 @@ export async function seed(page, o) {
     }
     const ins = {};
     Object.keys(opt.insignias || {}).forEach((id) => { ins[id] = now.getTime() - 864e5 * (1 + opt.insignias[id]); }); // valor = há quantos dias
+    const ach = {}, every = ['first', 'goal', 's3', 's7', 's14', 's30', 'early', 'sunset', 'mission', 'm10', 'weekend', 'd10'];
+    (opt.medals === true ? every : Array.isArray(opt.medals) ? opt.medals : []).forEach((id) => { ach[id] = 1; });
     localStorage.setItem('mare:v1', JSON.stringify({
       v: 1, onboarded: true, createdAt: now.getTime() - 10 * 864e5,
       profile: Object.assign({ name: 'Ana', weight: 70, activity: 'moderate', wake: '07:00', sleep: '23:00', unit: 'ml', theme: 'light' }, opt.profile || {}),
       goal: { mode: 'manual', manual: 2800, climate: false, bonus: 0, temp: null, day: '' },
       cups: [150, 250, 350, 500], last: opt.last || 'water', reminders: Object.assign({ enabled: false, interval: 90, smart: true, nextAt: 0 }, opt.reminders || {}),
-      days: days, achievements: opt.medals ? { first: 1, goal: 1, s3: 1, s7: 1, s14: 1, s30: 1, early: 1, sunset: 1, mission: 1, m10: 1, weekend: 1, d10: 1 } : {}, missions: {}, insignias: ins, social: Object.assign({ on: false, nick: '', share: true, code: '' }, opt.social || {}),
-      ui: Object.assign({ tip_install: 1, tip_climate: 1, tip_news12: 1, tip_account: 1 }, opt.ui || {}), // tip_account: 1 = a dica da conta (1.3.0) já foi dispensada
+      days: days, achievements: ach, missions: {}, insignias: ins, social: Object.assign({ on: false, nick: '', share: true, code: '' }, opt.social || {}),
+      ui: Object.assign({ tip_install: 1, tip_climate: 1, tip_news12: 1, tip_news15: 1, tip_account: 1 }, opt.ui || {}), // tip_account: 1 = a dica da conta (1.3.0) já foi dispensada; tip_news15: 1 = o cartão de novidades (1.5.0) também
     }));
   }, o || {});
 }

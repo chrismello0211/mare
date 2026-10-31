@@ -209,14 +209,16 @@ export function createSocial(opt) {
     return keep.id;
   }
   // Grava o perfil. O site sai sozinho em cerca de 1 minuto e as regras do Firestore vão à parte: se o site novo chegar antes delas, o perfil com
-  // "gl" e "wm" (1.2.0) é recusado. Então tenta de novo no formato da 1.1.x, que as regras de antes e as de agora aceitam: os amigos seguem
-  // funcionando (só sem a meta em ml e sem os 7 dias) até as regras novas entrarem, e a próxima abertura do app já publica o perfil completo.
+  // campos que elas ainda não conhecem é recusado. Então tenta de novo, do formato mais novo para o mais antigo: o completo (1.5.0, com "md", as
+  // medalhas), o da 1.2.x (sem "md") e o da 1.1.x (sem "md", "gl" nem "wm"). Os amigos seguem funcionando (só sem o que as regras de lá ainda não
+  // aceitam: as medalhas, a meta em ml e os 7 dias) até as regras novas entrarem, e a próxima abertura do app já publica o perfil completo.
   async function putProfile(p) {
-    try { await FS.setDoc(profRef(me), p); } catch (e) {
-      if (!e || e.code !== 'permission-denied' || !('gl' in p || 'wm' in p)) throw e;
-      const old = Object.assign({}, p);
-      delete old.gl; delete old.wm;
-      await FS.setDoc(profRef(me), old);
+    const forms = [p];
+    if ('md' in p) { const a = Object.assign({}, p); delete a.md; forms.push(a); }
+    if ('gl' in p || 'wm' in p) { const b = Object.assign({}, p); delete b.md; delete b.gl; delete b.wm; forms.push(b); }
+    for (let i = 0; i < forms.length; i++) {
+      try { await FS.setDoc(profRef(me), forms[i]); return; }
+      catch (e) { if (!e || e.code !== 'permission-denied' || i === forms.length - 1) throw e; }
     }
   }
   // Envia o perfil que os amigos veem (só se mudou). payload vem de social.profilePayload. Nome e mascote também vão para o convite.

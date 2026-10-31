@@ -7,9 +7,16 @@ function cut(rules, what, find, to) {
   if (!hit) throw new Error('old-rules.js: não achei ' + what + ' em firestore.rules');
   return rules.replace(find, to);
 }
-// Regras da 1.1.x: o perfil não tem a meta em ml (gl) nem os 7 dias (wm)
+// Regras da 1.2.0 até a 1.4.x (as que estavam no ar antes da 1.5.0): o perfil tem a meta em ml (gl) e os 7 dias (wm), mas não as medalhas (md)
+export function rules14x(rules) {
+  let s = cut(rules, 'a lista de campos do perfil', "'sh', 'gl', 'wm', 'md'])", "'sh', 'gl', 'wm'])");
+  s = cut(s, 'a regra do campo md', /\n\s*&& \(!\('md' in d\)[^\n]*/, '');
+  return s;
+}
+// Regras da 1.1.x: além disso, o perfil não tem a meta em ml (gl) nem os 7 dias (wm)
 export function rules11x(rules) {
-  let s = cut(rules, 'a lista de campos do perfil', "'sh', 'gl', 'wm'])", "'sh'])");
+  let s = rules14x(rules);
+  s = cut(s, 'a lista de campos do perfil (1.1.x)', "'sh', 'gl', 'wm'])", "'sh'])");
   s = cut(s, 'a regra do campo gl', /\n\s*&& \(!\('gl' in d\)[^\n]*/, '');
   s = cut(s, 'a regra do campo wm', /\n\s*&& \(!\('wm' in d\)[^\n]*/, '');
   return s;

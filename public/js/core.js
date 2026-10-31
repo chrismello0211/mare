@@ -280,6 +280,18 @@ export function newAchievements(S, ctx) {
   const c = ctx || context(S), got = S.achievements || {};
   return ACHIEVEMENTS.filter((a) => !got[a.id] && a.test(c));
 }
+// As medalhas que vão ao perfil dos amigos (1.5.0): uma máscara de bits na ordem de ACHIEVEMENTS (o bit i é ACHIEVEMENTS[i]). Essa ORDEM é um
+// contrato com a nuvem e com os amigos: medalha nova entra só NO FIM da lista; nunca se reordena nem se remove (tests/core.test.js trava isso).
+// As regras do Firestore aceitam até MEDAL_MAX bits (firestore.rules, "md"): se a lista passar disso, aumente os dois.
+export const MEDAL_MAX = 24;
+export function medalMask(S) {
+  const got = S.achievements || {};
+  let m = 0;
+  ACHIEVEMENTS.forEach((a, i) => { if (i < MEDAL_MAX && got[a.id]) m |= 1 << i; });
+  return m;
+}
+// O caminho de volta: as medalhas de uma máscara, na ordem de ACHIEVEMENTS. Bits que este app não conhece (medalha de uma versão mais nova) ficam de fora.
+export const medalsFromMask = (m) => ACHIEVEMENTS.filter((a, i) => i < MEDAL_MAX && ((m >> i) & 1) === 1);
 
 /* ---------- estatísticas e insights ---------- */
 export function stats(S, today) {

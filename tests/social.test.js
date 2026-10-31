@@ -192,9 +192,34 @@ describe('o que vai para a nuvem (profilePayload)', () => {
   it('só os campos combinados, nos tipos que as regras do servidor aceitam', () => {
     const S = state({ days: { [T]: dayWith(1234) } });
     const p = SO.profilePayload(S, T);
-    expect(Object.keys(p).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']);
-    expect(p).toEqual({ v: 1, nm: 'Chris', mc: 'estrela', ins: ['concha', 'estrela'], pct: 61, met: false, st: 0, day: T, sh: true, gl: null, wm: 0 }); // meta em ml: só com o "sim"
-    expect(Number.isInteger(p.pct) && Number.isInteger(p.st) && Number.isInteger(p.wm)).toBe(true);
+    expect(Object.keys(p).sort()).toEqual(['day', 'gl', 'ins', 'md', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm'].sort());
+    expect(p).toEqual({ v: 1, nm: 'Chris', mc: 'estrela', ins: ['concha', 'estrela'], pct: 61, met: false, st: 0, day: T, sh: true, gl: null, wm: 0, md: 0 }); // meta em ml: só com o "sim"
+    expect(Number.isInteger(p.pct) && Number.isInteger(p.st) && Number.isInteger(p.wm) && Number.isInteger(p.md)).toBe(true);
+  });
+  it('as medalhas vão como uma máscara de bits na ordem de ACHIEVEMENTS (md): o bit i é a medalha i', () => {
+    const S = state({ days: { [T]: dayWith(500) } });
+    expect(SO.profilePayload(S, T).md).toBe(0); // sem medalhas
+    S.achievements = { first: 111, s7: 222 }; // as datas não importam, só quem tem: bit 0 (first) e bit 3 (s7)
+    expect(SO.profilePayload(S, T).md).toBe(1 + 8);
+    C.ACHIEVEMENTS.forEach((a) => { S.achievements[a.id] = 1; });
+    expect(SO.profilePayload(S, T).md).toBe((1 << C.ACHIEVEMENTS.length) - 1); // todas: 4095 com as 12 de hoje
+    expect(SO.profilePayload(S, T).md).toBeLessThanOrEqual(SO.MD_MAX);
+    S.achievements = { hacker: 1, first: 1 }; // um id que o app não conhece não vira bit
+    expect(SO.profilePayload(S, T).md).toBe(1);
+  });
+  it('md é um número só dos amigos "com progresso": em pausa (share desligado) as medalhas somem junto, como a semana', () => {
+    const S = state({ days: { [T]: dayWith(500) }, social: { share: false } });
+    S.achievements = { first: 1, goal: 1 };
+    expect(SO.profilePayload(S, T)).toMatchObject({ sh: false, wm: null, md: null });
+    S.social.share = true;
+    expect(SO.profilePayload(S, T)).toMatchObject({ sh: true, md: 3 });
+  });
+  it('o teto de md que o app aceita é o mesmo das regras do Firestore (24 bits), e a lista de medalhas cabe nele', () => {
+    const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+    expect(SO.MD_MAX).toBe(16777215);
+    expect(C.MEDAL_MAX).toBe(24);
+    expect(rules).toContain('d.md >= 0 && d.md <= ' + SO.MD_MAX);
+    expect(C.ACHIEVEMENTS.length).toBeLessThanOrEqual(C.MEDAL_MAX); // medalha nova: se passar de 24, aumente MEDAL_MAX e o limite nas regras
   });
   it('nunca vazam volumes, peso, meta em ml, horários ou localização', () => {
     const S = state({ days: { [T]: dayWith(1234, 2345) }, goal: 2345 });
@@ -252,6 +277,8 @@ describe('o que vai para a nuvem (profilePayload)', () => {
     expect(SO.samePayload(a, Object.assign({}, a, { ins: ['concha'] }))).toBe(false);
     expect(SO.samePayload(a, Object.assign({}, a, { nm: 'Outro' }))).toBe(false);
     expect(SO.samePayload(a, Object.assign({}, a, { day: '2026-10-19' }))).toBe(false);
+    expect(SO.samePayload(a, Object.assign({}, a, { md: 1 }))).toBe(false); // uma medalha nova precisa republicar o perfil
+    expect(SO.samePayload(a, Object.assign({}, a, { md: null }))).toBe(false);
     expect(SO.samePayload(a, null)).toBe(false);
     expect(SO.samePayload(null, a)).toBe(false);
   });
@@ -264,7 +291,37 @@ describe('o que chega da nuvem (cleanFriend, cleanRequest)', () => {
   it('um perfil bom passa inteiro', () => {
     const f = SO.cleanFriend(BRU, prof(), pair(), ANA);
     expect(f).toMatchObject({ uid: BRU, nm: 'Bruno', mc: 'polvo', ins: ['concha', 'polvo'], pct: 40, met: false, st: 3, day: T, sh: true, since: 2000, mine: null, theirs: null });
-    expect(Object.keys(f).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'met', 'mine', 'nm', 'pct', 'sh', 'since', 'st', 'theirs', 'uid', 'wm']); // nenhum horário de atividade do amigo
+    expect(Object.keys(f).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'md', 'met', 'mine', 'nm', 'pct', 'sh', 'since', 'st', 'theirs', 'uid', 'wm']); // nenhum horário de atividade do amigo
+    expect(f.md).toBeNull(); // perfil de uma versão sem medalhas: "não sei", nunca "nenhuma"
+  });
+  it('md (as medalhas do amigo): inteiro de 0 ao teto; o que não for número vira 0, o excesso é cortado, e nulo continua nulo', () => {
+    expect(SO.cleanFriend(BRU, prof({ md: 0 }), pair(), ANA).md).toBe(0);
+    expect(SO.cleanFriend(BRU, prof({ md: 9 }), pair(), ANA).md).toBe(9);
+    expect(SO.cleanFriend(BRU, prof({ md: 3.9 }), pair(), ANA).md).toBe(3);
+    expect(SO.cleanFriend(BRU, prof({ md: SO.MD_MAX }), pair(), ANA).md).toBe(SO.MD_MAX);
+    expect(SO.cleanFriend(BRU, prof({ md: 1e12 }), pair(), ANA).md).toBe(SO.MD_MAX);
+    expect(SO.cleanFriend(BRU, prof({ md: Infinity }), pair(), ANA).md).toBe(0);
+    ['abc', 'x', -5, NaN, {}].forEach((v) => { expect(SO.cleanFriend(BRU, prof({ md: v }), pair(), ANA).md, String(v)).toBe(0); });
+    expect(SO.cleanFriend(BRU, prof({ md: null }), pair(), ANA).md).toBeNull();
+    expect(SO.cleanFriend(BRU, null, pair(), ANA).md).toBeNull(); // sem perfil ainda
+  });
+  it('medalsShown: a lista de medalhas na ordem de ACHIEVEMENTS; null quando não dá para saber (versão antiga ou progresso em pausa)', () => {
+    const ids = (p) => (SO.medalsShown(p) || []).map((a) => a.id);
+    expect(ids({ md: 9, sh: true })).toEqual(['first', 's7']);
+    expect(ids({ md: 0, sh: true })).toEqual([]);
+    expect(SO.medalsShown({ md: 0, sh: true })).toEqual([]); // vazia não é "não sei": o bloco decide mostrar ou não
+    expect(ids({ md: SO.MD_MAX, sh: true })).toEqual(C.ACHIEVEMENTS.map((a) => a.id)); // bits de medalhas futuras (que este app não conhece) ficam de fora
+    expect(ids({ md: (1 << 20) | 1, sh: true })).toEqual(['first']);
+    expect(SO.medalsShown({ md: 5, sh: false })).toBeNull(); // em pausa: mesmo com md no documento, não mostra
+    expect(SO.medalsShown({ md: null, sh: true })).toBeNull();
+    expect(SO.medalsShown({ sh: true })).toBeNull(); // versão antiga do app: sem o campo
+    expect(SO.medalsShown(null)).toBeNull();
+    expect(SO.medalsShown({ md: 'x', sh: true })).toEqual([]); // lixo vira 0 medalhas, não quebra
+  });
+  it('profileOfCached leva as medalhas junto (a cópia guardada no aparelho é a mesma do perfil)', () => {
+    const f = SO.cleanFriend(BRU, prof({ md: 9 }), pair(), ANA);
+    expect(SO.profileOfCached(f)).toMatchObject({ md: 9, wm: f.wm, gl: f.gl });
+    expect(SO.cleanFriend(BRU, SO.profileOfCached(f), pair(), ANA).md).toBe(9); // ida e volta pela cópia local
   });
   it('uid inválido: descarta', () => {
     ['', 'curto', 'a/b' + 'x'.repeat(20), null, undefined, 'x'.repeat(65), 'ã'.repeat(20)].forEach((u) => { expect(SO.cleanFriend(u, prof(), pair(), ANA)).toBeNull(); });

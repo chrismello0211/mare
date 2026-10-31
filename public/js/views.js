@@ -79,8 +79,11 @@ function tipsHTML() {
   // Conta (1.3.0): a dica mais importante vai primeiro. Só aparece a partir do segundo dia de uso (quem acabou de chegar ainda não tem o que perder)
   // e some para sempre se for dispensada: o cartão em Ajustes continua lá. Quem já tem conta, ou perdeu o login e vê o aviso em Ajustes, não vê a dica.
   if (!ACCT.on && !ACCT.ended && !ui.tip_account && Object.keys(S.days).length >= 2) return accountTip();
-  if (!ui.tip_news12) {
-    return tip('news12', '🐚', 'Novidades no Maré', 'Os amigos agora formam uma turma só, com ranking, e cada marco de água vira um bichinho do mar para colecionar.',
+  // Novidades (1.5.0): um cartão que aparece uma vez para quem já usava o Maré. Abrir o painel ou dispensar o cartão o apaga para sempre (tip_news15).
+  // Quem está começando agora, ou chega por uma conta, já nasce com ele dispensado. O de antes (tip_news12, versão 1.2) não volta mais.
+  if (!ui.tip_news15) {
+    const crew = !!(S.social && S.social.on && S.social.share !== false);
+    return tip('news15', '🐚', 'Novidades no Maré', 'O recife ganhou cinco bichinhos e agora vai até 2.000 L.' + (crew ? ' Suas medalhas também passam a aparecer para a turma.' : ''),
       ['news', 'Ver as novidades']);
   }
   if (!isStandalone() && !isNative() && !ui.tip_install && (canInstall() || ios || isAndroid())) {
@@ -322,12 +325,17 @@ export function unlockSheet(id) {
     (S.social && S.social.on && S.social.share !== false ? '<p class="note">Seus amigos vão ver essa insígnia no seu perfil.</p>' : '') +
     '<div class="btns">' + btn('close-sheet', 'Que legal!') + btn('reef', 'Ver meu recife', 'ghost') + '</div></div>';
 }
-// Novidades das versões 1.1 e 1.2 (a dica da tela Hoje abre este painel)
+// Novidades do Maré (o cartão da tela Hoje abre este painel). 1.5.0: o que há de novo vem primeiro; o das versões 1.1 e 1.2 fica numa seção embaixo.
 export function newsSheet() {
   const have = unlockedInsignias(S).length, ni = (e, b, t) => '<div class="news-i"><span class="em" aria-hidden="true">' + e + '</span><div><b>' + b + '</b><p>' + t + '</p></div></div>';
+  const crew = !!(S.social && S.social.on);
   return sheetHead('Novidades do Maré') +
-    '<div class="news-i">' + badge('cavalo', { size: 48 }) + '<div><b>Insígnias do mar</b><p>Cada marco de água vira um bichinho para colecionar: da concha à pérola. ' +
+    '<div class="news-i">' + badge('orca', { size: 48 }) + '<div><b>Mais cinco bichinhos no recife</b><p>Arraia-manta, orca, peixe-pescador, lula-gigante e a pérola entraram na coleção, que agora vai até 2.000 L de água. ' +
     (have > 1 ? 'Você já tem ' + have + ' de ' + INSIGNIAS.length + '.' : 'Você começa com a concha.') + '</p></div></div>' +
+    ni('🏅', 'Medalhas para a turma', crew
+      ? 'As medalhas que você conquistou agora aparecem no seu perfil para a turma, e você vê as dos seus amigos no perfil deles. Elas vão junto com o progresso do dia: com ele desligado, as suas ficam só com você.'
+      : 'Quem está na turma passa a ver as medalhas uns dos outros no perfil, junto com o progresso do dia. Cada um decide se mostra: é a mesma chave do progresso, em Ajustes.') +
+    '<p class="news-h">Das versões anteriores</p>' +
     ni('🏆', 'Uma turma, um ranking', 'Os amigos agora formam uma turma só: todo mundo vê todo mundo, com ranking do dia, da semana e da sequência. Cada um decide o que mostra, e a meta em ml só aparece se você deixar.') +
     ni('🔔', 'Avisos mais espertos', 'Os avisos respeitam seu horário de sono. Dá para escolher saber quando um amigo bate a meta e receber o resumo da semana da turma no domingo.') +
     ni('🔢', 'Sem número no ícone', 'O número que aparecia no ícone era a conta de copos que faltavam, e parecia notificação. Ele saiu.') +

@@ -408,6 +408,28 @@ describe('conquistas', () => {
     expect(C.newAchievements(S).map((a) => a.id)).toContain('s14');
     expect(C.newAchievements(S).map((a) => a.id)).not.toContain('s30');
   });
+  it('a ordem das medalhas é um contrato: cada uma é um bit do perfil que a turma vê (só se acrescenta no fim)', () => {
+    expect(C.ACHIEVEMENTS.map((a) => a.id)).toEqual(['first', 'goal', 's3', 's7', 's14', 's30', 'early', 'sunset', 'mission', 'm10', 'weekend', 'd10']);
+    expect(new Set(C.ACHIEVEMENTS.map((a) => a.id)).size).toBe(C.ACHIEVEMENTS.length);
+    expect(C.ACHIEVEMENTS.length).toBeLessThanOrEqual(C.MEDAL_MAX);
+    expect(C.MEDAL_MAX).toBe(24); // as regras do Firestore aceitam até 24 bits (16777215)
+    C.ACHIEVEMENTS.forEach((a) => { expect(a.e && a.t && a.d, a.id).toBeTruthy(); }); // a tela da turma mostra emoji, título e descrição
+  });
+  it('medalMask / medalsFromMask: toda combinação de medalhas vai e volta, e o que o app não conhece não vira bit', () => {
+    expect(C.medalMask({})).toBe(0); // backup antigo, sem o mapa
+    expect(C.medalMask(C.defaults())).toBe(0);
+    expect(C.medalsFromMask(0)).toEqual([]);
+    const n = C.ACHIEVEMENTS.length;
+    for (let m = 0; m < (1 << n); m++) {
+      const S = { achievements: { ghost: 1 } }; // uma medalha de versão futura (ou lixo) no mapa não conta
+      C.ACHIEVEMENTS.forEach((a, i) => { if ((m >> i) & 1) S.achievements[a.id] = 1000 + i; });
+      if (C.medalMask(S) !== m) throw new Error('máscara errada para ' + m + ': ' + C.medalMask(S));
+      const back = C.medalsFromMask(m).map((a) => a.id).join();
+      if (back !== C.ACHIEVEMENTS.filter((a, i) => (m >> i) & 1).map((a) => a.id).join()) throw new Error('volta errada para ' + m);
+    }
+    expect(C.medalsFromMask((1 << 20) | (1 << 3)).map((a) => a.id)).toEqual(['s7']); // o bit 20 ainda não existe: ignorado
+    expect(C.medalsFromMask(C.medalMask({ achievements: { first: 0 } }))).toEqual([]); // carimbo 0 = não tem
+  });
 });
 
 describe('estatísticas e insights', () => {

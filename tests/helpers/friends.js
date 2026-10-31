@@ -14,11 +14,13 @@ export const UID = {
 // Um grupo de amigos variado, para ver todos os estados do ranking: bateu a meta, no caminho, sem registros, progresso em pausa, ausente.
 // gl = a meta em ml que a pessoa deixou aparecer (Duda não liberou); wm = os últimos 7 dias (bit 0 = hoje; Edu, em pausa, não manda; Fê parou há 4 dias).
 // Com o Ana de 50% (1400 ml de 2800), o ranking de "Hoje" é: Bia 100%, Ana 50%, Caio 45%, Duda 0% e, fora da conta, Edu e Fê.
+// md = as medalhas (1.5.0), uma máscara de bits na ordem de ACHIEVEMENTS: Bia tem 8 (first, goal, s3, s7, early, sunset, mission, d10 = 2511); Caio, 3 (first, goal,
+// s3 = 7); Duda, nenhuma (0); Edu, com o progresso em pausa, não manda (null); a Fê ainda usa um app sem medalhas (sem o campo).
 export const CREW = [
-  { uid: UID.bia, prof: { nm: 'Bia', mc: 'tartaruga', ins: ['concha', 'estrela', 'baiacu', 'tartaruga'], pct: 100, met: true, st: 12, gl: 2800, wm: 127 } },
-  { uid: UID.caio, prof: { nm: 'Caio', mc: 'estrela', ins: ['concha', 'estrela'], pct: 45, st: 3, gl: 3200, wm: 0b0111011 } },
-  { uid: UID.duda, prof: { nm: 'Duda', mc: 'cavalo', ins: ['concha', 'estrela', 'baiacu', 'tartaruga', 'cavalo'], pct: 0, st: 0, wm: 0 } },
-  { uid: UID.edu, prof: { nm: 'Edu', mc: 'concha', ins: ['concha'], pct: null, sh: false, st: 0, wm: null } },
+  { uid: UID.bia, prof: { nm: 'Bia', mc: 'tartaruga', ins: ['concha', 'estrela', 'baiacu', 'tartaruga'], pct: 100, met: true, st: 12, gl: 2800, wm: 127, md: 2511 } },
+  { uid: UID.caio, prof: { nm: 'Caio', mc: 'estrela', ins: ['concha', 'estrela'], pct: 45, st: 3, gl: 3200, wm: 0b0111011, md: 7 } },
+  { uid: UID.duda, prof: { nm: 'Duda', mc: 'cavalo', ins: ['concha', 'estrela', 'baiacu', 'tartaruga', 'cavalo'], pct: 0, st: 0, wm: 0, md: 0 } },
+  { uid: UID.edu, prof: { nm: 'Edu', mc: 'concha', ins: ['concha'], pct: null, sh: false, st: 0, wm: null, md: null } },
   { uid: UID.fe, prof: { nm: 'Fê', mc: 'baiacu', ins: ['concha', 'estrela', 'baiacu'], pct: 30, st: 5, ago: 4, wm: 127 } },
 ];
 

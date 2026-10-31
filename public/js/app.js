@@ -18,7 +18,7 @@ import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inv
 import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs } from './account.js';
 import { createSheet, signinSheet, resetSheet, resetDoneSheet, deleteSheet } from './account-view.js';
 
-export const APP_VERSION = '1.4.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.5.0'; // aumente a cada deploy, junto com VERSION no sw.js
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'friends', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -180,7 +180,7 @@ function finishOb() {
   S.onboarded = true;
   ob = null;
   if (n) hBack(n); // remove as entradas do onboarding: "voltar" na tela Hoje sai do app
-  S.ui.tip_news12 = 1; // quem está começando agora já nasce com tudo: a dica de novidades é só para quem já usava
+  S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; // quem está começando agora já nasce com tudo: a dica de novidades é só para quem já usava
   grantInsignias(false); // a concha (0 L) vem de presente, sem festa
   syncTodayGoal(); save();
   tab = 'today';
@@ -1316,7 +1316,7 @@ function applyAccount(u, data) {
   newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); }); // conquistas antigas: sem festa
   grantInsignias(false); // as insígnias dos registros (delas sai o mascote automático)
   const done = applyPlan(S, plan);
-  S.ui.tip_news12 = 1; // quem chega pela conta não precisa da dica de novidades
+  S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; // quem chega pela conta não precisa da dica de novidades
   applyMix();
   setAcct(u);
   if (done) {
@@ -1533,7 +1533,7 @@ const A = {
   ins: (el, d) => { openSheet(insigniaSheet(d.id)); animBars(sheetBody); },
   mascot: (el, d) => setMascot(d.id),
   reef: () => { closeSheet(); go('journey'); },
-  news: () => { S.ui.tip_news12 = 1; save(); refreshPart('tTips'); openSheet(newsSheet()); },
+  news: () => { S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; save(); refreshPart('tTips'); openSheet(newsSheet()); }, // abrir o painel dispensa o cartão (o de agora e o antigo)
   'news-go': () => { closeSheet(); go('journey'); },
   'news-friends': () => { closeSheet(); go('friends'); },
   // amigos

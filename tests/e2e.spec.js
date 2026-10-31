@@ -197,7 +197,7 @@ test('desbloquear: o fundo do painel e o "voltar" também contam como "visto"', 
 });
 
 test('quem já usava o Maré ganha as insígnias de uma vez e só a mais alta é comemorada', async ({ page }) => {
-  await seed(page, { history: [26, 2500], ui: { tip_news12: 0 }, medals: true }); // 65 L e nenhuma insígnia guardada (estado da versão 1.0.x)
+  await seed(page, { history: [26, 2500], ui: { tip_news15: 0 }, medals: true }); // 65 L e nenhuma insígnia guardada (estado da versão 1.0.x)
   await page.goto('/');
   await expect(page.locator('#tTips')).toContainText('Novidades no Maré');
   await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Nova insígnia!', { timeout: 9000 });
@@ -211,10 +211,13 @@ test('quem já usava o Maré ganha as insígnias de uma vez e só a mais alta é
   // a dica de novidades abre o painel e some em seguida
   await page.locator('#tTips').getByRole('button', { name: 'Ver as novidades' }).click();
   await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Novidades do Maré');
-  await expect(sheetOf(page)).toContainText('Insígnias do mar');
+  await expect(sheetOf(page)).toContainText('Mais cinco bichinhos no recife');
   await expect(sheetOf(page)).toContainText('Você já tem 4 de 15');
   await sheetOf(page).getByRole('button', { name: 'Depois' }).click();
   await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
+  const after = (await stored(page)).ui;
+  expect(after.tip_news15).toBe(1); // abrir o painel dispensou o cartão para sempre (e o da versão antiga também)
+  expect(after.tip_news12).toBe(1);
 });
 
 test('quem está começando agora ganha a concha de presente, sem festa nem dica de novidades', async ({ page }) => {

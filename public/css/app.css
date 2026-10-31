@@ -466,10 +466,12 @@ body.no-tabs .wrap { padding-bottom: 20px; padding-bottom: calc(20px + env(safe-
 .news-i { display: flex; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
 .news-i:first-of-type { border-top: 0; }
 .news-i .bdg, .news-i .em { margin-right: 14px; }
-.news-i .em { display: flex; align-items: center; justify-content: center; flex: none; width: 44px; font-size: 28px; }
+.news-i .em { display: flex; align-items: center; justify-content: center; flex: none; width: 48px; font-size: 28px; } /* 48 = o tamanho do bichinho do 1º item: os textos alinham */
 .news-i div { flex: 1; min-width: 0; }
 .news-i b { display: block; }
 .news-i p { margin-top: 2px; font-size: 13px; color: var(--muted); }
+.news-h { margin: 18px 0 2px; font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.news-h + .news-i { border-top: 0; }
 .ins { display: flex; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
 .ins-list .ins:first-child { border-top: 0; }
 .ins .em { margin-right: 12px; font-size: 22px; line-height: 1.25; }
@@ -750,6 +752,10 @@ body.no-tabs .toast { bottom: 20px; bottom: calc(20px + env(safe-area-inset-bott
 .fs .in.wide { text-align: left; }
 .reef.mini { margin-bottom: 4px; padding: 6px 0 4px; background: none; box-shadow: none; grid-gap: 12px 4px; gap: 12px 4px; }
 .reef.mini .rf b { font-size: 9.5px; }
+/* medalhas de quem a turma vê (1.5.0): só as conquistadas, em fichas que quebram de linha (margens em vez de "gap" no flex, por causa do iOS 12) */
+.mchips { display: flex; flex-wrap: wrap; justify-content: center; margin: 0 -3px 4px; padding: 0; list-style: none; }
+.mchip { display: inline-flex; align-items: center; margin: 3px; padding: 6px 12px 6px 9px; border-radius: 99px; background: var(--surface2); font-size: 12.5px; font-weight: 700; line-height: 1.2; }
+.mchip .em { margin-right: 6px; font-size: 16px; line-height: 1; }
 .btns.stk { display: block; margin-top: 14px; }
 .btns.stk .btn { display: flex; width: 100%; }
 .btns.stk .btn + .btn { margin: 10px 0 0; }
