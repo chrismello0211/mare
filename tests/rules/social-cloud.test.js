@@ -1381,7 +1381,7 @@ describe('as medalhas da 1.5.0 com as regras de verdade: a máscara md vai ao pe
   const profOf = async (uid) => (await seed((d) => getDoc(doc(d, 'profiles', uid)))).data();
   const ids = (f) => (medalsShown(f) || []).map((a) => a.id);
   const friendOf = (p, uid) => p.sc.state().friends.filter((f) => f.uid === uid)[0];
-  test('md acompanha as medalhas de quem publica (cada medalha é um bit, até 4095 com as 12 de hoje); em pausa o campo vira null, junto com a semana', async () => {
+  test('md acompanha as medalhas de quem publica (cada medalha é um bit, até 16777215 com as 24 de hoje, o máximo que as regras aceitam); em pausa o campo vira null, junto com a semana', async () => {
     const ana = person('Ana', ANA); drink(ana, 500);
     await join(ana);
     expect((await profOf(ANA)).md).toBe(0);
@@ -1394,7 +1394,7 @@ describe('as medalhas da 1.5.0 com as regras de verdade: a máscara md vai ao pe
     ana.S.social.share = false; await ana.sc.publish(ana.payload()); // pausou o progresso: as medalhas somem do perfil
     expect(await profOf(ANA)).toMatchObject({ sh: false, pct: null, wm: null, md: null });
     ana.S.social.share = true; await ana.sc.publish(ana.payload());
-    expect((await profOf(ANA)).md).toBe(4095);
+    expect((await profOf(ANA)).md).toBe(16777215); // as 24 medalhas (24 bits cheios) passam pelas regras de verdade
   });
   test('o amigo recebe a lista na ordem do app; medalha nova chega ao vivo; pausar o progresso esconde (md nulo, sem bloco); quem não é amigo não lê nada', async () => {
     const ana = person('Ana', ANA), bru = person('Bruno', BRU);
@@ -1406,6 +1406,10 @@ describe('as medalhas da 1.5.0 com as regras de verdade: a máscara md vai ao pe
     await ana.sc.publish(ana.payload());
     await until(() => friendOf(bru, ANA).md === 9 + 2048, 'a medalha nova chegou ao amigo');
     expect(ids(friendOf(bru, ANA))).toEqual(['first', 's7', 'd10']);
+    ana.S.achievements.wwd = 4; // a última da lista (1.6.0, o bit 23, o teto das regras) chega do mesmo jeito, na ordem do app
+    await ana.sc.publish(ana.payload());
+    await until(() => friendOf(bru, ANA).md === 9 + 2048 + 8388608, 'a medalha do bit 23 chegou ao amigo');
+    expect(ids(friendOf(bru, ANA))).toEqual(['first', 's7', 'd10', 'wwd']);
     ana.S.social.share = false; await ana.sc.publish(ana.payload());
     await until(() => friendOf(bru, ANA).sh === false, 'a pausa chegou ao amigo');
     expect(friendOf(bru, ANA).md).toBeNull();

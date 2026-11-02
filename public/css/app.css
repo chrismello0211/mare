@@ -487,6 +487,48 @@ body.no-tabs .wrap { padding-bottom: 20px; padding-bottom: calc(20px + env(safe-
 }
 .medal.off .em { opacity: .3; -webkit-filter: grayscale(1); filter: grayscale(1); }
 .medal.off b { color: var(--muted); }
+/* Jornada 1.6.0: as medalhas por grupo, com quanto falta (.mprog), e "Seus padrões" em gráficos (.rh = o ritmo do dia; a semana reaproveita o .wk-* do Histórico) */
+.mg-h { display: flex; align-items: baseline; justify-content: space-between; margin: 18px 4px 8px; }
+.mg-h h3 { font-size: 12px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.mg-h small { font-size: 12px; font-weight: 700; color: var(--muted); }
+.card-h.out + .mg-h, .mission + .mg-h { margin-top: 6px; }
+.mprog { display: block; height: 5px; margin: 9px 4px 0; overflow: hidden; border-radius: 99px; background: var(--surface2); }
+.mprog i {
+  display: block; width: 0; height: 100%; border-radius: 99px;
+  background: var(--primary); background: linear-gradient(90deg, var(--water1), var(--primary));
+  transition: width .7s cubic-bezier(.2,.8,.2,1);
+}
+.mprog-t { display: block; margin-top: 4px; font-size: 10px; font-weight: 700; line-height: 1.25; color: var(--muted); }
+.m-d { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.card-h .pt-h { font-size: 15px; font-weight: 800; letter-spacing: -.01em; }
+.rh { margin-bottom: 8px; }
+.rh-plot { position: relative; display: flex; align-items: flex-end; height: 104px; }
+.rh-band { position: absolute; top: 0; bottom: 0; border-radius: 10px; }
+.rh-band.dry { background: var(--warnbg); box-shadow: inset 0 0 0 1px rgba(184,110,14,.32); }
+.rh-band.pk { background: var(--tint); box-shadow: inset 0 0 0 1px rgba(26,127,232,.32); }
+[data-theme="dark"] .rh-band.dry { box-shadow: inset 0 0 0 1px rgba(245,181,86,.42); }
+[data-theme="dark"] .rh-band.pk { box-shadow: inset 0 0 0 1px rgba(74,163,255,.42); }
+.rh-b { position: relative; flex: 1; display: flex; align-items: flex-end; height: 100%; padding: 0 1px; }
+.rh-b i {
+  display: block; width: 100%; height: 0; border-radius: 4px 4px 2px 2px;
+  background: var(--water1); background: linear-gradient(180deg, var(--water1), var(--water2));
+  transition: height .7s cubic-bezier(.2,.8,.2,1);
+}
+.rh-xs { display: flex; margin-top: 6px; }
+.rh-x { position: relative; flex: 1; height: 14px; }
+.rh-x b { position: absolute; top: 0; left: 50%; font-size: 10px; font-weight: 700; color: var(--muted); white-space: nowrap; -webkit-transform: translateX(-50%); transform: translateX(-50%); }
+.rh-leg { display: flex; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: var(--muted); }
+.rh-leg span { display: inline-flex; align-items: center; margin: 0 14px 4px 0; }
+.rh-leg i { display: block; flex: none; width: 12px; height: 12px; margin-right: 6px; border-radius: 4px; }
+.rh-leg i.dry { background: var(--warnbg); border: 1px solid var(--warn); }
+.rh-leg i.pk { background: var(--tint); border: 1px solid var(--primary); }
+.rh + .ins-list { margin-top: 6px; }
+.wk-plot.sm { height: 118px; }
+.wk-plot.sm .wk-goal span { display: none; } /* aqui os valores já são "% da meta": o rótulo "meta" bateria nos números das colunas perto da linha */
+.wk-plot.sm + .wk-labels { margin-bottom: 6px; }
+.wk-col.best .wk-val { color: var(--primary); }
+.wk-col.best .wk-bar i { opacity: 1; }
+.wk-plot.sm + .wk-labels + .ins-list { margin-top: 6px; }
 
 /* ---------- ajustes ---------- */
 .group { margin-bottom: 8px; padding: 2px 16px; border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow); }
@@ -862,6 +904,8 @@ body.no-tabs .toast { bottom: 20px; bottom: calc(20px + env(safe-area-inset-bott
   .seg button { padding: 6px 4px; font-size: 12px; }
   .ob-title { font-size: 26px; }
   .stat b { font-size: 18px; }
+  .card-h .pt-h { font-size: 14px; }
+  .card-h small { font-size: 12px; }
   .tab .ti { width: 46px; }
   .tab { font-size: 10px; }
   .tabbar { padding-left: 2px; padding-right: 2px; }

@@ -1,7 +1,7 @@
 // Maré — aplicativo (Parte 3C). Liga estado, telas, lembretes, clima, celebrações e a nuvem opcional.
 // Toda alteração segue: muda S → save() → afterChange() (lembrete, conquistas, nuvem) → atualiza só o necessário.
 import { ACTIVITY, drink, isWater, mixOn, retired, uid, dayKey, keyToDate, minOf, fmtHM, expectedBy, nextReminderAt, climateBonus, goalToday,
-  missionFor, missionProgress, newAchievements, newInsignias, insigniaDates, insigniaById, streak, buildICS, defaults, migrate } from './core.js';
+  missionFor, missionProgress, newAchievements, medalDates, newInsignias, insigniaDates, insigniaById, streak, buildICS, defaults, migrate } from './core.js';
 import { KEY, S, SOC, ACCT, setS, applyMix, hooks, load, save, clamp, num, plural, byT, shiftYm, today, goalNow, totalNow, otherNow, othersOn, ensureDay,
   syncTodayGoal, allMl, U, vol, toMl, fromMl, big, esc, wait } from './store.js';
 import { $, $$, tween, animBars, onBack, hPush, hBack, toast, hideToast, runToastAction, showBanner, sheetBody, sheetIsOpen, openSheet,
@@ -18,7 +18,7 @@ import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inv
 import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs } from './account.js';
 import { createSheet, signinSheet, resetSheet, resetDoneSheet, deleteSheet } from './account-view.js';
 
-export const APP_VERSION = '1.5.1'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.6.0'; // aumente a cada deploy, junto com VERSION no sw.js
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'friends', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -180,7 +180,7 @@ function finishOb() {
   S.onboarded = true;
   ob = null;
   if (n) hBack(n); // remove as entradas do onboarding: "voltar" na tela Hoje sai do app
-  S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; // quem está começando agora já nasce com tudo: a dica de novidades é só para quem já usava
+  S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; S.ui.tip_news16 = 1; // quem está começando agora já nasce com tudo: a dica de novidades é só para quem já usava
   grantInsignias(false); // a concha (0 L) vem de presente, sem festa
   syncTodayGoal(); save();
   tab = 'today';
@@ -280,6 +280,22 @@ function celebrate(b, keys) {
   newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); pop(a.e, 'Nova medalha', a.t, a.d); });
   if (grantInsignias(true).length) planUnlock(1600);
   save();
+}
+
+/* ---------- medalhas ---------- */
+// Guarda as medalhas que o histórico já cumpre e ainda não estão em S.achievements, SEM festa: backup, outro aparelho, a primeira abertura depois de uma
+// versão com medalhas novas. Cada uma leva a data do dia em que o histórico passou a cumpri-la (medalDates), e não a de hoje. A festa (cartão) é só das
+// medalhas que acabaram de sair de um registro (celebrate). Devolve as medalhas guardadas agora.
+function grantMedals() {
+  const list = newAchievements(S);
+  if (!list.length) return list;
+  const dates = medalDates(S, list);
+  list.forEach((a) => { S.achievements[a.id] = dates[a.id] || Date.now(); });
+  return list;
+}
+// Quem já usava o Maré ganha de uma vez as medalhas novas que merecia, sem uma chuva de cartões: o painel de novidades (news16) conta o que mudou.
+function welcomeMedals() {
+  if (grantMedals().length) save();
 }
 
 /* ---------- insígnias ---------- */
@@ -623,6 +639,7 @@ function applyBackup(s) {
   if (tab !== 'today' && !ob) hBack();
   setS(s);
   ob = null; tab = 'today'; dropSt = null; dropSt2 = null;
+  grantMedals(); // o backup de uma versão antiga não traz as medalhas novas: saem do histórico, sem festa
   grantInsignias(false); // o backup antigo não traz insígnias: saem do histórico, sem festa
   syncTodayGoal(); save(); applyTheme();
   render(); planReminder();
@@ -635,7 +652,7 @@ function applyBackup(s) {
 function mergeBackup(s) {
   const keys = fillDays(s.days);
   keys.forEach(touch); // o dia que o arquivo trouxe passa a ser o mais recente: sobe para a conta e vence nos outros aparelhos
-  newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); }); // conquistas antigas: sem festa
+  grantMedals(); // conquistas antigas: sem festa, datadas pelo dia em que o histórico as cumpriu
   grantInsignias(false);
   if (s.createdAt && (!S.createdAt || s.createdAt < S.createdAt)) S.createdAt = s.createdAt;
   save();
@@ -774,7 +791,7 @@ function fillDays(days) {
 function mergeRemote(days) {
   const keys = fillDays(days);
   if (!keys.length) return;
-  newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); }); // sem festa: são conquistas antigas
+  grantMedals(); // sem festa: são conquistas antigas
   grantInsignias(false);
   save();
   if (keys.indexOf(today()) >= 0) planReminder();
@@ -1328,10 +1345,10 @@ function applyAccount(u, data) {
   clearLocal();
   if (inv) S.ui.invite = inv;
   const plan = restorePlan(data), keys = fillDays(data.days);
-  newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); }); // conquistas antigas: sem festa
+  grantMedals(); // conquistas antigas: sem festa
   grantInsignias(false); // as insígnias dos registros (delas sai o mascote automático)
   const done = applyPlan(S, plan);
-  S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; // quem chega pela conta não precisa da dica de novidades
+  S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; S.ui.tip_news16 = 1; // quem chega pela conta não precisa da dica de novidades
   applyMix();
   setAcct(u);
   if (done) {
@@ -1548,7 +1565,7 @@ const A = {
   ins: (el, d) => { openSheet(insigniaSheet(d.id)); animBars(sheetBody); },
   mascot: (el, d) => setMascot(d.id),
   reef: () => { closeSheet(); go('journey'); },
-  news: () => { S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; save(); refreshPart('tTips'); openSheet(newsSheet()); }, // abrir o painel dispensa o cartão (o de agora e o antigo)
+  news: () => { S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; S.ui.tip_news16 = 1; save(); refreshPart('tTips'); openSheet(newsSheet()); }, // abrir o painel dispensa o cartão (o de agora e os antigos)
   'news-go': () => { closeSheet(); go('journey'); },
   'news-friends': () => { closeSheet(); go('friends'); },
   // amigos
@@ -1724,7 +1741,7 @@ function boot() {
   if (bg) bg.style.cursor = 'pointer'; // sem isso o iOS não entrega o toque no fundo do painel ao listener do document
   curDay = today();
   syncTodayGoal();
-  if (S.onboarded) welcomeInsignias();
+  if (S.onboarded) { welcomeMedals(); welcomeInsignias(); }
   render();
   handleURL();
   registerSW({

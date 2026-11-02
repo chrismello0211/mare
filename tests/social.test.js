@@ -202,7 +202,7 @@ describe('o que vai para a nuvem (profilePayload)', () => {
     S.achievements = { first: 111, s7: 222 }; // as datas não importam, só quem tem: bit 0 (first) e bit 3 (s7)
     expect(SO.profilePayload(S, T).md).toBe(1 + 8);
     C.ACHIEVEMENTS.forEach((a) => { S.achievements[a.id] = 1; });
-    expect(SO.profilePayload(S, T).md).toBe((1 << C.ACHIEVEMENTS.length) - 1); // todas: 4095 com as 12 de hoje
+    expect(SO.profilePayload(S, T).md).toBe((1 << C.ACHIEVEMENTS.length) - 1); // todas: 16777215 (24 bits cheios) com as 24 da 1.6.0
     expect(SO.profilePayload(S, T).md).toBeLessThanOrEqual(SO.MD_MAX);
     S.achievements = { hacker: 1, first: 1 }; // um id que o app não conhece não vira bit
     expect(SO.profilePayload(S, T).md).toBe(1);
@@ -310,8 +310,9 @@ describe('o que chega da nuvem (cleanFriend, cleanRequest)', () => {
     expect(ids({ md: 9, sh: true })).toEqual(['first', 's7']);
     expect(ids({ md: 0, sh: true })).toEqual([]);
     expect(SO.medalsShown({ md: 0, sh: true })).toEqual([]); // vazia não é "não sei": o bloco decide mostrar ou não
-    expect(ids({ md: SO.MD_MAX, sh: true })).toEqual(C.ACHIEVEMENTS.map((a) => a.id)); // bits de medalhas futuras (que este app não conhece) ficam de fora
-    expect(ids({ md: (1 << 20) | 1, sh: true })).toEqual(['first']);
+    expect(ids({ md: SO.MD_MAX, sh: true })).toEqual(C.ACHIEVEMENTS.map((a) => a.id)); // com as 24 medalhas a máscara está cheia: não sobra bit para medalha futura
+    expect(ids({ md: (1 << 20) | 1, sh: true })).toEqual(['first', 'win25']); // o bit 20 é a Mês de ouro (1.6.0): um app antigo (só 12 medalhas) a ignoraria
+    expect(ids({ md: 2 ** 40, sh: true })).toEqual(C.ACHIEVEMENTS.map((a) => a.id)); // passou do teto: vale o teto (o mesmo que cleanFriend faz)
     expect(SO.medalsShown({ md: 5, sh: false })).toBeNull(); // em pausa: mesmo com md no documento, não mostra
     expect(SO.medalsShown({ md: null, sh: true })).toBeNull();
     expect(SO.medalsShown({ sh: true })).toBeNull(); // versão antiga do app: sem o campo

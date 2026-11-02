@@ -41,6 +41,10 @@ const EMAIL = 'ana@exemplo.com', PW = 'Maré-segura-77';
 const MARI = 'marianne@exemplo.com', MARI_PW = 'Senha-da-Mari-1', MARI_UID = 'marianneuid000000000000000001';
 
 const dkey = (n) => { const d = new Date(Date.now() - n * 864e5), p = (x) => (x < 10 ? '0' : '') + x; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
+// a chave do dia local de um instante (ms)
+const keyOfTs = (ts) => { const d = new Date(ts), p = (x) => (x < 10 ? '0' : '') + x; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
+// um dia que bateu a meta (2000 ml, 2200 ml bebidos de uma vez, às 10h), para as medalhas que vêm do histórico
+const metDay = (k, id, u) => { const q = k.split('-'); return { goal: 2000, u: u, entries: [{ id: id, t: new Date(+q[0], +q[1] - 1, +q[2], 10, 0).getTime(), ml: 2200, d: 'water' }] }; };
 // registros que a conta guardava: n dias seguidos (de anteontem para trás), 2,5 L cada um
 const cloudDays = (n) => {
   const o = {};
@@ -109,13 +113,13 @@ test.describe('sem conta', () => {
     await expect(page.getByRole('button', { name: 'Apagar', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Excluir', exact: true })).toHaveCount(0);
     await expect(page.locator('.about')).toContainText('a cópia na nuvem só volta com uma conta'); // sem conta, a cópia na nuvem não ajuda quem perde o aparelho
-    await expect(page.locator('.about')).toContainText('v1.5.1');
+    await expect(page.locator('.about')).toContainText('v1.6.0');
   });
 
   test('a dica da conta vem primeiro, só a partir do segundo dia; dispensar não tira o cartão de Ajustes', async ({ page }) => {
     // um dia só: ainda não há o que perder
     await stubFriendsCloud(page);
-    await seed(page, { todayMl: 500, ui: { tip_account: 0, tip_news15: 0 } });
+    await seed(page, { todayMl: 500, ui: { tip_account: 0, tip_news16: 0 } });
     await page.goto('/');
     await expect(page.locator('.tip')).toContainText('Novidades no Maré');
     await page.evaluate(() => sessionStorage.clear());
@@ -123,7 +127,7 @@ test.describe('sem conta', () => {
     const p2 = await page.context().newPage();
     p2.on('pageerror', (e) => { errors.push(e.message); });
     await stubFriendsCloud(p2);
-    await seed(p2, { history: [2, 1500], todayMl: 500, ui: { tip_account: 0, tip_news15: 0 } });
+    await seed(p2, { history: [2, 1500], todayMl: 500, ui: { tip_account: 0, tip_news16: 0 } });
     await p2.goto('/');
     await expect(p2.locator('.tip')).toHaveCount(1);
     await expect(p2.locator('.tip')).toContainText('Proteja seus dados');
@@ -340,13 +344,35 @@ test.describe('entrar', () => {
     expect(s.social).toMatchObject({ on: true, nick: 'Mari', share: true });
     expect(Object.keys(s.days)).toHaveLength(5);
     expect(s.ui.tip_news12).toBe(1);
-    expect(s.ui.tip_news15).toBe(1); // quem chega pela conta não vê o cartão de novidades
+    expect(s.ui.tip_news15).toBe(1);
+    expect(s.ui.tip_news16).toBe(1); // quem chega pela conta não vê o cartão de novidades
     expect(await hint(page)).toEqual({ uid: MARI_UID, email: MARI, verified: true });
     expect((await acct(page)).user).toMatchObject({ uid: MARI_UID, email: MARI });
     await tabS(page).click();
     await expect(page.locator('.acct-email')).toHaveText(MARI);
     await expect(page.locator('.group', { has: page.locator('.acct-email') })).toContainText('E-mail confirmado');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  });
+
+  test('aparelho novo: as medalhas que os registros da conta já cumprem entram em silêncio, com a data em que foram merecidas', async ({ page }) => {
+    // 4 dias seguidos na meta, às 10h (de 5 a 2 dias atrás): Primeira gota, Na mosca, Antes do pôr do sol e Pegando o ritmo já eram dela
+    const days = {};
+    [5, 4, 3, 2].forEach((n) => { days[dkey(n)] = metDay(dkey(n), 'm' + n, Date.now() - n * 864e5); });
+    const users = {}; users[MARI] = account({ cloud: Object.assign({}, account().cloud, { days: days }) });
+    await openFresh(page, users);
+    await page.getByRole('button', { name: 'Entrar na conta' }).click();
+    await fill(page, MARI, MARI_PW);
+    await primary(page).click();
+    await expect(toast(page)).toContainText('4 dias de registros voltaram');
+    await expect(page.locator('#tabbar')).toBeVisible();
+    await expect(page.locator('.medal-pop')).toHaveCount(0); // sem chuva de cartões: são conquistas antigas
+    const s = await stored(page);
+    const got = Object.keys(s.achievements);
+    ['first', 'goal', 'sunset', 's3'].forEach((id) => { expect(got, 'medalha ' + id).toContain(id); });
+    expect(got).not.toContain('s7'); // só 4 dias seguidos
+    expect(keyOfTs(s.achievements.first)).toBe(dkey(5)); // a data de cada uma é a do dia em que o histórico passou a cumpri-la
+    expect(keyOfTs(s.achievements.goal)).toBe(dkey(5));
+    expect(keyOfTs(s.achievements.s3)).toBe(dkey(3));
   });
 
   test('conta criada pelo administrador (sem ajustes salvos): os registros voltam e o onboarding vem preenchido', async ({ page }) => {
@@ -1072,6 +1098,43 @@ test.describe('com conta', () => {
     await importar();
     await sheet(page).getByRole('button', { name: 'Juntar' }).click();
     await expect(toast(page)).toContainText('Nada novo no arquivo');
+  });
+
+  test('com conta, "Importar" também traz as medalhas que os dias do arquivo cumprem, em silêncio e com a data de cada dia', async ({ page }) => {
+    await withAccount(page, null, { verified: true });
+    await page.goto('/');
+    await tabS(page).click();
+    const before = await stored(page);
+    expect(before.achievements.first).toBeTruthy(); // os 3 dias do aparelho (2 L, meta de 2,8 L) deram a Primeira gota, mas não bateram a meta
+    expect(before.achievements.goal).toBeUndefined();
+    const days = {};
+    [12, 11, 10].forEach((n) => { days[dkey(n)] = metDay(dkey(n), 'f' + n, 5); }); // 3 dias seguidos na meta, às 10h, que o aparelho não tem
+    const backup = { app: 'mare', v: 1, data: { v: 1, onboarded: true, profile: { name: 'Outra Pessoa', weight: 99, theme: 'dark' }, days: days } };
+    const file = { name: 'mare-backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) };
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'Importar' }).click()]);
+    await chooser.setFiles(file);
+    await sheet(page).getByRole('button', { name: 'Juntar' }).click();
+    await expect(toast(page)).toContainText('3 dias do backup entraram na sua conta');
+    await expect(page.locator('.medal-pop')).toHaveCount(0);
+    const s = await stored(page);
+    expect(keyOfTs(s.achievements.goal)).toBe(dkey(12)); // Na mosca: o primeiro dos 3 dias
+    expect(keyOfTs(s.achievements.s3)).toBe(dkey(10)); // Pegando o ritmo: o terceiro
+    expect(s.achievements.first).toBe(before.achievements.first); // as que já havia ficam como estavam
+  });
+
+  test('dias de outro aparelho da mesma conta chegam com o app aberto: as medalhas que eles cumprem entram em silêncio, com a data de cada dia', async ({ page }) => {
+    await withAccount(page, null, { verified: true });
+    await page.goto('/');
+    await page.waitForFunction(() => !!(window.__acct && window.__acct.hooks && window.__acct.hooks.onRemote)); // a nuvem de mentira já subiu
+    expect((await stored(page)).achievements.goal).toBeUndefined();
+    const days = {};
+    [12, 11, 10].forEach((n) => { days[dkey(n)] = metDay(dkey(n), 'r' + n, Date.now() - 5000); });
+    await page.evaluate((d) => window.__acct.hooks.onRemote(d), days);
+    await expect(page.locator('.medal-pop')).toHaveCount(0);
+    const s = await stored(page);
+    expect(keyOfTs(s.achievements.goal)).toBe(dkey(12));
+    expect(keyOfTs(s.achievements.s3)).toBe(dkey(10));
+    expect(Object.keys(s.days)).toEqual(expect.arrayContaining([dkey(12), dkey(11), dkey(10)]));
   });
 
   test('sem conta, "Importar" continua substituindo os dados do aparelho (o aviso é outro)', async ({ page }) => {

@@ -197,7 +197,7 @@ test('desbloquear: o fundo do painel e o "voltar" também contam como "visto"', 
 });
 
 test('quem já usava o Maré ganha as insígnias de uma vez e só a mais alta é comemorada', async ({ page }) => {
-  await seed(page, { history: [26, 2500], ui: { tip_news15: 0 }, medals: true }); // 65 L e nenhuma insígnia guardada (estado da versão 1.0.x)
+  await seed(page, { history: [26, 2500], ui: { tip_news16: 0 }, medals: true }); // 65 L e nenhuma insígnia guardada (estado da versão 1.0.x)
   await page.goto('/');
   await expect(page.locator('#tTips')).toContainText('Novidades no Maré');
   await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Nova insígnia!', { timeout: 9000 });
@@ -216,7 +216,8 @@ test('quem já usava o Maré ganha as insígnias de uma vez e só a mais alta é
   await sheetOf(page).getByRole('button', { name: 'Depois' }).click();
   await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
   const after = (await stored(page)).ui;
-  expect(after.tip_news15).toBe(1); // abrir o painel dispensou o cartão para sempre (e o da versão antiga também)
+  expect(after.tip_news16).toBe(1); // abrir o painel dispensou o cartão para sempre (e os das versões antigas também)
+  expect(after.tip_news15).toBe(1);
   expect(after.tip_news12).toBe(1);
 });
 

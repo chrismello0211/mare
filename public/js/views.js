@@ -6,8 +6,9 @@
 //  • Painel de registro: #eMl, #eTime, #eErr. Onboarding: #obName, #obWeight, #obWake, #obSleep, #obGoal (data-total), #obDrop.
 //  • "Hoje" é montado em partes com id (TODAY_PARTS) para atualizar sem redesenhar a gota (#drop).
 //  • Barras com data-w crescem via ui.animBars; a gota enche via ui.dropTo(el, total, meta, dropOpts(total, meta)).
-import { WATERS, OTHERS, ACTIVITY, INSIGNIAS, ACHIEVEMENTS, drink, isOther, dayTotal, dayOther, otherCounted, mixOn, isMet, calcGoal, goalToday, expectedBy,
-  dayWindow, streak, bestStreak, insigniaById, unlockedInsignias, mascotOf, reefFor, missionFor, missionProgress, stats, insights, dayKey, keyToDate,
+import { WATERS, OTHERS, ACTIVITY, INSIGNIAS, ACHIEVEMENTS, MEDAL_GROUPS, MEDALS_1_5, PATTERN_MIN, achievementById, context, medalProgress, nearestMedal, patterns,
+  drink, isOther, dayTotal, dayOther, otherCounted, mixOn, isMet, calcGoal, goalToday, expectedBy,
+  dayWindow, streak, bestStreak, insigniaById, unlockedInsignias, mascotOf, reefFor, missionFor, missionProgress, stats, dayKey, keyToDate,
   addDays, minOf, fmtHM, fmtNum } from './core.js';
 import { S, ACCT, esc, clamp, plural, byT, p2, cap, MONTHS, today, longDate, shortDate, relDay, goalNow, totalNow, otherNow, othersOn, allMl,
   firstName, U, vol, unitL, fromMl, big, compact, presets } from './store.js';
@@ -79,11 +80,12 @@ function tipsHTML() {
   // Conta (1.3.0): a dica mais importante vai primeiro. Só aparece a partir do segundo dia de uso (quem acabou de chegar ainda não tem o que perder)
   // e some para sempre se for dispensada: o cartão em Ajustes continua lá. Quem já tem conta, ou perdeu o login e vê o aviso em Ajustes, não vê a dica.
   if (!ACCT.on && !ACCT.ended && !ui.tip_account && Object.keys(S.days).length >= 2) return accountTip();
-  // Novidades (1.5.0): um cartão que aparece uma vez para quem já usava o Maré. Abrir o painel ou dispensar o cartão o apaga para sempre (tip_news15).
-  // Quem está começando agora, ou chega por uma conta, já nasce com ele dispensado. O de antes (tip_news12, versão 1.2) não volta mais.
-  if (!ui.tip_news15) {
+  // Novidades (1.6.0): um cartão que aparece uma vez para quem já usava o Maré. Abrir o painel ou dispensar o cartão o apaga para sempre (tip_news16).
+  // Quem está começando agora, ou chega por uma conta, já nasce com ele dispensado. Os de antes (tip_news12, da 1.2, e tip_news15, da 1.5) não voltam mais:
+  // o painel de agora traz também as novidades da 1.5.0, para quem pulou direto para esta versão.
+  if (!ui.tip_news16) {
     const crew = !!(S.social && S.social.on && S.social.share !== false);
-    return tip('news15', '🐚', 'Novidades no Maré', 'O recife ganhou cinco bichinhos e agora vai até 2.000 L.' + (crew ? ' Suas medalhas também passam a aparecer para a turma.' : ''),
+    return tip('news16', '🏅', 'Novidades no Maré', 'Agora são 24 medalhas, cada uma com o quanto falta, e os seus padrões ganharam gráficos.' + (crew ? ' As medalhas novas também aparecem para a turma.' : ''),
       ['news', 'Ver as novidades']);
   }
   if (!isStandalone() && !isNative() && !ui.tip_install && (canInstall() || ios || isAndroid())) {
@@ -270,11 +272,83 @@ function reefTile(x, mine, mas) {
     '" aria-label="' + x.n + ', ' + (on ? 'conquistada em ' + shortDate(ts) : 'bloqueada, desbloqueia com ' + big(x.at * 1000)) + '">' +
     badge(x.id, { size: 0, locked: !on }) + '<b>' + x.n + '</b><small>' + (on ? shortDate(ts) : big(x.at * 1000)) + '</small></button>';
 }
+const bar = (v, label) => '<div class="bar" role="progressbar" aria-label="' + label + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + v +
+  '"><i data-w="' + v + '"></i></div>';
+// "faltam 3 dias", "falta 1 fim de semana": as unidades das medalhas vêm no plural (core.js), aqui se acerta o singular
+const SING = { dias: 'dia', 'missões': 'missão', 'fins de semana': 'fim de semana' };
+const leftText = (n, unit) => (n === 1 ? 'falta 1 ' + (SING[unit] || unit) : 'faltam ' + n + ' ' + unit);
+const insRows = (list) => '<div class="ins-list">' + list.map((x) => '<div class="ins"><span class="em" aria-hidden="true">' + x.e + '</span><p>' + x.t + '</p></div>').join('') + '</div>';
+const hr = (h) => h + 'h';
+const WDN = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'], WDL = ['domingos', 'segundas', 'terças', 'quartas', 'quintas', 'sextas', 'sábados'];
+
+// "Seu ritmo no dia": a água de cada hora (as 2 últimas semanas somadas), com a janela de 3 h mais seca e a de mais água atrás das colunas
+function rhythmHTML(r) {
+  const n = r.v.length, win = (a) => a >= r.from && a + 3 <= r.from + n; // a janela cabe no gráfico
+  const band = (a, cls) => (win(a) ? '<span class="rh-band ' + cls + '" style="left:' + ((a - r.from) / n * 100).toFixed(2) + '%;width:' + (300 / n).toFixed(2) + '%"></span>' : '');
+  let cols = '', xs = '';
+  r.v.forEach((v, i) => {
+    const h = r.from + i;
+    cols += '<span class="rh-b"><i data-p="height" data-w="' + (v > 0 ? Math.max(5, Math.round((v / r.max) * 100)) : 0) + '"></i></span>';
+    xs += '<span class="rh-x">' + (h % 3 === 0 ? '<b>' + hr(h) + '</b>' : '') + '</span>';
+  });
+  const dry = win(r.dry), pk = r.peak >= 0 && win(r.peak);
+  const sum = 'Água por hora do dia, nas últimas 2 semanas.' + (pk ? ' Mais água das ' + hr(r.peak) + ' às ' + hr(r.peak + 3) + '.' : '') +
+    (dry ? ' Período mais seco das ' + hr(r.dry) + ' às ' + hr(r.dry + 3) + '.' : '');
+  return '<div class="rh" role="img" aria-label="' + sum + '"><div class="rh-plot" aria-hidden="true">' + band(r.dry, 'dry') + (pk ? band(r.peak, 'pk') : '') + cols +
+    '</div><div class="rh-xs" aria-hidden="true">' + xs + '</div>' +
+    (dry || pk ? '<div class="rh-leg" aria-hidden="true">' + (dry ? '<span><i class="dry"></i>Mais seco, ' + hr(r.dry) + ' às ' + hr(r.dry + 3) + '</span>' : '') +
+      (pk ? '<span><i class="pk"></i>Mais água, ' + hr(r.peak) + ' às ' + hr(r.peak + 3) + '</span>' : '') + '</div>' : '') + '</div>';
+}
+// "Sua semana": a média da meta em cada dia da semana (domingo primeiro, como o calendário), com a mesma cara do gráfico do Histórico
+function weekHTML(w) {
+  const top = Math.max(1, Math.max.apply(null, w.cols.map((c) => c.avg || 0))), max = top / 0.82;
+  const cols = w.cols.map((c) => {
+    const has = c.avg != null, pc = has ? Math.round(c.avg * 100) : 0;
+    return '<div class="wk-col' + (has && c.avg >= 1 ? ' met' : '') + (c.wd === w.best ? ' best' : '') + '" role="img" aria-label="' + cap(WDL[c.wd]) + ': ' +
+      (has ? 'em média ' + pc + '% da meta, em ' + plural(c.n, 'dia', 'dias') : 'sem registros') + '"><span class="wk-val" aria-hidden="true">' + (has ? pc + '%' : '') +
+      '</span><span class="wk-bar" aria-hidden="true" data-p="height" data-w="' + (has ? Math.round((c.avg / max) * 100) : 0) + '"><i></i></span></div>';
+  }).join('');
+  const labels = w.cols.map((c) => '<span' + (c.wd === w.best ? ' class="on"' : '') + '>' + WDN[c.wd] + '</span>').join('');
+  return '<div class="wk-plot sm"><div class="wk-grid" aria-hidden="true"><div class="wk-goal" style="bottom:' + Math.round((1 / max) * 100) + '%"><span>meta</span></div></div>' +
+    cols + '</div><div class="wk-labels" aria-hidden="true">' + labels + '</div>';
+}
+// "Seus padrões": o resumo, o ritmo do dia e a semana, cada um num cartão. Menos de PATTERN_MIN dias de água: só o convite, com quantos já há.
+function patternsHTML(pt) {
+  if (!pt.ready) {
+    return '<section class="card">' + empty('🔍', 'Registre água em pelo menos ' + PATTERN_MIN + ' dias e o Maré revela seus padrões: horário mais seco, melhor dia da semana e mais.' +
+      (pt.n ? ' Você já tem ' + pt.n + ' de ' + PATTERN_MIN + '.' : '')) + '</section>';
+  }
+  return '<section class="card">' + insRows(pt.sum) + '</section>' +
+    '<section class="card"><div class="card-h"><h3 class="pt-h">Seu ritmo no dia</h3><small>últimas 2 semanas</small></div>' + (pt.day.rhythm ? rhythmHTML(pt.day.rhythm) : '') + insRows(pt.day.texts) + '</section>' +
+    '<section class="card"><div class="card-h"><h3 class="pt-h">Sua semana</h3><small>média da meta</small></div>' + weekHTML(pt.week) + (pt.week.texts.length ? insRows(pt.week.texts) : '') + '</section>';
+}
+// A medalha que falta e está mais perto, no mesmo desenho da missão do dia
+function nearHTML(near) {
+  if (!near) return '';
+  const a = near.a;
+  return '<section class="card mission near" aria-label="Medalha mais próxima"><div class="m-ico" aria-hidden="true">' + a.e + '</div><div class="m-body">' +
+    '<span class="m-k">Mais perto de conquistar</span><span class="m-t">' + a.t + ': ' + leftText(near.need - near.have, near.unit) + '</span>' +
+    bar(near.pct, 'Progresso até a medalha ' + a.t) + '<span class="m-d">' + a.d + '</span></div></section>';
+}
+// Uma medalha: conquistada (com a data) ou bloqueada (com quanto já foi, quando ela tem andamento)
+function medalTile(a, got, c) {
+  const ts = got[a.id], head = '<span class="em" aria-hidden="true">' + a.e + '</span><b>' + a.t + '</b><small>' + a.d + '</small>';
+  if (ts) return '<div class="medal">' + head + '<em>' + shortDate(ts) + '</em></div>';
+  const pr = medalProgress(a, c);
+  return '<div class="medal off">' + head + (pr
+    ? '<span class="mprog" aria-hidden="true"><i data-w="' + pr.pct + '"></i></span><span class="mprog-t"><span class="sr">Ainda não conquistada: </span>' + pr.have + ' de ' + pr.need + ' ' + pr.unit + '</span>'
+    : '<span class="sr">Ainda não conquistada</span>') + '</div>';
+}
+// As medalhas por grupo (MEDAL_GROUPS, em core.js): do mais simples ao mais difícil dentro de cada um
+function medalsHTML(got, c) {
+  return MEDAL_GROUPS.map((g) => {
+    const list = g.ids.map(achievementById).filter(Boolean), n = list.filter((a) => got[a.id]).length;
+    return '<div class="mg-h"><h3>' + g.t + '</h3><small>' + n + ' de ' + list.length + '</small></div><div class="medals">' + list.map((a) => medalTile(a, got, c)).join('') + '</div>';
+  }).join('');
+}
 export function journeyView() {
-  const tot = allMl(), rf = reefFor(S, tot), got = S.achievements || {}, ins = insights(S, today(), S.profile), mine = S.insignias || {}, mas = mascotOf(S);
+  const tot = allMl(), rf = reefFor(S, tot), got = S.achievements || {}, pt = patterns(S, today(), S.profile), mine = S.insignias || {}, mas = mascotOf(S), ctx = context(S);
   const n = ACHIEVEMENTS.filter((a) => got[a.id]).length, mis = Object.keys(S.missions || {}).length, pct = Math.round(rf.p * 100);
-  const bar = (v, label) => '<div class="bar" role="progressbar" aria-label="' + label + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + v +
-    '"><i data-w="' + v + '"></i></div>';
   return '<header class="page-h"><h1 class="h1">Jornada</h1><p class="eyebrow">Cada gole te leva mais longe</p></header>' +
     '<section class="level"><span class="lv-b">' + badge(rf.cur.id, { size: 132, label: rf.cur.n, cls: 'float' }) + '</span>' +
     '<p class="lv-k">Insígnia ' + (rf.i + 1) + ' de ' + INSIGNIAS.length + '</p><p class="lv-n">' + rf.cur.n + '</p>' +
@@ -285,16 +359,9 @@ export function journeyView() {
     '<br>' + big(tot) + ' de água · ' + plural(mis, 'missão cumprida', 'missões cumpridas') + '</p></section>' +
     '<div class="card-h out"><h2>Seu recife</h2><small>' + rf.have + ' de ' + INSIGNIAS.length + '</small></div>' +
     '<section class="reef" aria-label="Insígnias">' + INSIGNIAS.map((x) => reefTile(x, mine, mas)).join('') + '</section>' +
-    '<div class="card-h out"><h2>Seus padrões</h2><small>últimas 4 semanas</small></div><section class="card">' + (ins.length
-      ? '<div class="ins-list">' + ins.map((x) => '<div class="ins"><span class="em" aria-hidden="true">' + x.e + '</span><p>' + x.t + '</p></div>').join('') + '</div>'
-      : empty('🔍', 'Registre por pelo menos 4 dias e o Maré revela seus padrões: horário mais seco, melhor dia da semana e mais.')) + '</section>' +
-    '<div class="card-h out"><h2>Medalhas</h2><small>' + n + ' de ' + ACHIEVEMENTS.length + '</small></div><div class="medals">' +
-    ACHIEVEMENTS.map((a) => {
-      const ts = got[a.id];
-      return '<div class="medal' + (ts ? '' : ' off') + '"><span class="em" aria-hidden="true">' + a.e + '</span><b>' + a.t + '</b><small>' + a.d + '</small>' +
-        (ts ? '<em>' + shortDate(ts) + '</em>' : '<span class="sr">Ainda não conquistada</span>') + '</div>';
-    }).join('') + '</div><button class="btn block ghost mt" type="button" data-action="share">' + shareIco() +
-    '<span style="margin-left:8px">Compartilhar meu progresso</span></button>';
+    '<div class="card-h out"><h2>Seus padrões</h2><small>últimas 4 semanas</small></div>' + patternsHTML(pt) +
+    '<div class="card-h out"><h2>Medalhas</h2><small>' + n + ' de ' + ACHIEVEMENTS.length + '</small></div>' + nearHTML(nearestMedal(S, ctx)) + medalsHTML(got, ctx) +
+    '<button class="btn block ghost mt" type="button" data-action="share">' + shareIco() + '<span style="margin-left:8px">Compartilhar meu progresso</span></button>';
 }
 // Painel de uma insígnia (toque no recife). Conquistada: curiosidade e "usar como mascote". Bloqueada: quanto falta.
 export function insigniaSheet(id) {
@@ -325,21 +392,22 @@ export function unlockSheet(id) {
     (S.social && S.social.on && S.social.share !== false ? '<p class="note">Seus amigos vão ver essa insígnia no seu perfil.</p>' : '') +
     '<div class="btns">' + btn('close-sheet', 'Que legal!') + btn('reef', 'Ver meu recife', 'ghost') + '</div></div>';
 }
-// Novidades do Maré (o cartão da tela Hoje abre este painel). 1.5.0: o que há de novo vem primeiro; o das versões 1.1 e 1.2 fica numa seção embaixo.
+// Novidades do Maré (o cartão da tela Hoje abre este painel). 1.6.0: o que há de novo vem primeiro; o da 1.5.0 e o das versões 1.1 e 1.2 ficam na seção de baixo.
 export function newsSheet() {
   const have = unlockedInsignias(S).length, ni = (e, b, t) => '<div class="news-i"><span class="em" aria-hidden="true">' + e + '</span><div><b>' + b + '</b><p>' + t + '</p></div></div>';
-  const crew = !!(S.social && S.social.on);
+  const crew = !!(S.social && S.social.on && S.social.share !== false), got = S.achievements || {}; // com o progresso escondido, a turma não vê as medalhas
+  const fresh = ACHIEVEMENTS.slice(MEDALS_1_5).filter((a) => got[a.id]).length, added = ACHIEVEMENTS.length - MEDALS_1_5;
   return sheetHead('Novidades do Maré') +
+    ni('🏅', added + ' medalhas novas', 'Agora são ' + ACHIEVEMENTS.length + ': sequências de 60 e 100 dias, metas em 30 e 100 dias, rotina do dia, fins de semana firmes e até uma para o Dia Mundial da Água. ' +
+      (fresh ? 'Você já conquistou ' + fresh + ' das novas, com a data em que as merecia. ' : '') + (crew ? 'Elas também aparecem no seu perfil para a turma.' : 'Veja o que cada uma pede, na Jornada.')) +
+    ni('🎯', 'Quanto falta', 'Cada medalha que ainda não saiu mostra quanto você já andou, e a que está mais perto de sair ganha um cartão na Jornada.') +
+    ni('📊', 'Seus padrões com gráficos', 'A água de cada hora do dia mostra o seu período mais seco, e a semana mostra como vai cada dia. Aparecem depois de 4 dias de registro.') +
+    '<p class="news-h">Das versões anteriores</p>' +
     '<div class="news-i">' + badge('orca', { size: 48 }) + '<div><b>Mais cinco bichinhos no recife</b><p>Arraia-manta, orca, peixe-pescador, lula-gigante e a pérola entraram na coleção, que agora vai até 2.000 L de água. ' +
     (have > 1 ? 'Você já tem ' + have + ' de ' + INSIGNIAS.length + '.' : 'Você começa com a concha.') + '</p></div></div>' +
-    ni('🏅', 'Medalhas para a turma', crew
-      ? 'As medalhas que você conquistou agora aparecem no seu perfil para a turma, e você vê as dos seus amigos no perfil deles. Elas vão junto com o progresso do dia: com ele desligado, as suas ficam só com você.'
-      : 'Quem está na turma passa a ver as medalhas uns dos outros no perfil, junto com o progresso do dia. Cada um decide se mostra: é a mesma chave do progresso, em Ajustes.') +
-    '<p class="news-h">Das versões anteriores</p>' +
     ni('🏆', 'Uma turma, um ranking', 'Os amigos agora formam uma turma só: todo mundo vê todo mundo, com ranking do dia, da semana e da sequência. Cada um decide o que mostra, e a meta em ml só aparece se você deixar.') +
     ni('🔔', 'Avisos mais espertos', 'Os avisos respeitam seu horário de sono. Dá para escolher saber quando um amigo bate a meta e receber o resumo da semana da turma no domingo.') +
-    ni('🔢', 'Sem número no ícone', 'O número que aparecia no ícone era a conta de copos que faltavam, e parecia notificação. Ele saiu.') +
-    '<div class="btns stk">' + btn('news-friends', 'Conhecer a turma') + btn('news-go', 'Ver meu recife', 'ghost') + btn('close-sheet', 'Depois', 'ghost') + '</div>';
+    '<div class="btns stk">' + btn('news-go', 'Ver minhas medalhas') + btn('news-friends', 'Conhecer a turma', 'ghost') + btn('close-sheet', 'Depois', 'ghost') + '</div>';
 }
 export function shareText() {
   const st = streak(S.days, today()), m = mascotOf(S);

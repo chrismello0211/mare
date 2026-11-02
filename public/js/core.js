@@ -236,53 +236,147 @@ export const missionFor = (k) => MISSIONS[hash(k) % MISSIONS.length];
 export const missionProgress = (k, day, goal) => Math.min(1, missionFor(k).p((day && day.entries) || [], goal || 2000));
 
 /* ---------- conquistas ---------- */
+// A ORDEM desta lista é um contrato (ver medalMask): cada medalha é um bit do perfil que a turma vê, e medalha nova entra só NO FIM (as 12 primeiras
+// são da 1.0 a 1.5; as de 1.6.0 em diante vêm depois). A Jornada mostra por grupo (MEDAL_GROUPS), então a ordem da tela não segue a do bit.
+// p (opcional) = o andamento de quem ainda não a tem: [quanto já fez, quanto precisa, unidade]; sem p, a medalha é "tudo ou nada" e a
+// Jornada não mostra quanto falta. test e p olham o contexto de context(): as duas contas têm que concordar (tests/core.test.js confere).
 export const ACHIEVEMENTS = [
   { id: 'first', e: '💧', t: 'Primeira gota', d: 'Fez o primeiro registro', test: (c) => c.entries >= 1 },
   { id: 'goal', e: '🎯', t: 'Na mosca', d: 'Bateu a meta pela 1ª vez', test: (c) => c.daysMet >= 1 },
-  { id: 's3', e: '🔥', t: 'Pegando o ritmo', d: '3 dias seguidos na meta', test: (c) => c.best >= 3 },
-  { id: 's7', e: '🌊', t: 'Semana fluida', d: '7 dias seguidos na meta', test: (c) => c.best >= 7 },
-  { id: 's14', e: '💎', t: 'Quinzena firme', d: '14 dias seguidos na meta', test: (c) => c.best >= 14 },
-  { id: 's30', e: '🏆', t: 'Maré alta', d: '30 dias seguidos na meta', test: (c) => c.best >= 30 },
+  { id: 's3', e: '🔥', t: 'Pegando o ritmo', d: '3 dias seguidos na meta', p: (c) => [c.best, 3, 'dias'], test: (c) => c.best >= 3 },
+  { id: 's7', e: '🌊', t: 'Semana fluida', d: '7 dias seguidos na meta', p: (c) => [c.best, 7, 'dias'], test: (c) => c.best >= 7 },
+  { id: 's14', e: '💎', t: 'Quinzena firme', d: '14 dias seguidos na meta', p: (c) => [c.best, 14, 'dias'], test: (c) => c.best >= 14 },
+  { id: 's30', e: '🏆', t: 'Maré alta', d: '30 dias seguidos na meta', p: (c) => [c.best, 30, 'dias'], test: (c) => c.best >= 30 },
   { id: 'early', e: '🌅', t: 'Madrugador', d: '500 ml de água antes das 9h', test: (c) => c.early },
   { id: 'sunset', e: '🌇', t: 'Antes do pôr do sol', d: 'Meta batida antes das 18h', test: (c) => c.sunset },
   { id: 'mission', e: '🧭', t: 'Missão cumprida', d: 'Completou uma missão do dia', test: (c) => c.missions >= 1 },
-  { id: 'm10', e: '🗺️', t: 'Explorador', d: '10 missões completas', test: (c) => c.missions >= 10 },
+  { id: 'm10', e: '🗺️', t: 'Explorador', d: '10 missões completas', p: (c) => [c.missions, 10, 'missões'], test: (c) => c.missions >= 10 },
   { id: 'weekend', e: '🏖️', t: 'Fim de semana em dia', d: 'Meta no sábado e no domingo', test: (c) => c.weekend },
-  { id: 'd10', e: '🎖️', t: 'Dez na meta', d: 'Meta batida em 10 dias, seguidos ou não', test: (c) => c.daysMet >= 10 },
+  { id: 'd10', e: '🎖️', t: 'Dez na meta', d: 'Meta batida em 10 dias, seguidos ou não', p: (c) => [c.daysMet, 10, 'dias'], test: (c) => c.daysMet >= 10 },
+  // 1.6.0: os bits 12 a 23
+  { id: 's60', e: '🌕', t: 'Maré viva', d: '60 dias seguidos na meta', p: (c) => [c.best, 60, 'dias'], test: (c) => c.best >= 60 },
+  { id: 's100', e: '🔱', t: 'Lenda da maré', d: '100 dias seguidos na meta', p: (c) => [c.best, 100, 'dias'], test: (c) => c.best >= 100 },
+  { id: 'd30', e: '🏅', t: 'Trinta na meta', d: 'Meta batida em 30 dias, seguidos ou não', p: (c) => [c.daysMet, 30, 'dias'], test: (c) => c.daysMet >= 30 },
+  { id: 'd100', e: '💯', t: 'Cem na meta', d: 'Meta batida em 100 dias, seguidos ou não', p: (c) => [c.daysMet, 100, 'dias'], test: (c) => c.daysMet >= 100 },
+  { id: 'm30', e: '⛵', t: 'Navegador', d: '30 missões completas', p: (c) => [c.missions, 30, 'missões'], test: (c) => c.missions >= 30 },
+  { id: 'early7', e: '🌄', t: 'Alvorada', d: '500 ml de água antes das 9h, em 7 dias', p: (c) => [c.earlyDays, 7, 'dias'], test: (c) => c.earlyDays >= 7 },
+  { id: 'sunset5', e: '⏳', t: 'Relógio da maré', d: 'Meta batida antes das 18h, em 5 dias', p: (c) => [c.sunsetDays, 5, 'dias'], test: (c) => c.sunsetDays >= 5 },
+  { id: 'thirds7', e: '🌗', t: 'Dia redondo', d: 'Água de manhã, tarde e noite, em 7 dias', p: (c) => [c.thirdsDays, 7, 'dias'], test: (c) => c.thirdsDays >= 7 },
+  { id: 'win25', e: '🥇', t: 'Mês de ouro', d: 'Meta batida em 25 de 30 dias corridos', p: (c) => [c.win30, 25, 'dias'], test: (c) => c.win30 >= 25 },
+  { id: 'back', e: '🏄', t: 'Volta por cima', d: 'Bateu a meta depois de 3 dias sem bater', test: (c) => c.back },
+  { id: 'weekends4', e: '🏝️', t: 'Fins de semana firmes', d: 'Sábado e domingo na meta, 4 vezes', p: (c) => [c.weekends, 4, 'fins de semana'], test: (c) => c.weekends >= 4 },
+  { id: 'wwd', e: '🌍', t: 'Dia Mundial da Água', d: 'Água registrada em 22 de março', test: (c) => c.wwd },
+];
+export const MEDALS_1_5 = 12; // quantas medalhas já existiam até a 1.5.x: as do índice 12 em diante chegaram na 1.6.0
+export const achievementById = (id) => { for (let i = 0; i < ACHIEVEMENTS.length; i++) if (ACHIEVEMENTS[i].id === id) return ACHIEVEMENTS[i]; return null; };
+// Como a Jornada agrupa as medalhas (do mais simples ao mais difícil dentro de cada grupo). Só a tela usa isto: o bit de cada medalha segue a ordem de ACHIEVEMENTS.
+// tests/core.test.js confere que toda medalha aparece em exatamente um grupo.
+export const MEDAL_GROUPS = [
+  { t: 'Começos e missões', ids: ['first', 'goal', 'mission', 'm10', 'm30'] },
+  { t: 'Sequências', ids: ['s3', 's7', 's14', 's30', 's60', 's100'] },
+  { t: 'Metas batidas', ids: ['d10', 'd30', 'd100', 'win25', 'back'] },
+  { t: 'Rotina do dia', ids: ['early', 'early7', 'sunset', 'sunset5', 'thirds7'] },
+  { t: 'Fins de semana e datas', ids: ['weekend', 'weekends4', 'wwd'] },
 ];
 
+/* Fatos de um dia para as medalhas. goal = day.goal || 2000; hit = o minuto do dia em que a meta foi batida (-1 = não bateu), com a mesma regra de
+   isMet (água, mais os outros líquidos até o limite, se "somar na meta" estiver ligado). first = minuto do primeiro registro de água (-1 = nenhum);
+   morning / m10 = água antes das 9h / das 10h; parts = em quantos terços do dia (manhã, tarde, noite) houve água. */
+function dayFact(day, k) {
+  const g = day.goal || 2000, cap = mixCap(g), es = (day.entries || []).slice().sort((a, b) => a.t - b.t), seen = {};
+  let cum = 0, oth = 0, morning = 0, m10 = 0, hit = -1, first = -1, n = 0, parts = 0;
+  es.forEach((e) => {
+    const v = eff(e), m = minOf(e.t);
+    if (v) {
+      cum += v; n++;
+      if (m < 540) morning += v;
+      if (m < 600) m10 += v;
+      if (first < 0 || m < first) first = m;
+      const part = m < 720 ? 0 : m < 1080 ? 1 : 2;
+      if (!seen[part]) { seen[part] = 1; parts++; }
+    } else oth += otherMl(e);
+    if (hit < 0 && cum + (MIX ? Math.min(oth, cap) : 0) >= g) hit = m;
+  });
+  return { k: k, cum: cum, n: n, morning: morning, m10: m10, hit: hit, first: first, parts: parts };
+}
+const dayFacts = (S) => Object.keys(S.days).sort().map((k) => dayFact(S.days[k], k));
+const dnum = (k) => { const p = k.split('-'); return Math.round(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 864e5); }; // o dia como um número inteiro (sem fuso nem horário de verão)
+
+// O que as medalhas olham, somado de todos os dias até upTo (uma chave de dia; sem ele, o histórico inteiro). missionKeys = os dias das missões cumpridas.
+function contextFrom(facts, upTo, missionKeys) {
+  let totalMl = 0, entries = 0, earlyDays = 0, sunsetDays = 0, thirdsDays = 0, wwd = false;
+  const met = [];
+  facts.forEach((f) => {
+    if (upTo && f.k > upTo) return;
+    totalMl += f.cum; entries += f.n;
+    if (f.morning >= 500) earlyDays++;
+    if (f.parts === 3) thirdsDays++;
+    if (f.n && f.k.slice(5) === '03-22') wwd = true; // 22 de março, o Dia Mundial da Água
+    if (f.hit >= 0) { met.push(dnum(f.k)); if (f.hit < 1080) sunsetDays++; }
+  });
+  // sequências, janela de 30 dias, "volta por cima" e fins de semana saem da lista (em ordem) dos dias de meta
+  let best = 0, run = 0, win30 = 0, weekends = 0, back = false, i = 0;
+  for (let j = 0; j < met.length; j++) {
+    run = j && met[j] - met[j - 1] === 1 ? run + 1 : 1;
+    if (run > best) best = run;
+    if (j && met[j] - met[j - 1] >= 4) back = true; // pelo menos 3 dias sem meta entre uma meta e a seguinte
+    while (met[j] - met[i] > 29) i++; // a janela vai de i a j: no máximo 30 dias do calendário
+    if (j - i + 1 > win30) win30 = j - i + 1;
+    if ((((met[j] + 4) % 7) + 7) % 7 === 6 && met[j + 1] === met[j] + 1) weekends++; // sábado (o dia 0 do calendário, 1/1/1970, foi quinta) e o domingo seguinte, os dois na meta
+  }
+  const missions = upTo ? missionKeys.filter((k) => k <= upTo).length : missionKeys.length;
+  return { totalMl, entries, daysMet: met.length, early: earlyDays >= 1, sunset: sunsetDays >= 1, weekend: weekends >= 1,
+    earlyDays, sunsetDays, thirdsDays, weekends, win30, back, wwd, best, missions };
+}
 // As medalhas de "primeiros registros" olham só a água (500 ml de água antes das 9h, primeira gota); o volume total de água
 // agora vira insígnia (ver INSIGNIAS), não medalha. Já "bater a meta" (e a hora em que isso aconteceu) segue o total da meta,
 // que inclui os outros líquidos se "Somar na meta" estiver ligado.
-export function context(S) {
-  const keys = Object.keys(S.days).sort();
-  let totalMl = 0, entries = 0, daysMet = 0, early = false, sunset = false, weekend = false;
-  keys.forEach((k) => {
-    const day = S.days[k], g = day.goal || 2000, cap = mixCap(g), es = (day.entries || []).slice().sort((a, b) => a.t - b.t);
-    let cum = 0, oth = 0, morning = 0, hit = -1;
-    es.forEach((e) => {
-      const v = eff(e), m = minOf(e.t);
-      if (v) { cum += v; entries++; if (m < 540) morning += v; } else oth += otherMl(e);
-      if (hit < 0 && cum + (MIX ? Math.min(oth, cap) : 0) >= g) hit = m;
-    });
-    totalMl += cum;
-    if (morning >= 500) early = true;
-    if (hit >= 0) {
-      daysMet++;
-      if (hit < 1080) sunset = true;
-      if (keyToDate(k).getDay() === 6 && isMet(S.days[addDays(k, 1)])) weekend = true;
-    }
-  });
-  return { totalMl, entries, daysMet, early, sunset, weekend,
-    best: bestStreak(S.days), missions: Object.keys(S.missions || {}).length };
+export function context(S, upTo) {
+  return contextFrom(dayFacts(S), upTo || '', Object.keys(S.missions || {}));
 }
 export function newAchievements(S, ctx) {
   const c = ctx || context(S), got = S.achievements || {};
   return ACHIEVEMENTS.filter((a) => !got[a.id] && a.test(c));
 }
+// Quando cada medalha da lista foi cumprida pelo histórico: o primeiro dia em que a conta já fechava (todas só crescem com o tempo, então basta
+// uma busca binária pelos dias). Serve para datar medalhas que entram sem festa (backup, outro aparelho, medalha nova de uma versão nova) com o
+// dia em que a pessoa de fato as mereceu, e não com o dia em que o app as notou. { id: ms }; sem data (a conta só fecha com missões de um dia sem registro) = fora.
+export function medalDates(S, list) {
+  const pend = list || newAchievements(S), out = {};
+  if (!pend.length) return out;
+  const facts = dayFacts(S), mk = Object.keys(S.missions || {}), memo = {}, now = Date.now();
+  const at = (i) => memo[i] || (memo[i] = contextFrom(facts, facts[i].k, mk));
+  pend.forEach((a) => {
+    let lo = 0, hi = facts.length - 1, found = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (a.test(at(mid))) { found = mid; hi = mid - 1; } else lo = mid + 1;
+    }
+    if (found >= 0) out[a.id] = Math.min(now, keyToDate(facts[found].k).getTime());
+  });
+  return out;
+}
+// O andamento de uma medalha ainda não conquistada: { have, need, unit, pct } (have nunca passa de need), ou null se ela é "tudo ou nada".
+export function medalProgress(a, c) {
+  if (!a.p) return null;
+  const x = a.p(c), need = x[1], have = Math.max(0, Math.min(need, Math.floor(+x[0] || 0)));
+  return { have: have, need: need, unit: x[2], pct: Math.round((have / need) * 100) };
+}
+// A medalha que falta e está mais perto de sair (a maior fração do caminho, com pelo menos um passo dado); { a, have, need, unit, pct } ou null.
+export function nearestMedal(S, c) {
+  const got = S.achievements || {};
+  let best = null;
+  ACHIEVEMENTS.forEach((a) => {
+    if (got[a.id]) return;
+    const pr = medalProgress(a, c);
+    if (pr && pr.have >= 1 && pr.have < pr.need && (!best || pr.pct > best.pct)) best = { a: a, have: pr.have, need: pr.need, unit: pr.unit, pct: pr.pct };
+  });
+  return best;
+}
 // As medalhas que vão ao perfil dos amigos (1.5.0): uma máscara de bits na ordem de ACHIEVEMENTS (o bit i é ACHIEVEMENTS[i]). Essa ORDEM é um
 // contrato com a nuvem e com os amigos: medalha nova entra só NO FIM da lista; nunca se reordena nem se remove (tests/core.test.js trava isso).
-// As regras do Firestore aceitam até MEDAL_MAX bits (firestore.rules, "md"): se a lista passar disso, aumente os dois.
+// As regras do Firestore aceitam até MEDAL_MAX bits (firestore.rules, "md"): se a lista passar disso, aumente os dois. Com as 24 da 1.6.0 a lista está CHEIA:
+// a 25ª medalha exige antes publicar a regra nova (e MEDAL_MAX).
 export const MEDAL_MAX = 24;
 export function medalMask(S) {
   const got = S.achievements || {};
@@ -293,7 +387,7 @@ export function medalMask(S) {
 // O caminho de volta: as medalhas de uma máscara, na ordem de ACHIEVEMENTS. Bits que este app não conhece (medalha de uma versão mais nova) ficam de fora.
 export const medalsFromMask = (m) => ACHIEVEMENTS.filter((a, i) => i < MEDAL_MAX && ((m >> i) & 1) === 1);
 
-/* ---------- estatísticas e insights ---------- */
+/* ---------- estatísticas e padrões ---------- */
 export function stats(S, today) {
   const start = dayKey(new Date(S.createdAt || Date.now()));
   const span = (n) => {
@@ -309,47 +403,110 @@ export function stats(S, today) {
   return { avg7: a.avg, cons30: b.cons };
 }
 
-export function insights(S, today, p) {
-  const out = [], hours = [], wdS = [0, 0, 0, 0, 0, 0, 0], wdC = [0, 0, 0, 0, 0, 0, 0];
-  for (let h = 0; h < 24; h++) hours.push(0);
-  let n = 0, am = 0, all = 0;
+// "Seus padrões" (Jornada): o que os registros das últimas 4 semanas (sem hoje, que ainda não acabou) dizem do jeito da pessoa beber. Só vale com pelo
+// menos PATTERN_MIN dias de água. Devolve { n, ready, sum, day, week, texts }:
+//   sum = o resumo; day = { texts, rhythm } (o ritmo do dia, das últimas 2 semanas); week = { texts, cols, best } (a média da meta por dia da semana);
+//   texts = tudo junto, na ordem da tela. Cada texto é { e, t }. rhythm = { from, v, max, dry, peak } (v = a água de cada hora, a partir da hora from;
+//   dry e peak = a hora em que começa a janela de 3 h mais seca e a de mais água, ou -1); cols = 7 colunas, domingo primeiro: { wd, avg (0 a mais de 1; null se
+//   não houve esse dia), n }; best = o dia da semana de maior média (-1 se nenhum tem 2 dias).
+export const PATTERN_MIN = 4;
+const WD_PL = ['domingos', 'segundas', 'terças', 'quartas', 'quintas', 'sextas', 'sábados'];
+const zeros = (n) => { const a = []; for (let i = 0; i < n; i++) a.push(0); return a; };
+const pcent = (x) => Math.round(x * 100);
+const median = (a) => { const s = a.slice().sort((x, y) => x - y), n = s.length; return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2; };
+const clock = (min) => { const m = Math.round(min) % 1440; return Math.floor(m / 60) + 'h' + (m % 60 ? pad(m % 60) : ''); }; // 560 → "9h20", 1110 → "18h30", 420 → "7h"
+const lapse = (min) => { const m = Math.round(min / 10) * 10; return Math.floor(m / 60) + 'h' + (m % 60 ? pad(m % 60) : ''); }; // 160 → "2h40", 120 → "2h"
+export function patterns(S, today, p) {
+  const out = { n: 0, ready: false, sum: [], day: { texts: [], rhythm: null }, week: { texts: [], cols: [], best: -1 }, texts: [] };
+  const hours = zeros(24), wdS = zeros(7), wdC = zeros(7), firsts = [], hits = [];
+  const keys = Object.keys(S.days).sort(), made = dayKey(new Date(S.createdAt || Date.now())), from = keys.length && keys[0] < made ? keys[0] : made;
+  let n = 0, am = 0, all = 0, cnt = 0, met = 0, mC = 0, mHit = 0, oC = 0, oHit = 0, weC = 0, weS = 0, wkC = 0, wkS = 0;
   for (let i = 1; i <= 28; i++) {
     const k = addDays(today, -i), d = S.days[k];
+    if (k >= from) { cnt++; if (isMet(d)) met++; }
     if (!d || !d.entries || !d.entries.some(isWater)) continue; // dia só com outros líquidos não conta como dia de dados
     n++;
-    const wd = keyToDate(k).getDay();
-    wdS[wd] += dayTotal(d) / (d.goal || 2000); wdC[wd]++;
+    const wd = keyToDate(k).getDay(), pcDay = dayTotal(d) / (d.goal || 2000), f = dayFact(d, k);
+    wdS[wd] += pcDay; wdC[wd]++;
+    if (wd === 0 || wd === 6) { weS += pcDay; weC++; } else { wkS += pcDay; wkC++; }
+    if (f.first >= 0) firsts.push(f.first);
+    if (f.hit >= 0) hits.push(f.hit);
+    if (f.m10 >= 500) { mC++; if (f.hit >= 0) mHit++; } else { oC++; if (f.hit >= 0) oHit++; }
     d.entries.forEach((e) => {
       const v = eff(e), h = new Date(e.t).getHours();
-      if (i <= 14) hours[h] += v;
+      if (i <= 14) hours[h] += v; // o ritmo do dia olha só as 2 últimas semanas: é o hábito de agora
       all += v; if (h < 12) am += v;
     });
   }
-  if (n < 4) return out;
+  out.n = n;
+  if (n < PATTERN_MIN) return out;
+  out.ready = true;
+  const sum = out.sum, dt = out.day.texts, wt = out.week.texts, w = dayWindow(p.wake, p.sleep);
 
-  const w = dayWindow(p.wake, p.sleep), h0 = Math.ceil(w.start / 60), last = Math.min(21, Math.floor(w.end / 60) - 3);
-  let dry = -1, dryV = Infinity;
-  for (let h = h0; h <= last; h++) { const v = hours[h] + hours[h + 1] + hours[h + 2]; if (v < dryV) { dryV = v; dry = h; } }
-  if (dry >= 0) out.push({ e: '🏜️', t: 'Seu período mais seco costuma ser das ' + dry + 'h às ' + (dry + 3) + 'h. Deixe uma garrafa por perto nesse horário.' });
-
-  const WD = ['domingos', 'segundas', 'terças', 'quartas', 'quintas', 'sextas', 'sábados'];
-  let bi = -1, bv = 0;
-  for (let i = 0; i < 7; i++) if (wdC[i] >= 2 && wdS[i] / wdC[i] > bv) { bv = wdS[i] / wdC[i]; bi = i; }
-  if (bi >= 0) out.push({ e: '📅', t: 'Você se hidrata melhor ' + (bi === 0 || bi === 6 ? 'aos ' : 'às ') + WD[bi] + ': em média ' + Math.round(bv * 100) + '% da meta.' });
-
-  const share = all ? Math.round((am / all) * 100) : 0;
-  out.push(share < 30
-    ? { e: '☀️', t: 'Só ' + share + '% da sua água vem antes do meio-dia. Um copo ao acordar faz diferença.' }
-    : { e: '☀️', t: 'Boa! ' + share + '% da sua água vem antes do meio-dia.' });
-
+  // resumo: constância e tendência
+  if (met === 0) sum.push({ e: '🎯', t: 'Você registrou água em ' + n + ' dias, mas ainda não bateu a meta. Comece com um copo ao acordar e vá aos poucos.' });
+  else sum.push({ e: '🎯', t: 'Você bateu a meta em ' + met + ' dos últimos ' + cnt + ' dias (' + pcent(met / cnt) + '%).' + (met / cnt >= 0.8 ? ' Constância de respeito!' : '') });
   let a = 0, b = 0;
   for (let i = 1; i <= 7; i++) { a += dayTotal(S.days[addDays(today, -i)]); b += dayTotal(S.days[addDays(today, -i - 7)]); }
   if (b > 0) {
     const pct = Math.round(((a - b) / b) * 100);
-    out.push({ e: pct >= 0 ? '📈' : '📉', t: (pct >= 0 ? '+' : '') + pct + '% de hidratação nos últimos 7 dias em relação aos 7 anteriores.' });
+    sum.push({ e: pct >= 0 ? '📈' : '📉', t: (pct >= 0 ? '+' : '') + pct + '% de hidratação nos últimos 7 dias em relação aos 7 anteriores.' });
   }
+
+  // ritmo do dia: o período mais seco e o de mais água (janelas de 3 h dentro do horário em que a pessoa está acordada), a manhã e o começo do dia
+  const h0 = Math.ceil(w.start / 60), last = Math.min(21, Math.floor(w.end / 60) - 3);
+  let dry = -1, dryV = Infinity, peak = -1, peakV = 0;
+  for (let h = h0; h <= last; h++) {
+    const v = hours[h] + hours[h + 1] + hours[h + 2];
+    if (v < dryV) { dryV = v; dry = h; }
+    if (v > peakV) { peakV = v; peak = h; }
+  }
+  if (peak === dry) peak = -1; // distribuição reta: não há um "pico" a destacar
+  const recent = hours.reduce((s, v) => s + v, 0); // sem água nas 2 últimas semanas todas as janelas empatam em zero: não há um "período mais seco" a apontar
+  if (dry >= 0 && recent > 0) dt.push({ e: '🏜️', t: 'Seu período mais seco costuma ser das ' + dry + 'h às ' + (dry + 3) + 'h. Deixe uma garrafa por perto nesse horário.' });
+  const share = all ? Math.round((am / all) * 100) : 0;
+  dt.push(share < 30
+    ? { e: '☀️', t: 'Só ' + share + '% da sua água vem antes do meio-dia. Um copo ao acordar faz diferença.' }
+    : { e: '☀️', t: 'Boa! ' + share + '% da sua água vem antes do meio-dia.' });
+  if (mC >= 3 && oC >= 3 && mHit / mC - oHit / oC >= 0.2) {
+    dt.push({ e: '🌅', t: 'Nos dias em que você bebe 500 ml antes das 10h, bate a meta em ' + pcent(mHit / mC) + '% das vezes; nos outros, em ' + pcent(oHit / oC) + '%.' });
+  }
+  if (firsts.length >= PATTERN_MIN) {
+    const mf = median(firsts), late = mf - hm(p.wake);
+    if (late >= 90) dt.push({ e: '⏰', t: 'Seu primeiro copo costuma vir às ' + clock(mf) + ', cerca de ' + lapse(late) + ' depois de acordar. Um copo logo ao levantar ajuda a pegar o ritmo.' });
+  }
+  if (hits.length >= 3) {
+    const mh = median(hits);
+    dt.push({ e: '⌚', t: 'Você costuma completar a meta por volta das ' + clock(mh) + '.' +
+      (mh >= w.end - 90 ? ' Tão perto da hora de dormir pode atrapalhar o sono: tente adiantar um pouco.' : '') });
+  }
+  let a0 = Math.floor(w.start / 60), b0 = Math.min(23, Math.floor(w.end / 60)), mx = 0;
+  for (let h = 0; h < 24; h++) if (hours[h] > 0) { if (h < a0) a0 = h; if (h > b0) b0 = h; }
+  const bars = [];
+  for (let h = a0; h <= b0; h++) { bars.push(hours[h]); if (hours[h] > mx) mx = hours[h]; }
+  if (mx > 0) out.day.rhythm = { from: a0, v: bars, max: mx, dry: dry, peak: peak };
+
+  // semana: a média da meta em cada dia da semana (só dias com água), o melhor, o mais difícil e o fim de semana contra os dias úteis
+  let bi = -1, bv = 0, wi = -1, wv = Infinity;
+  for (let i = 0; i < 7; i++) {
+    out.week.cols.push({ wd: i, avg: wdC[i] ? wdS[i] / wdC[i] : null, n: wdC[i] });
+    if (wdC[i] >= 2) { const x = wdS[i] / wdC[i]; if (x > bv) { bv = x; bi = i; } if (x < wv) { wv = x; wi = i; } }
+  }
+  out.week.best = bi;
+  if (bi >= 0) wt.push({ e: '📅', t: 'Você se hidrata melhor ' + (bi === 0 || bi === 6 ? 'aos ' : 'às ') + WD_PL[bi] + ': em média ' + Math.round(bv * 100) + '% da meta.' });
+  if (bi >= 0 && wi !== bi && bv - wv >= 0.2) {
+    wt.push({ e: '🐢', t: 'Seu ponto fraco são ' + (wi === 0 || wi === 6 ? 'os ' : 'as ') + WD_PL[wi] + ': em média ' + Math.round(wv * 100) + '% da meta.' });
+  }
+  if (weC >= 2 && wkC >= 3) {
+    const we = weS / weC, wk = wkS / wkC;
+    if (wk - we >= 0.15) wt.push({ e: '🗓️', t: 'Nos fins de semana você fica em média em ' + pcent(we) + '% da meta, contra ' + pcent(wk) + '% nos dias úteis. Sem a rotina é fácil esquecer: deixe a garrafa à vista.' });
+    else if (we - wk >= 0.15) wt.push({ e: '🗓️', t: 'Nos dias úteis você fica em média em ' + pcent(wk) + '% da meta, contra ' + pcent(we) + '% nos fins de semana. Uma garrafa na mesa de trabalho pode ajudar.' });
+  }
+  out.texts = sum.concat(dt, wt);
   return out;
 }
+// Os textos de "Seus padrões", numa lista só (a mesma de patterns().texts)
+export const insights = (S, today, p) => patterns(S, today, p).texts;
 
 /* ---------- formatação ---------- */
 const nf = (n, d) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: d || 0 });
