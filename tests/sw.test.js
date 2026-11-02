@@ -10,13 +10,21 @@ import vm from 'node:vm';
 const SRC = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8');
 const BASE = 'https://chrismello0211.github.io/mare/';
 
+const VER = /const VERSION = '([^']+)'/.exec(SRC)[1];
+
 // Carrega o sw.js num contexto isolado. opt: { windows: [{url, focus, postMessage}], idb: 'ok' (caixa de entrada de mentira; sem isso o
 // IndexedDB "não existe") }. Cada janela de mentira é do Maré (url = BASE) a menos que o teste diga outra coisa.
+// Atualização automática (1.5.1): active = já havia um worker ativo (a instalação é uma atualização) · cacheKeys = caches que já existem ·
+// appJs = o que o cache novo guarda como js/app.js (null = o cache não tem o arquivo) · addAllFails = a rede falhou ao guardar o app ·
+// shell = o que caches.match(SHELL) devolve. Os timers longos (a espera pelas respostas das telas, ACK_MS) ficam parados até t.tick().
 function boot(opt) {
   opt = opt || {};
   const handlers = {}, shown = [], opened = [], badges = [], cleared = [], closed = [], settled = [], stored = [];
-  const windows = (opt.windows || []).map((w) => Object.assign({ posts: [], focused: 0, url: BASE,
-    postMessage(m) { this.posts.push(m); }, focus() { this.focused++; return Promise.resolve(this); } }, w));
+  const skips = [], deleted = [], held = [], order = [];
+  let wid = 0;
+  const windows = (opt.windows || []).map((w) => Object.assign({ id: 'w' + (++wid), posts: [], focused: 0, navigated: [], url: BASE,
+    postMessage(m) { this.posts.push(m); }, focus() { this.focused++; return Promise.resolve(this); },
+    navigate(u) { this.navigated.push(u); return Promise.resolve(this); } }, w));
   // IndexedDB de mentira: só o que a caixa de entrada usa (open → onupgradeneeded/onsuccess → transaction.objectStore.put → oncomplete)
   const fakeIdb = () => ({ open: () => {
     const rq = { result: { objectStoreNames: { contains: () => true }, createObjectStore() {}, close() {},
@@ -28,18 +36,31 @@ function boot(opt) {
     location: new URL(BASE + 'sw.js'),
     addEventListener: (t, fn) => { handlers[t] = fn; },
     registration: {
+      active: opt.active ? { state: 'activated' } : null, // no install, é o worker que já estava ativo (null na 1ª instalação)
       // slowShow: a notificação só "termina de aparecer" um pouco depois, como no navegador: quem não a entrega ao waitUntil não a espera
       showNotification: (title, o) => { shown.push({ title, o }); return opt.slowShow ? new Promise((r) => { setTimeout(() => { settled.push(1); r(); }, 5); }) : Promise.resolve(); },
       getNotifications: () => Promise.resolve([{ close: () => { closed.push(1); } }]),
     },
-    clients: { matchAll: () => Promise.resolve(windows), openWindow: (u) => { opened.push(u); return Promise.resolve(); }, claim: () => Promise.resolve() },
+    clients: { matchAll: () => (opt.matchAllFails ? Promise.reject(new Error('sem clientes')) : Promise.resolve(opt.matchAll ? opt.matchAll(windows) : windows)),
+      openWindow: (u) => { opened.push(u); return Promise.resolve(); }, claim: () => { order.push('claim'); return opt.claimFails ? Promise.reject(new Error('claim')) : Promise.resolve(); } },
     // setAppBadge nunca deve ser chamado (o selo saiu); clearAppBadge é o que zera. badgeFails: a API existe, mas recusa (permissão negada)
     navigator: opt.noBadge ? {} : { setAppBadge: (n) => { badges.push(n); return Promise.resolve(); },
       clearAppBadge: () => { cleared.push(1); return opt.badgeFails ? Promise.reject(new Error('sem permissão')) : Promise.resolve(); } },
-    skipWaiting() {},
+    skipWaiting() { skips.push(order.slice()); order.push('skip'); return Promise.resolve(); }, // guarda o que já tinha acontecido: skipWaiting só vale depois do cache
   };
-  // o único timer do sw.js é a pausa de 4 s antes de fechar o "+250 ml registrados": aqui ela dura 1 ms
-  const ctx = { self, URL, Promise, console, setTimeout: (fn, ms) => setTimeout(fn, Math.min(ms, 1)), Request: function Request(u) { this.url = u; }, caches: { open: () => Promise.resolve({ addAll: () => Promise.resolve(), add: () => Promise.resolve() }), keys: () => Promise.resolve([]), match: () => Promise.resolve(null) },
+  // Timers do sw.js: a pausa de 4 s antes de fechar o "+250 ml registrados" dura 1 ms; a espera de ACK_MS (2,5 s) pelas respostas das telas fica
+  // parada até o teste chamar tick() (assim dá para entregar o "sw-ack" no meio, como o navegador entregaria).
+  const timer = (fn, ms) => { if (ms === 2500) { held.push(fn); return 0; } return setTimeout(fn, Math.min(ms, 1)); }; // 2500 = ACK_MS do sw.js
+  const keys = opt.cacheKeys || [];
+  const cache = {
+    addAll: () => { order.push('addAll'); return opt.addAllFails ? Promise.reject(new Error('sem rede')) : Promise.resolve(); },
+    add: () => Promise.resolve(),
+    // o que o cache novo guarda como js/app.js: por padrão, o app.js desta mesma versão
+    match: (u) => Promise.resolve(opt.appJs === null || u !== './js/app.js' ? null : { text: () => Promise.resolve(opt.appJs === undefined ? "export const APP_VERSION = '" + VER + "';" : opt.appJs) }),
+  };
+  const ctx = { self, URL, Promise, console, setTimeout: timer, Request: function Request(u) { this.url = u; },
+    caches: { open: () => Promise.resolve(cache), keys: () => Promise.resolve(keys.slice()), delete: (k) => { deleted.push(k); return Promise.resolve(true); },
+      match: (r) => Promise.resolve(opt.shell && (r === BASE || (r && r.url === BASE)) ? opt.shell : null) },
     fetch: () => Promise.reject(new Error('sem rede')),
     indexedDB: opt.idb === 'ok' ? fakeIdb() : { open: () => { throw new Error('IndexedDB indisponível'); } } };
   vm.runInNewContext(SRC, ctx);
@@ -50,10 +71,14 @@ function boot(opt) {
     handlers[type](e);
     await Promise.all(waits);
   };
+  // a espera de ACK_MS acabou: libera os timers parados e deixa as promessas seguirem
+  const tick = async () => { while (held.length) held.shift()(); await new Promise((r) => { setTimeout(r, 15); }); };
+  // espera uma condição ficar verdadeira (as mensagens do worker saem de promessas, sem timer)
+  const until = async (cond) => { for (let i = 0; i < 200 && !cond(); i++) await new Promise((r) => { setTimeout(r, 2); }); return cond(); };
   // push: o FCM entrega { data: {...}, from, priority, fcmMessageId }; raw = true manda o texto como está
   const push = (payload, raw) => fire('push', { data: payload === undefined ? null : { json: () => (raw ? JSON.parse(payload) : payload), text: () => String(raw ? payload : JSON.stringify(payload)) } });
   const click = (data, action) => fire('notificationclick', { action: action || '', notification: { data: data, close: () => { closed.push('n'); } } });
-  return { handlers, shown, opened, badges, cleared, closed, windows, push, click, fire, settled, stored };
+  return { handlers, shown, opened, badges, cleared, closed, windows, push, click, fire, settled, stored, skips, deleted, held, order, tick, until };
 }
 const FCM = (data) => ({ data: data, from: '123456789', priority: 'high', fcmMessageId: 'abc-123' }); // o envelope de verdade
 
@@ -274,6 +299,201 @@ describe('toque na notificação: janelas de outros apps na mesma origem', () =>
     expect(t.windows[0].posts).toEqual([]);
     expect(t.shown[0].title).toBe('+250 ml registrados ✓');
     expect(t.opened).toEqual([]);
+  });
+});
+
+/* ---------- atualização automática (1.5.1) ---------- */
+// Antes da 1.5.1 o worker novo ficava "esperando" até a pessoa tocar em "Atualizar" (e uma amiga ficou para trás sem ver o botão). Agora ele
+// assume sozinho depois de guardar o app inteiro, apaga os caches antigos e avisa as telas abertas; quem não responde é recarregado pelo worker.
+const OUTRO = 'https://chrismello0211.github.io/outro-app/';
+const NEXT = BASE + '?upd=1';
+const ack = (t, i) => t.fire('message', { data: { type: 'sw-ack' }, source: { id: t.windows[i].id } });
+
+describe('atualização automática: instalação', () => {
+  it('guarda o app inteiro e SÓ DEPOIS assume o controle (skipWaiting), sem esperar a pessoa tocar em "Atualizar"', async () => {
+    const t = boot({ active: true });
+    await t.fire('install', {});
+    expect(t.skips).toHaveLength(1);
+    expect(t.skips[0]).toContain('addAll'); // o cache já estava completo quando o skipWaiting foi pedido
+  });
+  it('falhou ao guardar o app (sem rede no meio do download)? a instalação falha e o worker antigo segue valendo: nunca assume com o cache incompleto', async () => {
+    const t = boot({ active: true, addAllFails: true });
+    await expect(t.fire('install', {})).rejects.toThrow();
+    expect(t.skips).toHaveLength(0);
+  });
+  it('o CDN ainda entregou o app.js da versão antiga logo depois do deploy? a instalação falha (nada de instalação "misturada") e tenta de novo na próxima checagem', async () => {
+    const t = boot({ active: true, appJs: "export const APP_VERSION = '1.4.0'; // velho" });
+    await expect(t.fire('install', {})).rejects.toThrow(/1\.4\.0/);
+    expect(t.skips).toHaveLength(0);
+  });
+  it('a conferência só reprova uma versão DIFERENTE: sem o arquivo no cache, ou sem conseguir ler a versão nele, a instalação segue (nunca trava as atualizações)', async () => {
+    for (const appJs of [null, '', '// minificado, sem a constante', "const APP_VERSION = '" + VER + "'"]) {
+      const t = boot({ active: true, appJs });
+      await t.fire('install', {});
+      expect(t.skips, String(appJs)).toHaveLength(1);
+    }
+  });
+  it('1ª instalação também funciona (o skipWaiting não atrapalha: não havia worker antes)', async () => {
+    const t = boot();
+    await t.fire('install', {});
+    expect(t.skips).toHaveLength(1);
+  });
+});
+
+describe('atualização automática: ativação', () => {
+  it('uma ATUALIZAÇÃO (já havia worker ativo): apaga só os caches antigos do Maré, assume as telas e avisa cada tela do Maré', async () => {
+    const t = boot({ active: true, cacheKeys: ['mare-1.4.0', 'mare-1.5.0', 'mare-' + VER, 'mare-sdk', 'forgex-v3'], windows: [{}, {}] });
+    await t.fire('install', {});
+    await t.fire('activate', {});
+    expect(t.deleted.sort()).toEqual(['mare-1.4.0', 'mare-1.5.0']); // nem o cache desta versão, nem o do SDK, nem o de outro app
+    expect(t.order.indexOf('claim')).toBeGreaterThan(-1);
+    await t.until(() => t.windows.every((w) => w.posts.length));
+    t.windows.forEach((w) => { expect(w.posts).toEqual([{ type: 'sw-updated', version: VER }]); });
+  });
+  it('a ativação NÃO espera as telas responderem (as requisições do app esperam a ativação terminar): termina com o timer de espera ainda parado', async () => {
+    const t = boot({ active: true, cacheKeys: ['mare-1.5.0'], windows: [{}] });
+    await t.fire('install', {});
+    await t.fire('activate', {}); // se esperasse o timer de 2,5 s, este await nunca terminaria
+    expect(t.windows[0].navigated).toEqual([]);
+    await t.until(() => t.held.length === 1);
+    expect(t.held).toHaveLength(1);
+  });
+  it('1ª instalação (nenhum worker antes, nenhum cache de outra versão): não avisa nem recarrega ninguém', async () => {
+    const t = boot({ cacheKeys: ['mare-sdk'], windows: [{}] });
+    await t.fire('install', {});
+    await t.fire('activate', {});
+    await t.tick();
+    expect(t.windows[0].posts).toEqual([]);
+    expect(t.windows[0].navigated).toEqual([]);
+  });
+  it('uma atualização em que outro app da mesma origem já apagou os caches antigos: o worker que estava ativo basta para saber que é uma atualização', async () => {
+    const t = boot({ active: true, cacheKeys: ['mare-sdk'], windows: [{}] });
+    await t.fire('install', {});
+    await t.fire('activate', {});
+    await t.until(() => t.windows[0].posts.length);
+    expect(t.windows[0].posts).toEqual([{ type: 'sw-updated', version: VER }]);
+  });
+  it('o worker foi reiniciado entre a instalação e a ativação (a memória some): ainda reconhece a atualização pelos caches antigos que sobraram', async () => {
+    const t = boot({ cacheKeys: ['mare-1.4.0', 'mare-' + VER], windows: [{}] }); // sem fire('install'): como um worker acordado só para ativar
+    await t.fire('activate', {});
+    await t.until(() => t.windows[0].posts.length);
+    expect(t.windows[0].posts).toEqual([{ type: 'sw-updated', version: VER }]);
+  });
+  it('só as telas do Maré são avisadas: janelas de outro app na mesma origem, de pasta parecida ou sem endereço ficam de fora', async () => {
+    const t = boot({ active: true, cacheKeys: ['mare-1.5.0'], windows: [{ url: OUTRO }, {}, { url: 'https://chrismello0211.github.io/mare-extra/' }, { url: undefined }, { url: BASE + '?tab=friends' }] });
+    await t.fire('activate', {});
+    await t.until(() => t.windows[1].posts.length && t.windows[4].posts.length);
+    expect(t.windows.map((w) => w.posts.length)).toEqual([0, 1, 0, 0, 1]);
+    await t.tick();
+    expect(t.windows.map((w) => w.navigated.length)).toEqual([0, 1, 0, 0, 1]);
+    expect(t.windows[0].navigated).toEqual([]);
+  });
+  it('as telas que NÃO responderam (versões antigas não conhecem o aviso) são recarregadas pelo worker, no endereço limpo do app (com ?upd=1)', async () => {
+    const t = boot({ active: true, cacheKeys: ['mare-1.4.0'], windows: [{ url: BASE + '?add=250&source=push' }, { url: BASE + '?tab=friends' }] });
+    await t.fire('activate', {});
+    await t.until(() => t.held.length === 1);
+    expect(t.windows.map((w) => w.navigated.length)).toEqual([0, 0]); // ainda dentro da espera
+    await t.tick();
+    expect(t.windows[0].navigated).toEqual([NEXT]); // nada de repetir ?add=250 (registraria 250 ml de novo)
+    expect(t.windows[1].navigated).toEqual([NEXT]);
+  });
+  it('quem respondeu "sw-ack" (telas da 1.5.1 em diante) cuida de si: o worker não a recarrega; a que ficou calada é recarregada', async () => {
+    const t = boot({ active: true, cacheKeys: ['mare-1.5.0'], windows: [{}, {}, {}] });
+    await t.fire('activate', {});
+    await t.until(() => t.held.length === 1 && t.windows.every((w) => w.posts.length));
+    await ack(t, 0);
+    await ack(t, 2);
+    await t.tick();
+    expect(t.windows.map((w) => w.navigated.length)).toEqual([0, 1, 0]);
+  });
+  it('uma tela aberta DEPOIS do aviso (já nasceu nova, não estava na lista) nunca é recarregada; nem a que recarregou sozinha e mudou de id', async () => {
+    let phase = 0;
+    const bad = [];
+    const mk = (id) => ({ id: id, url: BASE, postMessage() {}, navigate() { bad.push(id); return Promise.resolve(); } });
+    const t = boot({ active: true, cacheKeys: ['mare-1.5.0'], windows: [{ id: 'velha' }, { id: 'recarregou' }],
+      matchAll: (ws) => (phase === 0 ? ws : [ws[0], mk('nova-id'), mk('recem-aberta')]) });
+    await t.fire('activate', {});
+    await t.until(() => t.held.length === 1 && t.windows[0].posts.length);
+    phase = 1; // na segunda olhada: 'velha' continua lá, 'recarregou' virou 'nova-id' e apareceu 'recem-aberta'
+    await t.tick();
+    expect(t.windows[0].navigated).toEqual([NEXT]);
+    expect(bad).toEqual([]); // 'recarregou'/'nova-id'/'recem-aberta' não estavam no aviso: ninguém recarregou
+  });
+  it('navigate que falha (tela que fechou, navegador sem a função) não derruba nada, e as outras telas ainda são recarregadas', async () => {
+    const t = boot({ active: true, cacheKeys: ['mare-1.5.0'], windows: [{ navigate() { return Promise.reject(new Error('fechou')); } }, { navigate() { throw new Error('boom'); } }, { navigate: undefined }, {}] });
+    await t.fire('activate', {});
+    await t.until(() => t.held.length === 1 && t.windows[3].posts.length);
+    await t.tick();
+    expect(t.windows[3].navigated).toEqual([NEXT]);
+  });
+  it('uma tela que fechou no instante do aviso (postMessage lança) não impede as outras de serem avisadas nem recarregadas', async () => {
+    const t = boot({ active: true, cacheKeys: ['mare-1.5.0'], windows: [{ postMessage() { throw new Error('fechou'); } }, {}] });
+    await t.fire('activate', {});
+    await t.until(() => t.held.length === 1 && t.windows[1].posts.length);
+    await t.tick();
+    expect(t.windows[1].posts).toEqual([{ type: 'sw-updated', version: VER }]);
+    expect(t.windows[1].navigated).toEqual([NEXT]);
+  });
+  it('matchAll falhando: o aviso nunca vira erro solto (a ativação em si não depende dele)', async () => {
+    const a = boot({ active: true, cacheKeys: ['mare-1.5.0'], matchAllFails: true });
+    await a.fire('install', {});
+    await a.fire('activate', {});
+    await a.tick();
+    expect(a.skips).toHaveLength(1); // a ativação aconteceu normalmente
+  });
+  it('sem nenhuma tela do Maré aberta (a atualização chegou com o app fechado): não há o que avisar, e nenhum timer fica pendurado', async () => {
+    const t = boot({ active: true, cacheKeys: ['mare-1.5.0'], windows: [{ url: OUTRO }] });
+    await t.fire('activate', {});
+    await new Promise((r) => { setTimeout(r, 20); });
+    expect(t.held).toHaveLength(0);
+    expect(t.windows[0].posts).toEqual([]);
+  });
+});
+
+describe('atualização automática: mensagens das telas', () => {
+  it('o botão "Atualizar" das telas antigas (SKIP_WAITING) continua funcionando', async () => {
+    const t = boot();
+    await t.fire('message', { data: { type: 'SKIP_WAITING' } });
+    expect(t.skips).toHaveLength(1);
+  });
+  it('"sw-hello": o worker responde a versão dele para quem perguntou (a tela compara com a dela)', async () => {
+    const t = boot({ windows: [{}] });
+    const posts = [];
+    await t.fire('message', { data: { type: 'sw-hello' }, source: { id: 'x', postMessage: (m) => posts.push(m) } });
+    expect(posts).toEqual([{ type: 'sw-version', version: VER }]);
+    expect(t.windows[0].posts).toEqual([]);
+  });
+  it('"sw-hello" sem saber quem perguntou: responde só às telas do Maré', async () => {
+    const t = boot({ windows: [{}, { url: OUTRO }, {}] });
+    await t.fire('message', { data: { type: 'sw-hello' } });
+    expect(t.windows.map((w) => w.posts.length)).toEqual([1, 0, 1]);
+    expect(t.windows[0].posts[0]).toEqual({ type: 'sw-version', version: VER });
+  });
+  it('mensagens estranhas (sem dados, texto, tipo desconhecido, "sw-ack" sem id) são ignoradas sem erro', async () => {
+    const t = boot({ windows: [{}] });
+    for (const d of [undefined, null, 'oi', 42, {}, { type: 'qualquer' }, { type: 'sw-ack' }]) await t.fire('message', { data: d });
+    await t.fire('message', { data: { type: 'sw-ack' }, source: {} });
+    expect(t.skips).toHaveLength(0);
+    expect(t.windows[0].posts).toEqual([]);
+  });
+});
+
+describe('atualização automática: a tela do app com ?upd=1 e os outros caminhos continuam iguais', () => {
+  const nav = (url) => { const r = { p: undefined }; return { r, e: { request: { method: 'GET', url: url, mode: 'navigate' }, respondWith: (p) => { r.p = p; }, waitUntil() {} } }; };
+  it('a tela do app com ?upd=1 sai do cache como qualquer outra abertura do app (a busca na URL é ignorada)', async () => {
+    const t = boot({ shell: 'TELA-DO-APP' });
+    for (const u of [BASE + '?upd=1', BASE + '?add=250', BASE + 'index.html?upd=1']) {
+      const { r, e } = nav(u);
+      t.handlers.fetch(e);
+      expect(r.p, u).toBeDefined();
+      expect(await r.p, u).toBe('TELA-DO-APP');
+    }
+  });
+  it('o próprio sw.js nunca passa pelo cache (a checagem de versão nova sempre vai à rede)', () => {
+    const t = boot({ shell: 'x' });
+    const { r, e } = nav(BASE + 'sw.js');
+    t.handlers.fetch(e);
+    expect(r.p).toBeUndefined();
   });
 });
 

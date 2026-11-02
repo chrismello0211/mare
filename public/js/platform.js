@@ -51,37 +51,99 @@ export function haptic(kind) {
 }
 
 /* ---------- service worker e atualizações ---------- */
-let waitingSW = null, updating = false;
+// Desde a 1.5.1 o app se atualiza sozinho (veja sw.js): o worker novo assume por conta própria e avisa as telas abertas. Aqui ficam o registro,
+// a procura por versão nova e a conversa com o worker; QUANDO recarregar é decisão do app.js (onStale), que espera um momento tranquilo.
+// Tudo se resume a uma comparação: a tela só fica "velha" quando o worker que a controla é de uma versão MAIOR que a dela.
+let waitingSW = null, updating = false, staleSeen = false;
+const AR_KEY = 'mare:ar';
+
+// "1.5.10" é maior que "1.5.9" (compara número a número). Versão ausente ou com texto estranho nunca é "maior": na dúvida, a tela não recarrega.
+export function newer(a, b) {
+  const ok = function (v) { return typeof v === 'string' && /^\d+(\.\d+){0,2}$/.test(v); };
+  if (!ok(a) || !ok(b)) return false;
+  const x = a.split('.'), y = b.split('.');
+  for (let i = 0; i < 3; i++) {
+    const p = parseInt(x[i], 10) || 0, q = parseInt(y[i], 10) || 0;
+    if (p !== q) return p > q;
+  }
+  return false;
+}
+// Recarrega pelo endereço limpo do app (?add= e ?tab= não podem se repetir) e marca "?upd=1": a tela nova mostra "Maré atualizado ✓".
+// Guarda quem recarregou (versão e hora): se a recarga não trocar de versão, a trava abaixo impede um laço de recargas.
+export function reloadApp(version) {
+  try { sessionStorage.setItem(AR_KEY, JSON.stringify({ v: version || '', t: Date.now() })); } catch (e) { /* sem sessionStorage */ }
+  try { location.replace(new URL('./?upd=1', location.href).href); } catch (e) { location.reload(); }
+}
+// false se esta mesma versão já recarregou sozinha há menos de 5 minutos e continua aqui (a recarga não adiantou): nada de laço, o aviso fica
+export function autoReloadOk(version) {
+  try {
+    const r = JSON.parse(sessionStorage.getItem(AR_KEY) || 'null');
+    return !(r && r.v && r.v === version && Date.now() - r.t < 300000);
+  } catch (e) { return true; }
+}
+// h: { version (a desta tela), onStale (a tela ficou para trás: recarregar), onUpdate (um worker ficou esperando), onMessage (inbox, go) }
 export function registerSW(h) {
   h = h || {};
   if (!('serviceWorker' in navigator)) return;
   const local = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   if (location.protocol !== 'https:' && !local) return;
   const sw = navigator.serviceWorker;
-  // só recarrega quando a própria pessoa pediu a atualização (evita reload no 1º acesso)
-  sw.addEventListener('controllerchange', function () { if (updating) location.reload(); });
-  sw.addEventListener('message', function (e) { if (h.onMessage) h.onMessage(e.data || {}); });
-  const found = function (w) { waitingSW = w; if (h.onUpdate) h.onUpdate(); };
+  const say = function (m, to) { try { (to || sw.controller).postMessage(m); } catch (e) { /* sem worker no controle */ } };
+  const hello = function () { if (sw.controller) say({ type: 'sw-hello' }); }; // "qual é a sua versão?": a resposta chega como 'sw-version'
+  const stale = function () {
+    if (staleSeen) return;
+    staleSeen = true;
+    if (h.onStale) h.onStale(); else if (h.onUpdate) h.onUpdate();
+  };
+  // Outro worker assumiu (atualização, ou a 1ª instalação reivindicando esta tela): pergunta a versão dele. Só recarrega se for mais nova que a
+  // desta tela, então a 1ª instalação e as trocas por uma versão igual não recarregam nada.
+  sw.addEventListener('controllerchange', function () {
+    if (updating) { reloadApp(h.version); return; } // a pessoa tocou em "Atualizar"
+    hello();
+  });
+  sw.addEventListener('message', function (e) {
+    const m = e.data || {};
+    if (m.type === 'sw-updated') { say({ type: 'sw-ack' }, sw.controller || e.source); if (newer(m.version, h.version)) stale(); } // "ack": esta tela cuida de si
+    else if (m.type === 'sw-version') { if (newer(m.version, h.version)) stale(); }
+    else if (h.onMessage) h.onMessage(m);
+  });
+  // Um worker "esperando" (um worker novo sempre assume sozinho, então só sobra isto se a instalação dele não deu certo). O aviso só aparece se ele
+  // continuar esperando depois de alguns segundos: sem isso, a faixa piscaria por um instante antes da recarga automática.
+  const found = function (w) {
+    waitingSW = w;
+    setTimeout(function () { if (w.state === 'installed' && h.onUpdate) h.onUpdate(); }, 3000);
+  };
   const go = function () {
-    sw.register('./sw.js').then(function (reg) {
+    sw.register('./sw.js', { updateViaCache: 'none' }).then(function (reg) { // 'none': o sw.js nunca vem do cache HTTP (o GitHub Pages guarda 10 min)
       if (reg.waiting && sw.controller) found(reg.waiting);
       reg.addEventListener('updatefound', function () {
         const w = reg.installing;
         if (!w) return;
         w.addEventListener('statechange', function () { if (w.state === 'installed' && sw.controller) found(w); });
       });
-      document.addEventListener('visibilitychange', function () {
-        if (document.visibilityState === 'visible') quiet(reg.update());
-      });
+      // Procura versão nova ao abrir, ao voltar para o app, ao voltar a ter internet e de tempos em tempos com o app aberto. O sw.js é pequeno e o
+      // navegador só baixa o app de novo se ele mudou. hello() confere se esta tela não ficou para trás de um worker que já assumiu (aviso perdido
+      // enquanto o iPhone a mantinha suspensa, tela devolvida pelo cache de voltar/avançar).
+      const check = function () {
+        if (document.visibilityState !== 'visible') return;
+        quiet(reg.update());
+        hello();
+      };
+      document.addEventListener('visibilitychange', check);
+      window.addEventListener('pageshow', function (e) { if (e.persisted) check(); });
+      window.addEventListener('online', check);
+      setInterval(check, 20 * 60 * 1000);
+      check();
     }).catch(function (e) { console.warn('[sw] registro falhou', e); });
   };
   if (document.readyState === 'complete') go(); else window.addEventListener('load', go);
 }
+// O botão "Atualizar" (plano B): com um worker esperando, manda ele assumir e recarrega; sem nenhum, só recarrega
 export function applyUpdate() {
-  if (!waitingSW) { location.reload(); return; }
+  if (!waitingSW) { reloadApp(); return; }
   updating = true;
   waitingSW.postMessage({ type: 'SKIP_WAITING' });
-  setTimeout(function () { location.reload(); }, 3000); // plano B se o controllerchange não vier
+  setTimeout(function () { reloadApp(); }, 3000); // plano B se o controllerchange não vier
 }
 
 /* ---------- notificações ---------- */

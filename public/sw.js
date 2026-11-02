@@ -1,9 +1,10 @@
-// Maré — Service Worker (Parte 4): cache offline, atualização controlada, push (lembretes e avisos dos amigos) e ação "+250 ml" da notificação.
-// A cada deploy, aumente VERSION (e APP_VERSION em js/app.js): é isso que dispara o aviso "Nova versão disponível".
+// Maré — Service Worker (Parte 4): cache offline, atualização automática (1.5.1), push (lembretes e avisos dos amigos) e ação "+250 ml" da notificação.
+// A cada deploy, aumente VERSION (e APP_VERSION em js/app.js): é isso que dispara a atualização, que acontece sozinha (veja "Atualização automática").
 // Não use firebase-messaging-sw.js: o firebase.js registra o token FCM neste SW e o push chega aqui como "data".
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const CACHE = 'mare-' + VERSION, RUNTIME = 'mare-sdk', TAG = 'mare-lembrete';
 const SHELL = new URL('./', self.location).href, ROOT = new URL('./', self.location).pathname;
+const NEXT = SHELL + '?upd=1', ACK_MS = 2500; // NEXT: endereço limpo do app; "?upd=1" faz a tela nova avisar "Maré atualizado ✓"
 const CORE = ['./', './manifest.webmanifest', './css/app.css', './js/app.js', './js/core.js', './js/store.js',
   './js/ui.js', './js/views.js', './js/platform.js', './js/art.js', './js/kit.js', './js/social.js', './js/friends-view.js',
   './js/account.js', './js/account-view.js'];
@@ -18,17 +19,67 @@ function precache() {
   return caches.open(CACHE).then((c) => c.addAll(CORE.map(get))
     .then(() => Promise.all(EXTRA.map((u) => c.add(get(u)).catch(() => null)))));
 }
+// Confere se o cache novo guardou o app.js DESTA versão: logo depois de um deploy, um CDN atrasado pode devolver o arquivo antigo, e um worker
+// novo com arquivo velho no cache viraria uma instalação "misturada". Se não bater, a instalação falha (o worker antigo segue valendo) e a
+// próxima checagem tenta de novo. Sem conseguir ler a versão no arquivo, não reprova (nunca travar as atualizações por causa da conferência).
+function verify() {
+  return caches.open(CACHE).then((c) => c.match('./js/app.js')).then((r) => (r ? r.text() : '')).then((t) => {
+    const m = /APP_VERSION\s*=\s*'([^']+)'/.exec(t);
+    if (m && m[1] !== VERSION) throw new Error('app.js é da versão ' + m[1] + ', esperava ' + VERSION);
+  });
+}
+
+/* ---------- Atualização automática (1.5.1) ----------
+   Antes: o worker novo ficava "esperando" até as telas fecharem e a pessoa precisava tocar em "Atualizar". No iPhone o app quase nunca fecha de
+   verdade e o aviso era só uma faixa pequena no alto: quem não via o botão ficava para trás (foi o caso de uma amiga). Agora:
+   1) instalação: guarda o app inteiro, confere o cache e SÓ ENTÃO assume (skipWaiting). Falhou? o worker antigo segue valendo;
+   2) ativação: apaga os caches antigos, assume as telas abertas (claim) e, se isso foi uma atualização, avisa cada tela do Maré ("sw-updated");
+   3) telas da 1.5.1 em diante respondem "sw-ack" e recarregam sozinhas num momento tranquilo (platform.js/app.js);
+   4) as que não respondem em ACK_MS (versões antigas, que nem conhecem este aviso, ou telas congeladas) são recarregadas por aqui (navigate).
+   Isto vale para as telas do Maré: as janelas de outros apps da mesma origem nunca são tocadas (ours). */
+let UPDATING = false;    // este worker nasceu para trocar outro que já estava ativo (o app já estava instalado no aparelho)
+let acked = {};          // ids das telas que responderam "sw-ack" (elas mesmas decidem a hora de recarregar)
 self.addEventListener('install', (e) => {
-  e.waitUntil(precache());
-  // Sem skipWaiting aqui: a página mostra "Nova versão disponível" e a pessoa escolhe a hora (platform.js)
+  UPDATING = !!(self.registration && self.registration.active);
+  e.waitUntil(precache().then(verify).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
+  let older = false;
   e.waitUntil(caches.keys()
-    .then((keys) => Promise.all(keys.filter((k) => k.indexOf('mare-') === 0 && k !== CACHE && k !== RUNTIME).map((k) => caches.delete(k))))
+    .then((keys) => {
+      const old = keys.filter((k) => k.indexOf('mare-') === 0 && k !== CACHE && k !== RUNTIME);
+      older = old.length > 0; // sobrou cache de outra versão: o app já estava instalado, então isto é uma atualização
+      return Promise.all(old.map((k) => caches.delete(k)));
+    })
     .then(() => self.clients.claim())
-    .then(() => clearBadge())); // 1.2.0: sem selo no ícone; zera o número que uma versão antiga deixou
+    .then(() => clearBadge()) // 1.2.0: sem selo no ícone; zera o número que uma versão antiga deixou
+    // Sem "return": o aviso às telas corre por fora. A ativação não pode esperar a resposta delas, porque as requisições do app esperam a
+    // ativação terminar (um worker "ativando" segura os fetches).
+    .then(() => { if (UPDATING || older) notifyUpdated(); }));
 });
-self.addEventListener('message', (e) => { if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting(); });
+// Avisa as telas do Maré, espera ACK_MS e recarrega só as que estavam abertas na hora do aviso e não responderam. Nunca lança erro.
+function notifyUpdated() {
+  const all =() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ours);
+  return all().then((list) => {
+    if (!list.length) return null;
+    const ids = {};
+    list.forEach((c) => { ids[c.id] = 1; try { c.postMessage({ type: 'sw-updated', version: VERSION }); } catch (err) { /* tela que fechou agora */ } });
+    return new Promise((r) => { setTimeout(r, ACK_MS); })
+      .then(all) // lista nova: o id muda quando a tela recarrega, e um objeto velho não consegue navegar
+      .then((now) => Promise.all(now.filter((c) => ids[c.id] && !acked[c.id])
+        .map((c) => Promise.resolve().then(() => c.navigate(NEXT))))); // endereço limpo: ?add= e ?tab= não podem se repetir (tela que fechou: o catch final segura)
+  }).catch(() => null);
+}
+self.addEventListener('message', (e) => {
+  const d = e.data || {}, src = e.source;
+  if (d.type === 'SKIP_WAITING') self.skipWaiting(); // plano B: o botão "Atualizar" das telas antigas (≤ 1.5.0) manda isto
+  else if (d.type === 'sw-ack') { if (src && src.id) acked[src.id] = 1; }
+  else if (d.type === 'sw-hello') { // "qual é a sua versão?": a tela compara com a dela e recarrega se a do worker for mais nova
+    const reply = (c) => { try { c.postMessage({ type: 'sw-version', version: VERSION }); } catch (err) { /* tela que fechou agora */ } };
+    if (src && src.postMessage) reply(src);
+    else e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((l) => { ours(l).forEach(reply); }));
+  }
+});
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;

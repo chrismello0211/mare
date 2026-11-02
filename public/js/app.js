@@ -6,8 +6,8 @@ import { KEY, S, SOC, ACCT, setS, applyMix, hooks, load, save, clamp, num, plura
   syncTodayGoal, allMl, U, vol, toMl, fromMl, big, esc, wait } from './store.js';
 import { $, $$, tween, animBars, onBack, hPush, hBack, toast, hideToast, runToastAction, showBanner, sheetBody, sheetIsOpen, openSheet,
   closeSheet, onSheetClose, confirmSheet, runConfirm, splash, confetti, pop, popBusy, levelY, dropTo, floatEmoji } from './ui.js';
-import { isNative, reducedMotion, onMedia, haptic, registerSW, applyUpdate, notifStatus, requestNotifPermission, showNotification,
-  scheduleNative, clearBadge, drainInbox, initInstall, canInstall, promptInstall, getCoords, fetchMaxTemp, saveFile, share,
+import { isNative, reducedMotion, onMedia, haptic, registerSW, applyUpdate, reloadApp, autoReloadOk, notifStatus, requestNotifPermission,
+  showNotification, scheduleNative, clearBadge, drainInbox, initInstall, canInstall, promptInstall, getCoords, fetchMaxTemp, saveFile, share,
   persistStorage, copyText } from './platform.js';
 import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboardingView, OB_STEPS, tabbarHTML, othersSheet, otherNote,
   entrySheet, daySheet, installSheet, notifHelpSheet, dropOpts, dropOpts2, drop2Label, paceInfo, goalSumHTML, remNoteText, shareText,
@@ -18,7 +18,7 @@ import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inv
 import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs } from './account.js';
 import { createSheet, signinSheet, resetSheet, resetDoneSheet, deleteSheet } from './account-view.js';
 
-export const APP_VERSION = '1.5.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.5.1'; // aumente a cada deploy, junto com VERSION no sw.js
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'friends', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -455,6 +455,21 @@ function toggleOpt(key) {
 function onSWMessage(m) {
   if (m.type === 'inbox') pullInbox();
   else if (m.type === 'go' && S.onboarded && !ob) { if (sheetIsOpen()) closeSheet(); go(String(m.tab)); }
+}
+/* ---------- atualização automática (1.5.1) ---------- */
+// O worker novo já assumiu e esta tela ficou com o código velho (platform.js avisa): ela recarrega sozinha assim que estiver tranquila.
+// Tranquila = nada em andamento que a recarga estrague: sem onboarding, sem painel aberto, sem digitação, sem cartão de conquista nem aviso
+// (com "Desfazer") na tela, e com o app à vista (recarregar com o app indo para o fundo pode deixá-lo em branco no iPhone). Se a calma demorar
+// (6 s com o app à vista), a faixa "Nova versão disponível" aparece como plano B (um toque recarrega); a tela segue tentando a cada 1,5 s.
+let staleT = 0, staleN = 0;
+const typingAny = () => { const a = document.activeElement; return !!a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable === true); };
+const calm = () => S.onboarded && !ob && !sheetIsOpen() && !popBusy() && !typingAny() && !$('#toast.show') && document.visibilityState === 'visible';
+function onStale() {
+  clearTimeout(staleT);
+  if (!autoReloadOk(APP_VERSION)) { showBanner('Nova versão disponível', 'Atualizar', 'update'); return; } // já recarregou sozinha e a versão não mudou: fica só o botão
+  if (calm()) { socFlush(); reloadApp(APP_VERSION); return; }
+  if (document.visibilityState === 'visible' && ++staleN >= 5) showBanner('Nova versão disponível', 'Atualizar', 'update'); // só conta o tempo com o app à vista
+  staleT = setTimeout(onStale, 1500);
 }
 function testNotif() {
   const st = notifStatus();
@@ -1689,6 +1704,7 @@ function handleURL() {
   try { history.replaceState(history.state, '', location.pathname + location.hash); } catch (e) { /* ignora */ }
   if (inv) { S.ui.invite = inv; save(); } // convite por link (?amigo=CÓDIGO): guardado até o fim do onboarding, se a pessoa ainda não tem o app configurado
   if (!S.onboarded) return;
+  if (/[?&]upd=1(&|$)/.test(q)) setTimeout(() => { toast('Maré atualizado para a versão ' + esc(APP_VERSION) + ' ✓'); }, 600); // veio de uma atualização automática (sw.js ou onStale)
   if (inv) setTimeout(() => { openInvite(inv); }, 300);
   else if (add) setTimeout(() => { quickAdd(clamp(+add[1], 10, 3000), 'water'); }, 500); // atalho do ícone (Android)
   else if (t) go(t[1]);
@@ -1712,6 +1728,8 @@ function boot() {
   render();
   handleURL();
   registerSW({
+    version: APP_VERSION,
+    onStale,
     onUpdate: () => showBanner('Nova versão disponível', 'Atualizar', 'update'),
     onMessage: onSWMessage,
   });

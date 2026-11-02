@@ -4,6 +4,8 @@ App de hidratação em pt-BR (PWA). Funciona offline e sem conta; a nuvem (sincr
 
 **No ar:** https://chrismello0211.github.io/mare/
 
+**Versão 1.5.1:** **o app se atualiza sozinho.** Antes, uma versão nova só chegava se a pessoa tocasse em "Atualizar" numa faixa pequena no alto da tela, e quem não via a faixa ficava para trás. Agora o celular baixa a versão nova, confere que veio completa, assume sozinho e recarrega o app num momento tranquilo (sem painel aberto, sem digitação, sem cartão de conquista na tela); as telas de versões antigas, que não sabem esperar, são recarregadas pelo Service Worker. A faixa e o botão continuam como plano B, e depois da atualização o app diz "Maré atualizado para a versão X ✓". **Não muda função nem regra do Firestore:** basta o `git push` na `main` (nada a publicar no Firebase). Detalhes na Parte 15 do [`HANDOFF.md`](HANDOFF.md).
+
 **Versão 1.5.0:** **as medalhas aparecem para a turma e um aviso único conta as novidades.** As 12 medalhas de hábito (sequências, madrugador, missões…), que só a própria pessoa via, agora aparecem no perfil de quem a turma abre (e em "Meu perfil", exatamente como os amigos veem): só as conquistadas, nunca o dia em que vieram, e **junto com o "Mostrar meu progresso do dia"** (desligado, elas ficam só com a pessoa). Quem já usa o app vê, uma vez só, um cartão de novidades na tela Hoje (os cinco bichinhos da 1.4.0 e as medalhas). Esta versão **não muda as funções**; só as **regras do Firestore** mudam (o perfil dos amigos ganha o campo opcional `md`), então há **um passo de publicação** (seção Firebase), **de preferência antes do site**; se o site sair primeiro nada quebra: o app tenta de novo sem o campo e só as medalhas deixam de aparecer até as regras entrarem. Detalhes na Parte 14 do [`HANDOFF.md`](HANDOFF.md).
 
 **Versão 1.4.0:** **a coleção de insígnias foi de 10 para 15 bichinhos e agora vai até os 2.000 L.** Entraram a **arraia-manta** (550 L), a **orca** (850 L), o **peixe-pescador** (1.300 L), a **lula-gigante** (1.600 L) e a **pérola** (2.000 L, que agora fecha o recife; o narval continua nos 1.000 L). Os marcos das dez antigas **não mudaram**: ninguém perde nada e ninguém ganha o que não merece (quem já tinha passado de algum marco novo recebe a insígnia ao abrir o app, sem festa e datada pelo histórico). Esta versão **não muda as funções**; só as **regras do Firestore** mudam (o perfil que os amigos veem passa a aceitar até 24 insígnias; eram 12), então há **um passo de publicação** (seção Firebase). Detalhes na Parte 13 do [`HANDOFF.md`](HANDOFF.md).
@@ -20,7 +22,7 @@ App de hidratação em pt-BR (PWA). Funciona offline e sem conta; a nuvem (sincr
 
 1. Envie os arquivos alterados para a branch `main` (GitHub → *Add file* → *Upload files*, ou `git push`).
 2. A aba **Actions** publica a pasta `public/` sozinha, em cerca de 1 minuto. Se falhar, a mensagem diz qual arquivo está faltando.
-3. A cada versão nova, aumente `VERSION` em `public/sw.js` **e** `APP_VERSION` em `public/js/app.js` (os dois iguais). É isso que faz o aparelho mostrar "Nova versão disponível".
+3. A cada versão nova, aumente `VERSION` em `public/sw.js` **e** `APP_VERSION` em `public/js/app.js` (os dois iguais). É isso que faz os aparelhos se atualizarem sozinhos (desde a 1.5.1; antes mostravam "Nova versão disponível" e esperavam um toque em "Atualizar").
 
 Configuração única já feita: *Settings → Pages → Source = GitHub Actions*.
 
