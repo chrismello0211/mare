@@ -7,7 +7,7 @@
 //  • Os registros (days) já iam para a nuvem desde a 1.0. O que só existia no aparelho (nome, peso, atividade, metas, copos, tema,
 //    escolhas dos amigos) agora também vai, num único documento (users/{uid}/backup/prefs), mas SÓ para quem tem conta.
 //  • Entrar num aparelho novo = baixar tudo isso de volta (restorePlan) e aplicar (applyPrefs).
-import { ACTIVITY, drink, insigniaById, defaults, keyToDate, mascotOf } from './core.js';
+import { ACTIVITY, ACHIEVEMENTS, drink, insigniaById, defaults, keyToDate, mascotOf, mergeAch } from './core.js';
 import { cleanNick, rankId } from './social.js';
 
 export const PW_MIN = 8, PW_MAX = 128, EMAIL_MAX = 254;
@@ -136,8 +136,12 @@ export const emailShort = (e) => { const s = String(e || ''), at = s.indexOf('@'
 // O que vai para a nuvem de quem tem conta. Fora de propósito: lembretes ligados/desligados e horário do próximo (são deste aparelho e da
 // permissão de notificação dele), o clima de hoje, o convite pendente, a lista de amigos (vive em friendships/profiles) e os registros
 // (vivem em days). Só os recados que a pessoa já dispensou (tip_*) e a visão do ranking vêm de "ui".
+// ach (1.7.0): as medalhas conquistadas, cada uma com o instante em que saiu, em MINUTOS desde 1970 (cabe nos 4000 caracteres e ainda mostra o dia certo em
+// qualquer fuso). Sem isso, num aparelho novo a data de cada medalha era refeita pelo histórico, e a medalha que só acontece na hora (a da turma) se perdia.
+const stamp = (v) => { const n = +v; return isFinite(n) && n > 0 ? n : 0; };
 export function prefsSnapshot(S) {
-  const p = S.profile, g = S.goal, r = S.reminders, c = S.social, ui = {};
+  const p = S.profile, g = S.goal, r = S.reminders, c = S.social, ui = {}, ach = {}, got = S.achievements || {};
+  ACHIEVEMENTS.forEach((a) => { const t = stamp(got[a.id]); if (t) ach[a.id] = Math.round(t / 6e4); });
   Object.keys(S.ui || {}).sort().forEach((k) => { if (/^tip_[A-Za-z0-9_]{1,24}$/.test(k) && S.ui[k]) ui[k] = 1; });
   if (S.ui && S.ui.frRank) ui.frRank = rankId(S.ui.frRank);
   return {
@@ -150,14 +154,17 @@ export function prefsSnapshot(S) {
     reminders: { interval: r.interval, smart: r.smart !== false },
     social: { on: c.on === true, nick: c.nick || '', share: c.share !== false, goal: c.goal === true ? true : c.goal === false ? false : null,
       push: c.push !== false, hit: c.hit === true, week: c.week !== false },
+    ach: ach,
     ui: ui,
   };
 }
-// O documento como vai para o Firestore. null se, por algum motivo, passar do limite (aí o app só não faz o backup dos ajustes).
+// O documento como vai para o Firestore. null se, por algum motivo, passar do limite (aí o app só não faz o backup dos ajustes). Se passar, vão
+// embora primeiro os recados dispensados e depois as datas das medalhas (as medalhas voltam do histórico, só que com a data refeita).
 export function prefsPack(S, u) {
   const snap = prefsSnapshot(S);
   let j = JSON.stringify(snap);
   if (j.length > PREFS_MAX) { snap.ui = {}; j = JSON.stringify(snap); }
+  if (j.length > PREFS_MAX) { snap.ach = {}; j = JSON.stringify(snap); }
   if (j.length > PREFS_MAX) return null;
   return { v: 1, u: u || Date.now(), j: j };
 }
@@ -167,7 +174,7 @@ export function cleanPrefs(o) {
   const D = defaults(), src = o && typeof o === 'object' ? o : {};
   const sp = src.profile && typeof src.profile === 'object' ? src.profile : {}, sg = src.goal && typeof src.goal === 'object' ? src.goal : {};
   const sr = src.reminders && typeof src.reminders === 'object' ? src.reminders : {}, ss = src.social && typeof src.social === 'object' ? src.social : {};
-  const w = +sp.weight, ui = {};
+  const w = +sp.weight, ui = {}, ach = {}, sa = src.ach && typeof src.ach === 'object' && !Array.isArray(src.ach) ? src.ach : {}, now = Date.now();
   const profile = {
     name: str(sp.name, 30),
     weight: isFinite(w) && w > 0 ? clamp(Math.round(w * 10) / 10, 30, 250) : D.profile.weight,
@@ -192,13 +199,21 @@ export function cleanPrefs(o) {
     Object.keys(src.ui).slice(0, 60).forEach((k) => { if (/^tip_[A-Za-z0-9_]{1,24}$/.test(k) && src.ui[k]) ui[k] = 1; });
     if (src.ui.frRank) ui.frRank = rankId(src.ui.frRank);
   }
+  // medalhas: só as que este app conhece, com um instante que faça sentido (depois de 2017 e, no máximo, amanhã: o relógio do outro aparelho pode estar adiantado)
+  ACHIEVEMENTS.forEach((a) => { const t = +sa[a.id] * 6e4; if (isFinite(t) && t > 1.5e12 && t <= now + 864e5) ach[a.id] = Math.round(t); });
   const ca = +src.createdAt;
   return {
     createdAt: isFinite(ca) && ca > 1e12 && ca <= Date.now() + 864e5 ? Math.round(ca) : 0,
     profile: profile, goal: goal, cups: cups,
     last: l.g === 'w' ? l.id : D.last, lastO: lo.g === 'o' ? lo.id : D.lastO,
-    reminders: reminders, social: social, ui: ui,
+    reminders: reminders, social: social, ach: ach, ui: ui,
   };
+}
+// Este aparelho tem alguma medalha que a cópia da nuvem (o "ach" de cleanPrefs) não tem, ou com uma data mais antiga (a diferença de um minuto)? Então a nuvem
+// ficou para trás (um aparelho antigo gravou por cima, ou a medalha saiu sem rede) e os ajustes precisam subir de novo.
+export function achAhead(got, ach) {
+  const a = ach && typeof ach === 'object' ? ach : {}, g = got || {};
+  return ACHIEVEMENTS.some((x) => { const t = stamp(g[x.id]), r = stamp(a[x.id]); return t > 0 && !(r > 0 && Math.round(r / 6e4) <= Math.round(t / 6e4)); });
 }
 // O documento da nuvem → { u, prefs } limpo, ou null se não for um backup válido
 export function prefsParse(raw) {
@@ -225,6 +240,7 @@ export function applyPrefs(S, p, mode) {
   Object.keys(p.social).forEach((k) => { if (!(keepOn && k === 'on')) S.social[k] = p.social[k]; });
   Object.keys(p.ui).forEach((k) => { S.ui[k] = p.ui[k]; });
   if (p.createdAt && (!S.createdAt || p.createdAt < S.createdAt)) S.createdAt = p.createdAt;
+  mergeAch(S.achievements, p.ach); // as medalhas da conta entram com a data em que saíram de verdade; as que só aqui existem ficam (de cada uma vale a data mais antiga)
   return S;
 }
 

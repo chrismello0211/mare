@@ -266,17 +266,28 @@ export const ACHIEVEMENTS = [
   { id: 'back', e: '🏄', t: 'Volta por cima', d: 'Bateu a meta depois de 3 dias sem bater', test: (c) => c.back },
   { id: 'weekends4', e: '🏝️', t: 'Fins de semana firmes', d: 'Sábado e domingo na meta, 4 vezes', p: (c) => [c.weekends, 4, 'fins de semana'], test: (c) => c.weekends >= 4 },
   { id: 'wwd', e: '🌍', t: 'Dia Mundial da Água', d: 'Água registrada em 22 de março', test: (c) => c.wwd },
+  // 1.7.0: os bits 24 a 29, que vão na SEGUNDA palavra da máscara (md2; ver medalMask2). live = não sai do histórico: é dada na hora em que acontece
+  // (a turma só existe ao vivo) e fica guardada em S.achievements, por isso é a data guardada que vale e ela vai no backup da conta.
+  { id: 'm1', e: '📆', t: 'Um mês de Maré', d: 'Água registrada em 30 dias diferentes', p: (c) => [c.daysUsed, 30, 'dias'], test: (c) => c.daysUsed >= 30 },
+  { id: 'use100', e: '🏵️', t: 'Cem dias de Maré', d: 'Água registrada em 100 dias diferentes', p: (c) => [c.daysUsed, 100, 'dias'], test: (c) => c.daysUsed >= 100 },
+  { id: 'summer', e: '🌞', t: 'Verão em dia', d: 'Meta batida em 30 dias entre 21 de dezembro e 20 de março', test: (c) => c.summer >= 30 },
+  { id: 'weekends12', e: '🌴', t: 'Fins de semana de ouro', d: 'Sábado e domingo na meta, 12 vezes', p: (c) => [c.weekends, 12, 'fins de semana'], test: (c) => c.weekends >= 12 },
+  { id: 'oceans', e: '⚓', t: 'Dia dos Oceanos', d: 'Água registrada em 8 de junho', test: (c) => c.oceans },
+  { id: 'crew', e: '🤝', t: 'Turma completa', d: 'Você e pelo menos 2 amigos bateram a meta no mesmo dia', live: true, test: () => false },
 ];
 export const MEDALS_1_5 = 12; // quantas medalhas já existiam até a 1.5.x: as do índice 12 em diante chegaram na 1.6.0
+export const MEDALS_1_6 = 24; // até a 1.6.x: as do índice 24 em diante chegaram na 1.7.0 (e vão na segunda palavra da máscara)
+export const CREW_MIN = 3; // a medalha "Turma completa" pede você e pelo menos 2 amigos (3 pessoas) na meta no mesmo dia
 export const achievementById = (id) => { for (let i = 0; i < ACHIEVEMENTS.length; i++) if (ACHIEVEMENTS[i].id === id) return ACHIEVEMENTS[i]; return null; };
 // Como a Jornada agrupa as medalhas (do mais simples ao mais difícil dentro de cada grupo). Só a tela usa isto: o bit de cada medalha segue a ordem de ACHIEVEMENTS.
 // tests/core.test.js confere que toda medalha aparece em exatamente um grupo.
 export const MEDAL_GROUPS = [
-  { t: 'Começos e missões', ids: ['first', 'goal', 'mission', 'm10', 'm30'] },
+  { t: 'Começos e missões', ids: ['first', 'goal', 'mission', 'm10', 'm1', 'm30', 'use100'] },
   { t: 'Sequências', ids: ['s3', 's7', 's14', 's30', 's60', 's100'] },
   { t: 'Metas batidas', ids: ['d10', 'd30', 'd100', 'win25', 'back'] },
   { t: 'Rotina do dia', ids: ['early', 'early7', 'sunset', 'sunset5', 'thirds7'] },
-  { t: 'Fins de semana e datas', ids: ['weekend', 'weekends4', 'wwd'] },
+  { t: 'Fins de semana e datas', ids: ['weekend', 'weekends4', 'weekends12', 'summer', 'wwd', 'oceans'] },
+  { t: 'Com a turma', ids: ['crew'] },
 ];
 
 /* Fatos de um dia para as medalhas. goal = day.goal || 2000; hit = o minuto do dia em que a meta foi batida (-1 = não bateu), com a mesma regra de
@@ -301,18 +312,29 @@ function dayFact(day, k) {
 }
 const dayFacts = (S) => Object.keys(S.days).sort().map((k) => dayFact(S.days[k], k));
 const dnum = (k) => { const p = k.split('-'); return Math.round(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 864e5); }; // o dia como um número inteiro (sem fuso nem horário de verão)
+// O verão (de 21 de dezembro a 20 de março) a que um dia pertence: o ano em que ele começou (dezembro de 2026 e fevereiro de 2027 são o verão 2026), ou 0 se não é verão
+const summerOf = (k) => { const y = +k.slice(0, 4), md = k.slice(5); return md >= '12-21' ? y : md <= '03-20' ? y - 1 : 0; };
 
 // O que as medalhas olham, somado de todos os dias até upTo (uma chave de dia; sem ele, o histórico inteiro). missionKeys = os dias das missões cumpridas.
 function contextFrom(facts, upTo, missionKeys) {
-  let totalMl = 0, entries = 0, earlyDays = 0, sunsetDays = 0, thirdsDays = 0, wwd = false;
-  const met = [];
+  let totalMl = 0, entries = 0, earlyDays = 0, sunsetDays = 0, thirdsDays = 0, daysUsed = 0, summer = 0, wwd = false, oceans = false;
+  const met = [], seasons = {};
   facts.forEach((f) => {
     if (upTo && f.k > upTo) return;
     totalMl += f.cum; entries += f.n;
     if (f.morning >= 500) earlyDays++;
     if (f.parts === 3) thirdsDays++;
-    if (f.n && f.k.slice(5) === '03-22') wwd = true; // 22 de março, o Dia Mundial da Água
-    if (f.hit >= 0) { met.push(dnum(f.k)); if (f.hit < 1080) sunsetDays++; }
+    if (f.n) {
+      daysUsed++;
+      if (f.k.slice(5) === '03-22') wwd = true; // 22 de março, o Dia Mundial da Água
+      if (f.k.slice(5) === '06-08') oceans = true; // 8 de junho, o Dia Mundial dos Oceanos
+    }
+    if (f.hit >= 0) {
+      met.push(dnum(f.k));
+      if (f.hit < 1080) sunsetDays++;
+      const s = summerOf(f.k); // os dias de meta de cada verão, e vale o verão em que houve mais
+      if (s) { seasons[s] = (seasons[s] || 0) + 1; if (seasons[s] > summer) summer = seasons[s]; }
+    }
   });
   // sequências, janela de 30 dias, "volta por cima" e fins de semana saem da lista (em ordem) dos dias de meta
   let best = 0, run = 0, win30 = 0, weekends = 0, back = false, i = 0;
@@ -326,7 +348,7 @@ function contextFrom(facts, upTo, missionKeys) {
   }
   const missions = upTo ? missionKeys.filter((k) => k <= upTo).length : missionKeys.length;
   return { totalMl, entries, daysMet: met.length, early: earlyDays >= 1, sunset: sunsetDays >= 1, weekend: weekends >= 1,
-    earlyDays, sunsetDays, thirdsDays, weekends, win30, back, wwd, best, missions };
+    earlyDays, sunsetDays, thirdsDays, weekends, win30, back, wwd, best, missions, daysUsed, summer, oceans };
 }
 // As medalhas de "primeiros registros" olham só a água (500 ml de água antes das 9h, primeira gota); o volume total de água
 // agora vira insígnia (ver INSIGNIAS), não medalha. Já "bater a meta" (e a hora em que isso aconteceu) segue o total da meta,
@@ -373,19 +395,39 @@ export function nearestMedal(S, c) {
   });
   return best;
 }
-// As medalhas que vão ao perfil dos amigos (1.5.0): uma máscara de bits na ordem de ACHIEVEMENTS (o bit i é ACHIEVEMENTS[i]). Essa ORDEM é um
+// As medalhas que vão ao perfil dos amigos (1.5.0): máscaras de bits na ordem de ACHIEVEMENTS (o bit i é ACHIEVEMENTS[i]). Essa ORDEM é um
 // contrato com a nuvem e com os amigos: medalha nova entra só NO FIM da lista; nunca se reordena nem se remove (tests/core.test.js trava isso).
-// As regras do Firestore aceitam até MEDAL_MAX bits (firestore.rules, "md"): se a lista passar disso, aumente os dois. Com as 24 da 1.6.0 a lista está CHEIA:
-// a 25ª medalha exige antes publicar a regra nova (e MEDAL_MAX).
+// A máscara tem DUAS palavras, porque as regras do Firestore (as de 30/10/2026, que os celulares de todo mundo ainda usam) só aceitam 24 bits em "md":
+//   md  = as medalhas de índice 0 a 23, até 16777215 (MEDAL_MAX; firestore.rules). Quem está na 1.6.0 ou antes só lê esta palavra.
+//   md2 = as de índice 24 a 54 (1.7.0), até 2147483647 (MEDAL_MAX2; firestore.rules). Só vai ao perfil quando não é zero.
+// Uma palavra única maior faria um app antigo ler o excesso como "todas as 24 medalhas" (ele corta o valor no teto): por isso a palavra nova é à parte.
+// Com as duas, a lista cabe até MEDAL_CAP (55) medalhas. Passar disso: ver "Como acrescentar uma medalha" no HANDOFF.
 export const MEDAL_MAX = 24;
-export function medalMask(S) {
+export const MEDAL_MAX2 = 31;
+export const MEDAL_CAP = MEDAL_MAX + MEDAL_MAX2;
+// A palavra das medalhas de índice lo a lo + n − 1, com o bit 0 na primeira delas
+function maskWord(S, lo, n) {
   const got = S.achievements || {};
   let m = 0;
-  ACHIEVEMENTS.forEach((a, i) => { if (i < MEDAL_MAX && got[a.id]) m |= 1 << i; });
+  ACHIEVEMENTS.forEach((a, i) => { if (i >= lo && i < lo + n && got[a.id]) m |= 1 << (i - lo); });
   return m;
 }
-// O caminho de volta: as medalhas de uma máscara, na ordem de ACHIEVEMENTS. Bits que este app não conhece (medalha de uma versão mais nova) ficam de fora.
-export const medalsFromMask = (m) => ACHIEVEMENTS.filter((a, i) => i < MEDAL_MAX && ((m >> i) & 1) === 1);
+export const medalMask = (S) => maskWord(S, 0, MEDAL_MAX);
+export const medalMask2 = (S) => maskWord(S, MEDAL_MAX, MEDAL_MAX2);
+// O caminho de volta: as medalhas das duas palavras, na ordem de ACHIEVEMENTS. Bits que este app não conhece (medalha de uma versão mais nova) ficam de fora.
+export const medalsFromMask = (m, m2) => ACHIEVEMENTS.filter((a, i) => (i < MEDAL_MAX ? ((m >> i) & 1) === 1 : i < MEDAL_CAP && (((m2 || 0) >> (i - MEDAL_MAX)) & 1) === 1));
+// Junta medalhas de outra cópia (o backup da conta, o arquivo de backup) às deste aparelho: de cada uma vale a data MAIS ANTIGA. Entram só ids que este
+// app conhece e carimbos de verdade (número positivo). Devolve quantas mudaram aqui (medalha nova ou data mais antiga).
+export function mergeAch(into, from) {
+  let n = 0;
+  if (!from || typeof from !== 'object') return n;
+  ACHIEVEMENTS.forEach((a) => {
+    const t = +from[a.id], cur = +into[a.id];
+    if (!(t > 0) || !isFinite(t)) return;
+    if (!(cur > 0) || t < cur) { into[a.id] = t; n++; }
+  });
+  return n;
+}
 
 /* ---------- estatísticas e padrões ---------- */
 export function stats(S, today) {
@@ -507,6 +549,81 @@ export function patterns(S, today, p) {
 }
 // Os textos de "Seus padrões", numa lista só (a mesma de patterns().texts)
 export const insights = (S, today, p) => patterns(S, today, p).texts;
+
+/* ---------- os meses (1.7.0) ---------- */
+// "Seus meses" (Jornada): o mês de agora contra o anterior, e um calendário colorido das últimas 13 semanas (um quadradinho por dia, como o do GitHub).
+// O primeiro dia de uso é o mais antigo entre o primeiro registro e a criação do app; antes dele não há "dia sem registro". Hoje nunca entra na conta de um
+// mês (ainda não acabou), e um dia sem nenhum registro vale 0 ml e "não bateu a meta" (como em "Constância 30d" e na medalha Mês de ouro).
+export const MONTH_MIN = 7; // dias de cada mês (desde que a pessoa começou) para um poder ser comparado com o outro
+export const MONTH_USED = 3; // e dias com água em cada um (sem isso, um mês de férias sem registro viraria "-100%")
+export const HM_WEEKS = 13; // semanas do calendário colorido (3 meses): os quadradinhos ficam legíveis até numa tela de 280 px
+export const MONTH_NAMES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const MONTH_ABBR = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const ymAdd = (ym, n) => { const d = new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1 + n, 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); };
+const ymDays = (ym) => new Date(+ym.slice(0, 4), +ym.slice(5, 7), 0).getDate();
+const firstDay = (S) => { const keys = Object.keys(S.days).sort(), made = dayKey(new Date(S.createdAt || Date.now())); return keys.length && keys[0] < made ? keys[0] : made; };
+// Os números de um pedaço de mês, dos dias a a b (chaves de dia): quantos dias, quantos na meta, quantos com água, a média de ml por dia e a taxa de dias na meta (0 a 1)
+function monthStats(S, a, b) {
+  let days = 0, met = 0, ml = 0, used = 0;
+  for (let k = a; k <= b; k = addDays(k, 1)) {
+    const d = S.days[k];
+    days++; ml += dayTotal(d);
+    if (isMet(d)) met++;
+    if (d && d.entries && d.entries.some(isWater)) used++;
+  }
+  return { days: days, met: met, used: used, avg: Math.round(ml / days), rate: met / days };
+}
+// Devolve { ready, cur, prev, texts }. cur e prev = { ym ('2026-10'), days, met, used, avg, rate }: os dias que contam de cada mês (do primeiro dia de uso e até ontem, no mês de agora).
+// O "mês de agora" é o do último dia que já acabou (ontem); se ele ainda tem menos de MONTH_MIN dias (começo de mês), vale o mês que passou, inteiro, contra o anterior a ele.
+// ready = os dois meses têm MONTH_MIN dias e MONTH_USED com água. texts = o que dizer, em { e, t }: uma frase sobre a média e outra sobre os dias na meta.
+export function months(S, today) {
+  const last = addDays(today, -1), first = firstDay(S), out = { ready: false, cur: null, prev: null, texts: [] };
+  const stat = (ym) => {
+    const a = ym + '-01' > first ? ym + '-01' : first, e = ym + '-' + pad(ymDays(ym)), b = e < last ? e : last;
+    return a <= b ? Object.assign({ ym: ym }, monthStats(S, a, b)) : null;
+  };
+  let ym = last.slice(0, 7), cur = stat(ym);
+  if (!cur || cur.days < MONTH_MIN) { ym = ymAdd(ym, -1); cur = stat(ym); }
+  const prev = cur ? stat(ymAdd(ym, -1)) : null, ok = (m) => !!m && m.days >= MONTH_MIN && m.used >= MONTH_USED;
+  out.cur = cur; out.prev = prev;
+  if (!ok(cur) || !ok(prev)) return out;
+  out.ready = true;
+  const c = MONTH_NAMES[+cur.ym.slice(5, 7) - 1], p = MONTH_NAMES[+prev.ym.slice(5, 7) - 1], d = prev.avg > 0 ? Math.round(((cur.avg - prev.avg) / prev.avg) * 100) : null;
+  if (d != null) {
+    out.texts.push(Math.abs(d) < 3 ? { e: '➡️', t: 'Sua média por dia em ' + c + ' está igual à de ' + p + '.' }
+      : { e: d > 0 ? '📈' : '📉', t: 'Sua média por dia em ' + c + ' está ' + Math.abs(d) + '% ' + (d > 0 ? 'acima' : 'abaixo') + ' da de ' + p + '.' });
+  }
+  if (cur.met > 0 || prev.met > 0) {
+    out.texts.push({ e: '🎯', t: 'Você bateu a meta em ' + pcent(cur.rate) + '% dos dias de ' + c + ', contra ' + pcent(prev.rate) + '% em ' + p + '.' +
+      (pcent(cur.rate) - pcent(prev.rate) >= 10 ? ' Que evolução!' : '') });
+  }
+  return out;
+}
+// O calendário colorido: HM_WEEKS colunas = semanas (de domingo a sábado; a última é a de hoje), com 7 quadradinhos por coluna (a última coluna para em hoje).
+// Cada dia é { k, l, ml, today }: l = -1 (antes de a pessoa começar: só o lugar vazio), 0 (sem registro), 1 (menos da metade da meta), 2 (metade ou mais) e 3 (meta
+// batida): os mesmos níveis do calendário do Histórico. Devolve { cols, labels, span, met, text }: labels = [{ w, m }], o mês (abreviado) que começa na coluna w
+// (a primeira coluna diz o mês dela quando nenhum começa nas 3 primeiras); span = os dias que contam (do primeiro dia de uso até hoje) e met = os que bateram a meta.
+export function heatmap(S, today) {
+  const first = firstDay(S), start = addDays(today, -keyToDate(today).getDay() - 7 * (HM_WEEKS - 1)), cols = [], labels = [];
+  let met = 0, span = 0;
+  for (let w = 0; w < HM_WEEKS; w++) {
+    const col = [];
+    for (let r = 0; r < 7; r++) {
+      const k = addDays(start, 7 * w + r);
+      if (k > today) break;
+      if (k.slice(8) === '01') labels.push({ w: w, m: MONTH_ABBR[+k.slice(5, 7) - 1] });
+      if (k < first) { col.push({ k: k, l: -1, ml: 0, today: false }); continue; }
+      const d = S.days[k], t = dayTotal(d), g = (d && d.goal) || goalToday(S, k), l = !t ? 0 : isMet(d) ? 3 : t >= g / 2 ? 2 : 1;
+      span++;
+      if (l === 3) met++;
+      col.push({ k: k, l: l, ml: t, today: k === today });
+    }
+    cols.push(col);
+  }
+  if (!labels.some((x) => x.w < 3)) labels.unshift({ w: 0, m: MONTH_ABBR[+start.slice(5, 7) - 1] });
+  return { cols: cols, labels: labels, span: span, met: met,
+    text: !span ? '' : met ? 'Você bateu a meta em ' + met + ' de ' + span + (span === 1 ? ' dia.' : ' dias.') : 'Ainda sem meta batida neste calendário. Cada gole conta!' };
+}
 
 /* ---------- formatação ---------- */
 const nf = (n, d) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: d || 0 });

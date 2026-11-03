@@ -6,7 +6,8 @@
 //  • Painel de registro: #eMl, #eTime, #eErr. Onboarding: #obName, #obWeight, #obWake, #obSleep, #obGoal (data-total), #obDrop.
 //  • "Hoje" é montado em partes com id (TODAY_PARTS) para atualizar sem redesenhar a gota (#drop).
 //  • Barras com data-w crescem via ui.animBars; a gota enche via ui.dropTo(el, total, meta, dropOpts(total, meta)).
-import { WATERS, OTHERS, ACTIVITY, INSIGNIAS, ACHIEVEMENTS, MEDAL_GROUPS, MEDALS_1_5, PATTERN_MIN, achievementById, context, medalProgress, nearestMedal, patterns,
+import { WATERS, OTHERS, ACTIVITY, INSIGNIAS, ACHIEVEMENTS, MEDAL_GROUPS, MEDALS_1_6, PATTERN_MIN, HM_WEEKS, achievementById, context, medalProgress, nearestMedal, patterns,
+  months, heatmap,
   drink, isOther, dayTotal, dayOther, otherCounted, mixOn, isMet, calcGoal, goalToday, expectedBy,
   dayWindow, streak, bestStreak, insigniaById, unlockedInsignias, mascotOf, reefFor, missionFor, missionProgress, stats, dayKey, keyToDate,
   addDays, minOf, fmtHM, fmtNum } from './core.js';
@@ -80,13 +81,13 @@ function tipsHTML() {
   // Conta (1.3.0): a dica mais importante vai primeiro. Só aparece a partir do segundo dia de uso (quem acabou de chegar ainda não tem o que perder)
   // e some para sempre se for dispensada: o cartão em Ajustes continua lá. Quem já tem conta, ou perdeu o login e vê o aviso em Ajustes, não vê a dica.
   if (!ACCT.on && !ACCT.ended && !ui.tip_account && Object.keys(S.days).length >= 2) return accountTip();
-  // Novidades (1.6.0): um cartão que aparece uma vez para quem já usava o Maré. Abrir o painel ou dispensar o cartão o apaga para sempre (tip_news16).
-  // Quem está começando agora, ou chega por uma conta, já nasce com ele dispensado. Os de antes (tip_news12, da 1.2, e tip_news15, da 1.5) não voltam mais:
-  // o painel de agora traz também as novidades da 1.5.0, para quem pulou direto para esta versão.
-  if (!ui.tip_news16) {
+  // Novidades (1.7.0): um cartão que aparece uma vez para quem já usava o Maré. Abrir o painel ou dispensar o cartão o apaga para sempre (tip_news17).
+  // Quem está começando agora, ou chega por uma conta, já nasce com ele dispensado. Os de antes (tip_news12, da 1.2, tip_news15, da 1.5, e tip_news16, da 1.6)
+  // não voltam mais: o painel de agora traz também as novidades das versões anteriores, para quem pulou direto para esta.
+  if (!ui.tip_news17) {
     const crew = !!(S.social && S.social.on && S.social.share !== false);
-    return tip('news16', '🏅', 'Novidades no Maré', 'Agora são 24 medalhas, cada uma com o quanto falta, e os seus padrões ganharam gráficos.' + (crew ? ' As medalhas novas também aparecem para a turma.' : ''),
-      ['news', 'Ver as novidades']);
+    return tip('news17', '📅', 'Novidades no Maré', ACHIEVEMENTS.length - MEDALS_1_6 + ' medalhas novas e, na Jornada, o seu mês contra o anterior, com um calendário colorido dos últimos 3 meses.' +
+      (crew ? ' As medalhas novas também aparecem para a turma.' : ''), ['news', 'Ver as novidades']);
   }
   if (!isStandalone() && !isNative() && !ui.tip_install && (canInstall() || ios || isAndroid())) {
     return tip('install', '📲', 'Instale o Maré', ios
@@ -322,6 +323,33 @@ function patternsHTML(pt) {
     '<section class="card"><div class="card-h"><h3 class="pt-h">Seu ritmo no dia</h3><small>últimas 2 semanas</small></div>' + (pt.day.rhythm ? rhythmHTML(pt.day.rhythm) : '') + insRows(pt.day.texts) + '</section>' +
     '<section class="card"><div class="card-h"><h3 class="pt-h">Sua semana</h3><small>média da meta</small></div>' + weekHTML(pt.week) + (pt.week.texts.length ? insRows(pt.week.texts) : '') + '</section>';
 }
+// "Seus meses" (1.7.0): o mês de agora contra o anterior, em duas linhas de barras (a média por dia e os dias na meta) e duas frases. Sem dois meses para comparar:
+// só o convite. Os números e os textos vêm de months() (core.js).
+const moName = (m) => cap(MONTHS[+m.ym.slice(5, 7) - 1]);
+function monthsHTML(mo) {
+  if (!mo.ready) {
+    return '<section class="card">' + empty('📅', 'Com pelo menos uma semana de uso em dois meses seguidos, o Maré compara a sua média por dia e os dias na meta de um mês com os do outro.') + '</section>';
+  }
+  const c = mo.cur, p = mo.prev, top = Math.max(1, c.avg, p.avg);
+  const line = (m, w, v, on) => '<div class="mo-b' + (on ? ' on' : '') + '"><span class="mo-n">' + moName(m) + '</span><span class="mo-t" aria-hidden="true"><i data-w="' + w +
+    '"></i></span><b class="mo-v">' + v + '</b></div>';
+  return '<section class="card"><div class="mo-r"><p class="mo-k">Média por dia</p>' + line(c, Math.round((c.avg / top) * 100), vol(c.avg), true) +
+    line(p, Math.round((p.avg / top) * 100), vol(p.avg), false) + '</div><div class="mo-r"><p class="mo-k">Dias na meta</p>' +
+    line(c, Math.round(c.rate * 100), c.met + ' de ' + c.days, true) + line(p, Math.round(p.rate * 100), p.met + ' de ' + p.days, false) + '</div>' + insRows(mo.texts) + '</section>';
+}
+// O calendário colorido das últimas 13 semanas (heatmap em core.js): um quadradinho por dia, nos mesmos níveis do calendário do Histórico. Os quadradinhos são só
+// para tocar (abrem o dia, como no Histórico): quem usa leitor de tela ouve o resumo, e o calendário do Histórico segue sendo o caminho para os dias, um a um.
+function heatHTML(hm) {
+  const dia = (k) => +k.slice(8) + ' de ' + MONTHS[+k.slice(5, 7) - 1];
+  const cell = (c) => (c.l < 0 ? '<i class="hm-c pre"></i>'
+    : '<i class="hm-c' + (c.l ? ' l' + c.l : '') + (c.today ? ' today' : '') + '" data-action="day" data-day="' + c.k + '" title="' + dia(c.k) + ': ' + (c.ml ? vol(c.ml) : 'sem registros') + '"></i>');
+  const ms = hm.labels.map((x) => '<span style="left:' + ((x.w / HM_WEEKS) * 100).toFixed(2) + '%">' + x.m + '</span>').join('');
+  const cols = hm.cols.map((col) => '<div class="hm-col">' + col.map(cell).join('') + '</div>').join('');
+  return '<section class="card"><div class="card-h"><h3 class="pt-h">Seu calendário</h3><small>últimos 3 meses</small></div>' +
+    '<div class="hm" role="img" aria-label="Calendário dos últimos 3 meses, uma coluna por semana e um quadradinho por dia. ' + hm.text + '"><div class="hm-ms" aria-hidden="true">' + ms +
+    '</div><div class="hm-g" aria-hidden="true">' + cols + '</div></div><div class="legend" aria-hidden="true"><span>Menos</span><i class="cal-d"></i><i class="cal-d l1"></i>' +
+    '<i class="cal-d l2"></i><i class="cal-d l3"></i><span>Meta</span></div>' + (hm.text ? insRows([{ e: '🎯', t: hm.text }]) : '') + '</section>';
+}
 // A medalha que falta e está mais perto, no mesmo desenho da missão do dia
 function nearHTML(near) {
   if (!near) return '';
@@ -348,6 +376,7 @@ function medalsHTML(got, c) {
 }
 export function journeyView() {
   const tot = allMl(), rf = reefFor(S, tot), got = S.achievements || {}, pt = patterns(S, today(), S.profile), mine = S.insignias || {}, mas = mascotOf(S), ctx = context(S);
+  const mo = months(S, today()), hm = heatmap(S, today());
   const n = ACHIEVEMENTS.filter((a) => got[a.id]).length, mis = Object.keys(S.missions || {}).length, pct = Math.round(rf.p * 100);
   return '<header class="page-h"><h1 class="h1">Jornada</h1><p class="eyebrow">Cada gole te leva mais longe</p></header>' +
     '<section class="level"><span class="lv-b">' + badge(rf.cur.id, { size: 132, label: rf.cur.n, cls: 'float' }) + '</span>' +
@@ -360,6 +389,8 @@ export function journeyView() {
     '<div class="card-h out"><h2>Seu recife</h2><small>' + rf.have + ' de ' + INSIGNIAS.length + '</small></div>' +
     '<section class="reef" aria-label="Insígnias">' + INSIGNIAS.map((x) => reefTile(x, mine, mas)).join('') + '</section>' +
     '<div class="card-h out"><h2>Seus padrões</h2><small>últimas 4 semanas</small></div>' + patternsHTML(pt) +
+    '<div class="card-h out"><h2>Seus meses</h2><small>' + (mo.ready ? MONTHS[+mo.cur.ym.slice(5, 7) - 1] + ' e ' + MONTHS[+mo.prev.ym.slice(5, 7) - 1] : 'mês a mês') + '</small></div>' +
+    monthsHTML(mo) + heatHTML(hm) +
     '<div class="card-h out"><h2>Medalhas</h2><small>' + n + ' de ' + ACHIEVEMENTS.length + '</small></div>' + nearHTML(nearestMedal(S, ctx)) + medalsHTML(got, ctx) +
     '<button class="btn block ghost mt" type="button" data-action="share">' + shareIco() + '<span style="margin-left:8px">Compartilhar meu progresso</span></button>';
 }
@@ -392,17 +423,18 @@ export function unlockSheet(id) {
     (S.social && S.social.on && S.social.share !== false ? '<p class="note">Seus amigos vão ver essa insígnia no seu perfil.</p>' : '') +
     '<div class="btns">' + btn('close-sheet', 'Que legal!') + btn('reef', 'Ver meu recife', 'ghost') + '</div></div>';
 }
-// Novidades do Maré (o cartão da tela Hoje abre este painel). 1.6.0: o que há de novo vem primeiro; o da 1.5.0 e o das versões 1.1 e 1.2 ficam na seção de baixo.
+// Novidades do Maré (o cartão da tela Hoje abre este painel). 1.7.0: o que há de novo vem primeiro; o que veio nas versões 1.1 a 1.6 fica na seção de baixo.
 export function newsSheet() {
   const have = unlockedInsignias(S).length, ni = (e, b, t) => '<div class="news-i"><span class="em" aria-hidden="true">' + e + '</span><div><b>' + b + '</b><p>' + t + '</p></div></div>';
   const crew = !!(S.social && S.social.on && S.social.share !== false), got = S.achievements || {}; // com o progresso escondido, a turma não vê as medalhas
-  const fresh = ACHIEVEMENTS.slice(MEDALS_1_5).filter((a) => got[a.id]).length, added = ACHIEVEMENTS.length - MEDALS_1_5;
+  const fresh = ACHIEVEMENTS.slice(MEDALS_1_6).filter((a) => got[a.id]).length, added = ACHIEVEMENTS.length - MEDALS_1_6;
   return sheetHead('Novidades do Maré') +
-    ni('🏅', added + ' medalhas novas', 'Agora são ' + ACHIEVEMENTS.length + ': sequências de 60 e 100 dias, metas em 30 e 100 dias, rotina do dia, fins de semana firmes e até uma para o Dia Mundial da Água. ' +
+    ni('🏅', added + ' medalhas novas', 'Agora são ' + ACHIEVEMENTS.length + ': um mês e cem dias de Maré, o verão em dia, fins de semana de ouro, o Dia dos Oceanos e a Turma completa, que só sai quando você e pelo menos dois amigos batem a meta no mesmo dia. ' +
       (fresh ? 'Você já conquistou ' + fresh + ' das novas, com a data em que as merecia. ' : '') + (crew ? 'Elas também aparecem no seu perfil para a turma.' : 'Veja o que cada uma pede, na Jornada.')) +
-    ni('🎯', 'Quanto falta', 'Cada medalha que ainda não saiu mostra quanto você já andou, e a que está mais perto de sair ganha um cartão na Jornada.') +
-    ni('📊', 'Seus padrões com gráficos', 'A água de cada hora do dia mostra o seu período mais seco, e a semana mostra como vai cada dia. Aparecem depois de 4 dias de registro.') +
+    ni('📅', 'Seus meses', 'A Jornada ganhou o seu mês contra o anterior, com a média por dia e os dias na meta, e um calendário colorido dos últimos 3 meses: um quadradinho por dia.') +
+    ni('☁️', 'Medalhas na conta', 'Quem tem conta passa a guardar também o dia em que cada medalha saiu, e ela volta do mesmo jeito em outro aparelho.') +
     '<p class="news-h">Das versões anteriores</p>' +
+    ni('🎯', 'Quanto falta e seus padrões', 'Cada medalha que ainda não saiu mostra quanto você já andou, e os seus padrões têm gráficos: a água de cada hora do dia e a média de cada dia da semana. Aparecem depois de 4 dias de registro.') +
     '<div class="news-i">' + badge('orca', { size: 48 }) + '<div><b>Mais cinco bichinhos no recife</b><p>Arraia-manta, orca, peixe-pescador, lula-gigante e a pérola entraram na coleção, que agora vai até 2.000 L de água. ' +
     (have > 1 ? 'Você já tem ' + have + ' de ' + INSIGNIAS.length + '.' : 'Você começa com a concha.') + '</p></div></div>' +
     ni('🏆', 'Uma turma, um ranking', 'Os amigos agora formam uma turma só: todo mundo vê todo mundo, com ranking do dia, da semana e da sequência. Cada um decide o que mostra, e a meta em ml só aparece se você deixar.') +

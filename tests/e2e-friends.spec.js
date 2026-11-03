@@ -25,7 +25,8 @@ const turmaCard = (page) => page.locator('section.card', { has: page.getByRole('
 const rank = (page) => page.locator('section.rk'); // o ranking da turma: pódio + linhas
 const inRank = (page, name) => rank(page).locator('li.rk-r, li.pd', { hasText: name }); // a pessoa no pódio ou numa linha
 const openFriend = (page, uid) => page.locator('[data-action="fr-open"][data-id="' + uid + '"]').first().click(); // pódio e linhas abrem o mesmo painel
-const payload = (page) => page.evaluate(() => window.__fake.hooks.payload()); // o que o aparelho mandaria agora para a nuvem
+// o que o aparelho mandaria agora para a nuvem (espera a nuvem de mentira subir: no aparelho mais lento, logo depois de abrir, ela ainda podia não existir)
+const payload = async (page) => { await page.waitForFunction(() => window.__fake && window.__fake.hooks && window.__fake.hooks.payload); return page.evaluate(() => window.__fake.hooks.payload()); };
 const REQS = [
   { uid: UID.gabi, prof: { nm: 'Gabi', mc: 'polvo', ins: ['concha', 'estrela', 'baiacu', 'tartaruga', 'cavalo', 'polvo'] } },
   { uid: UID.hugo, prof: { nm: 'Hugo' } },
@@ -258,12 +259,89 @@ test.describe('lista da turma', () => {
     await seed(page, { todayMl: 2900, social: SOCIAL_ON });
     await page.goto('/');
     await expect(page.locator('.medal-pop')).toContainText('Turma completa!');
-    await expect(page.locator('.medal-pop')).toBeHidden({ timeout: 6000 });
+    await expect(page.locator('.medal-pop')).toBeHidden({ timeout: 12000 }); // 1.7.0: depois da festa vem na fila o cartão da medalha Turma completa (2 cartões, uns 5,5 s)
     await tabF(page).click();
     await expect(page.locator('.tide.all')).toContainText('Turma completa!');
     await page.reload();
-    await page.waitForTimeout(1500);
+    await tabF(page).click();
+    await expect(page.locator('.tide.all')).toContainText('Turma completa!'); // a turma chegou da nuvem: a checagem do dia já rodou (ela vem antes de a tela se refazer)
+    await page.waitForTimeout(600);
     await expect(page.locator('.medal-pop')).toHaveCount(0); // já comemorou hoje
+  });
+
+  // 1.7.0: a medalha "Turma completa" só nasce aqui, ao vivo: o histórico não sabe o que os amigos fizeram
+  test('medalha Turma completa: sai quando você e pelo menos 2 amigos batem a meta no mesmo dia, uma única vez, e vai no perfil que a turma vê (md2)', async ({ page }) => {
+    await stubFriendsCloud(page, { friends: ALLMET, code: 'ABCD2345' }); // Bia, Caio e Duda na meta + eu (2900 ml): 4 pessoas
+    await seed(page, { todayMl: 2900, social: SOCIAL_ON });
+    await page.goto('/');
+    await expect.poll(async () => (await stored(page)).achievements.crew, 'a medalha nasce quando a turma chega da nuvem').toBeGreaterThan(0);
+    const t0 = (await stored(page)).achievements.crew;
+    await expect(page.locator('.medal-pop')).toContainText('Turma completa!'); // primeiro a festa do dia…
+    await expect(page.locator('.medal-pop').filter({ hasText: 'Nova medalha' })).toBeVisible({ timeout: 15000 }); // …e depois, na fila, o cartão da medalha
+    await expect(page.locator('.medal-pop')).toContainText('Você e pelo menos 2 amigos bateram a meta no mesmo dia');
+    expect((await payload(page)).md2 & 32, 'a turma passa a ver a medalha (bit 5 de md2)').toBe(32);
+    await page.reload();
+    await tabF(page).click();
+    await expect(page.locator('.tide.all')).toContainText('Turma completa!'); // a turma voltou da nuvem e a checagem já rodou
+    await page.waitForTimeout(600);
+    expect((await stored(page)).achievements.crew, 'a data da medalha não muda').toBe(t0);
+    await expect(page.locator('.medal-pop')).toHaveCount(0); // nem festa nem cartão: os dois são de uma vez só (por dia e por vida)
+  });
+
+  test('medalha Turma completa: com só você e 1 amigo na meta (2 pessoas) a festa do dia acontece, mas a medalha não sai', async ({ page }) => {
+    await stubFriendsCloud(page, { friends: ALLMET.slice(0, 1), code: 'ABCD2345' });
+    await seed(page, { todayMl: 2900, social: SOCIAL_ON });
+    await page.goto('/');
+    await expect(page.locator('.medal-pop')).toContainText('Turma completa!');
+    expect((await stored(page)).achievements.crew).toBeUndefined();
+    await expect(page.locator('.medal-pop')).toBeHidden({ timeout: 6000 });
+    await page.waitForTimeout(800);
+    await expect(page.locator('.medal-pop')).toHaveCount(0); // nenhum cartão de medalha depois da festa
+    expect((await stored(page)).achievements.crew).toBeUndefined();
+    const md2 = (await payload(page)).md2 || 0;
+    expect(md2 & 32, 'a turma não vê uma medalha que não saiu').toBe(0);
+  });
+
+  test('medalha Turma completa: se um dos amigos não bateu a meta, não sai; quando ele bate, com o app aberto, sai na hora', async ({ page }) => {
+    const faltou = ALLMET.map((f, i) => (i === 2 ? { uid: f.uid, prof: Object.assign({}, f.prof, { pct: 60, met: false }) } : f));
+    await stubFriendsCloud(page, { friends: faltou, code: 'ABCD2345' });
+    await seed(page, { todayMl: 2900, social: SOCIAL_ON });
+    await page.goto('/');
+    await tabF(page).click();
+    await expect(page.getByText('3 de 4 já bateram a meta hoje')).toBeVisible();
+    await page.waitForTimeout(1200);
+    expect((await stored(page)).achievements.crew).toBeUndefined();
+    await expect(page.locator('.medal-pop')).toHaveCount(0);
+    const t0 = await page.evaluate(() => window.__fake.touches);
+    await page.evaluate((u) => window.__fake.person(u, { pct: 100, met: true }), faltou[2].uid); // ele bate a meta com o app aberto
+    await expect.poll(async () => (await stored(page)).achievements.crew, 'a medalha sai na hora, ao vivo').toBeGreaterThan(0);
+    await expect.poll(() => page.evaluate(() => window.__fake.touches), 'o perfil que a turma vê é enviado de novo, com a medalha').toBeGreaterThan(t0);
+    expect(((await payload(page)).md2 & 32)).toBe(32);
+  });
+
+  test('medalha Turma completa: se a turma só chega a 3 pessoas depois da festa do dia, a medalha sai na hora, sem uma segunda festa', async ({ page }) => {
+    await stubFriendsCloud(page, { friends: ALLMET.slice(0, 1), code: 'ABCD2345' }); // eu e a Bia, as duas na meta: há festa, mas ainda não há medalha
+    await seed(page, { todayMl: 2900, social: SOCIAL_ON });
+    await page.goto('/');
+    await expect(page.locator('.medal-pop')).toContainText('Turma completa!');
+    await expect(page.locator('.medal-pop')).toBeHidden({ timeout: 6000 });
+    expect((await stored(page)).achievements.crew).toBeUndefined();
+    await page.evaluate((a) => { window.__fake.befriend(a.uid, a.prof); }, ALLMET[1]); // o Caio entra na turma, já na meta
+    await expect.poll(async () => (await stored(page)).achievements.crew, 'a medalha sai quando a turma chega a 3').toBeGreaterThan(0);
+    await expect(page.locator('.medal-pop')).toContainText('Nova medalha');
+    await expect(page.locator('.medal-pop')).not.toContainText('Todo mundo bateu a meta hoje'); // a festa do dia já foi (é uma por dia)
+  });
+
+  test('medalha Turma completa: com a Jornada aberta, o cartão da medalha acende na hora', async ({ page }) => {
+    const faltou = ALLMET.map((f, i) => (i === 2 ? { uid: f.uid, prof: Object.assign({}, f.prof, { pct: 60, met: false }) } : f));
+    await stubFriendsCloud(page, { friends: faltou, code: 'ABCD2345' });
+    await seed(page, { todayMl: 2900, social: SOCIAL_ON });
+    await page.goto('/');
+    await tab(page, 'Jornada').click();
+    const crew = page.locator('.medals .medal').filter({ has: page.locator('b', { hasText: /^Turma completa$/ }) });
+    await expect(crew).toHaveClass(/off/);
+    await page.evaluate((u) => window.__fake.person(u, { pct: 100, met: true }), faltou[2].uid);
+    await expect(crew).not.toHaveClass(/off/); // sem sair da aba
   });
 
   test('sem amigos ainda: convite e estado vazio simpático', async ({ page }) => {
@@ -790,7 +868,7 @@ test.describe('painéis', () => {
     await openFriend(page, UID.bia); // 8 medalhas
     const chips = sheet(page).locator('.mchips .mchip');
     await expect(sheet(page).getByRole('heading', { name: 'Medalhas' })).toBeVisible();
-    await expect(sheet(page)).toContainText('8 de 24');
+    await expect(sheet(page)).toContainText('8 de 30');
     await expect(chips).toHaveCount(8);
     await expect(chips).toContainText(['Primeira gota', 'Na mosca', 'Pegando o ritmo', 'Semana fluida', 'Madrugador', 'Antes do pôr do sol', 'Missão cumprida', 'Dez na meta']);
     await expect(chips.nth(3)).toHaveAttribute('title', '7 dias seguidos na meta'); // a descrição vai junto (toque longo, mouse e leitor de tela)
@@ -802,10 +880,10 @@ test.describe('painéis', () => {
     await expect(page.locator('#sheet')).toBeHidden();
     await openFriend(page, UID.caio); // 3 medalhas
     await expect(chips).toHaveCount(3);
-    await expect(sheet(page)).toContainText('3 de 24');
+    await expect(sheet(page)).toContainText('3 de 30');
     await page.evaluate((u) => window.__fake.person(u, { md: 7 | 8 }), UID.caio); // ganhou a Semana fluida com o painel aberto
     await expect(chips).toHaveCount(4);
-    await expect(sheet(page)).toContainText('4 de 24');
+    await expect(sheet(page)).toContainText('4 de 30');
     await page.evaluate((u) => window.__fake.person(u, { sh: false, pct: null, md: null }), UID.caio); // e pausou o progresso: as medalhas somem junto
     await expect(sheet(page)).toContainText('Progresso do dia em pausa');
     await expect(sheet(page).locator('.mchips')).toHaveCount(0);
@@ -820,17 +898,22 @@ test.describe('painéis', () => {
     }
   });
 
-  test('painel do amigo com as 24 medalhas: todas aparecem, em ordem, sem estourar o painel', async ({ page }) => {
-    const all = CREW.map((f) => (f.uid === UID.bia ? { uid: f.uid, prof: Object.assign({}, f.prof, { md: 16777215 }) } : f));
+  test('painel do amigo com as 30 medalhas: todas aparecem, em ordem, sem estourar o painel', async ({ page }) => {
+    // 1.7.0: as medalhas 0 a 23 vão em md (16777215) e as 24 a 29 em md2 (63 = as seis novas)
+    const all = CREW.map((f) => (f.uid === UID.bia ? { uid: f.uid, prof: Object.assign({}, f.prof, { md: 16777215, md2: 63 }) } : f));
     await open(page, { friends: all });
     await openFriend(page, UID.bia);
     const chips = sheet(page).locator('.mchips .mchip');
-    await expect(chips).toHaveCount(24);
-    await expect(sheet(page)).toContainText('24 de 24');
+    await expect(chips).toHaveCount(30);
+    await expect(sheet(page)).toContainText('30 de 30');
     await expect(chips.first()).toContainText('Primeira gota');
     await expect(chips.nth(11)).toContainText('Dez na meta'); // a última da 1.5: os bits 0 a 11
     await expect(chips.nth(12)).toContainText('Maré viva'); // a primeira da 1.6: o bit 12
-    await expect(chips.last()).toContainText('Dia Mundial da Água');
+    await expect(chips.nth(23)).toContainText('Dia Mundial da Água'); // a última da 1.6: o bit 23, o último de md
+    await expect(chips.nth(24)).toContainText('Um mês de Maré'); // a primeira da 1.7: o bit 0 de md2
+    await expect(chips.nth(26)).toContainText('Verão em dia');
+    await expect(chips.nth(28)).toContainText('Dia dos Oceanos');
+    await expect(chips.last()).toContainText('Turma completa');
     const out = await page.$$eval('#sheetBody .mchip', (els) => {
       const panel = document.querySelector('#sheetBody').getBoundingClientRect();
       return els.filter((e) => { const r = e.getBoundingClientRect(); return r.right > panel.right + 0.5 || r.left < panel.left - 0.5; }).map((e) => e.textContent);
@@ -838,13 +921,43 @@ test.describe('painéis', () => {
     expect(out, 'fichas fora do painel').toEqual([]);
   });
 
-  test('amigo que ainda usa a 1.5 (12 medalhas, máscara 4095) aparece com 12 de 24; quando ele atualiza, as medalhas novas entram na lista, na ordem do app', async ({ page }) => {
+  test('amigo que ainda usa a 1.6.0 (só md, 24 medalhas) mostra 24 de 30, sem as novas; quando ele atualiza, as da segunda palavra (md2) entram no fim da lista', async ({ page }) => {
+    const mk = (prof) => CREW.map((f) => (f.uid === UID.bia ? { uid: f.uid, prof: Object.assign({}, f.prof, prof) } : f));
+    await open(page, { friends: mk({ md: 16777215 }) }); // sem md2: o perfil de antes da 1.7.0
+    await openFriend(page, UID.bia);
+    const chips = sheet(page).locator('.mchips .mchip');
+    await expect(chips).toHaveCount(24);
+    await expect(sheet(page)).toContainText('24 de 30');
+    await expect(chips.last()).toContainText('Dia Mundial da Água');
+    await expect(sheet(page)).not.toContainText('Um mês de Maré');
+    await expect(sheet(page)).not.toContainText('Turma completa');
+    await page.evaluate((u) => window.__fake.person(u, { md2: 1 | 32 }), UID.bia); // ele atualizou: ganhou o Um mês de Maré e a Turma completa
+    await expect(chips).toHaveCount(26);
+    await expect(sheet(page)).toContainText('26 de 30');
+    await expect(chips.nth(24)).toContainText('Um mês de Maré');
+    await expect(chips.last()).toContainText('Turma completa');
+    await page.evaluate((u) => window.__fake.person(u, { md2: 2147483647 }), UID.bia); // um perfil com bits além das 30 medalhas: os que não existem são ignorados
+    await expect(chips).toHaveCount(30);
+    await expect(sheet(page)).toContainText('30 de 30');
+  });
+
+  test('só medalhas da segunda palavra (md = 0, md2 > 0): o bloco aparece com as novas e nada mais', async ({ page }) => {
+    const mk = (prof) => CREW.map((f) => (f.uid === UID.duda ? { uid: f.uid, prof: Object.assign({}, f.prof, prof) } : f));
+    await open(page, { friends: mk({ md: 0, md2: 2 | 16 }) }); // Cem dias de Maré e Dia dos Oceanos
+    await openFriend(page, UID.duda);
+    const chips = sheet(page).locator('.mchips .mchip');
+    await expect(chips).toHaveCount(2);
+    await expect(chips).toContainText(['Cem dias de Maré', 'Dia dos Oceanos']);
+    await expect(sheet(page)).toContainText('2 de 30');
+  });
+
+  test('amigo que ainda usa a 1.5 (12 medalhas, máscara 4095) aparece com 12 de 30; quando ele atualiza, as medalhas novas entram na lista, na ordem do app', async ({ page }) => {
     const mk = (md) => CREW.map((f) => (f.uid === UID.bia ? { uid: f.uid, prof: Object.assign({}, f.prof, { md: md }) } : f));
     await open(page, { friends: mk(4095) });
     await openFriend(page, UID.bia);
     const chips = sheet(page).locator('.mchips .mchip');
     await expect(chips).toHaveCount(12);
-    await expect(sheet(page)).toContainText('12 de 24');
+    await expect(sheet(page)).toContainText('12 de 30');
     await expect(chips.last()).toContainText('Dez na meta');
     await expect(sheet(page)).not.toContainText('Maré viva');
     await page.evaluate((u) => window.__fake.person(u, { md: (1 << 23) | (1 << 12) | 1 }), UID.bia); // ele atualizou: first, s60 (bit 12) e wwd (bit 23)
@@ -900,7 +1013,8 @@ test.describe('painéis', () => {
     const chips = sheet(page).locator('.mchips .mchip');
     await expect(chips).toHaveCount(3);
     await expect(chips).toContainText(['Primeira gota', 'Na mosca', 'Semana fluida']);
-    await expect(sheet(page)).toContainText('3 de 24');
+    await expect(sheet(page)).toContainText('3 de 30');
+    expect('md2' in (await payload(page)), 'sem medalha da segunda palavra, o perfil segue no formato de antes (sem md2)').toBe(false);
     await expect(sheet(page)).toContainText('as medalhas, a porcentagem da meta de hoje'); // o aviso do que a turma vê já cita as medalhas
     await expect(sheet(page).getByText('os últimos 7 dias e as medalhas.', { exact: false }).first()).toBeVisible(); // e a chave do progresso também
     await sheet(page).getByRole('switch', { name: /Mostrar meu progresso/ }).click(); // pausa
@@ -911,6 +1025,26 @@ test.describe('painéis', () => {
     await sheet(page).getByRole('switch', { name: /Mostrar meu progresso/ }).click(); // volta
     await expect(chips).toHaveCount(3);
     expect((await payload(page)).md).toBe(1 + 2 + 8);
+  });
+
+  test('meu perfil: as medalhas novas (24 a 29) vão em md2 e as antigas continuam em md; com o progresso em pausa, nenhuma das duas sai', async ({ page }) => {
+    await open(page, { friends: CREW }, { medals: ['first', 'm1', 'summer', 'crew'] });
+    const p = await payload(page);
+    expect(p.md).toBe(1); // só a Primeira gota é das 24 primeiras
+    expect(p.md2).toBe(1 + 4 + 32); // Um mês de Maré (bit 0), Verão em dia (bit 2) e Turma completa (bit 5)
+    await page.getByRole('button', { name: 'Meu perfil' }).click();
+    const chips = sheet(page).locator('.mchips .mchip');
+    await expect(chips).toHaveCount(4);
+    await expect(chips).toContainText(['Primeira gota', 'Um mês de Maré', 'Verão em dia', 'Turma completa']);
+    await expect(sheet(page)).toContainText('4 de 30');
+    await sheet(page).getByRole('switch', { name: /Mostrar meu progresso/ }).click(); // pausa
+    await expect(sheet(page).locator('.mchips')).toHaveCount(0);
+    const q = await payload(page);
+    expect(q.md).toBeNull();
+    expect('md2' in q, 'em pausa o perfil não leva md2').toBe(false);
+    await sheet(page).getByRole('switch', { name: /Mostrar meu progresso/ }).click(); // volta
+    await expect(chips).toHaveCount(4);
+    expect((await payload(page)).md2).toBe(1 + 4 + 32);
   });
 
   test('meu perfil: sem nenhuma medalha ainda, o bloco não aparece e o perfil leva md = 0', async ({ page }) => {
@@ -1323,28 +1457,29 @@ test.describe('apagar tudo', () => {
 /* ---------- novidades e backup ---------- */
 test('a janela de novidades conta as medalhas novas e ainda apresenta os amigos e leva até eles', async ({ page }) => {
   await stubFriendsCloud(page);
-  await seed(page, { social: { on: false }, ui: { tip_news16: 0 } }); // 0 = a dica ainda não foi dispensada
+  await seed(page, { social: { on: false }, ui: { tip_news17: 0 } }); // 0 = a dica ainda não foi dispensada
   await page.goto('/');
   await page.getByRole('button', { name: /Ver as novidades/ }).click();
-  await expect(sheet(page)).toContainText('12 medalhas novas');
+  await expect(sheet(page)).toContainText('6 medalhas novas');
+  await expect(sheet(page)).toContainText('Seus meses');
+  await expect(sheet(page)).toContainText('Medalhas na conta');
   await expect(sheet(page)).toContainText('Quanto falta');
-  await expect(sheet(page)).toContainText('Seus padrões com gráficos');
   await expect(sheet(page)).toContainText('Uma turma, um ranking');
   await expect(sheet(page)).toContainText('Avisos mais espertos');
   await sheet(page).getByRole('button', { name: 'Conhecer a turma' }).click();
   await expect(tabF(page)).toHaveAttribute('aria-current', 'page');
 });
 
-test('o cartão de novidades (1.6.0) só fala da turma para quem está nela com o progresso ligado; o painel traz o texto certo para cada caso', async ({ page }) => {
+test('o cartão de novidades (1.7.0) só fala da turma para quem está nela com o progresso ligado; o painel traz o texto certo para cada caso', async ({ page }) => {
   await stubFriendsCloud(page, { friends: CREW, code: 'ABCD2345' });
-  await seed(page, { todayMl: 1400, social: SOCIAL_ON, ui: { tip_news16: 0 } });
+  await seed(page, { todayMl: 1400, social: SOCIAL_ON, ui: { tip_news17: 0 } });
   await page.goto('/');
   const card = page.locator('#tTips .tip');
-  await expect(card).toContainText('Agora são 24 medalhas, cada uma com o quanto falta, e os seus padrões ganharam gráficos.');
+  await expect(card).toContainText('6 medalhas novas e, na Jornada, o seu mês contra o anterior, com um calendário colorido dos últimos 3 meses.');
   await expect(card).toContainText('As medalhas novas também aparecem para a turma.');
   await card.getByRole('button', { name: 'Ver as novidades' }).click();
   await expect(sheet(page).locator('#sheetTitle')).toHaveText('Novidades do Maré');
-  await expect(sheet(page)).toContainText('12 medalhas novas');
+  await expect(sheet(page)).toContainText('6 medalhas novas');
   await expect(sheet(page)).toContainText('Elas também aparecem no seu perfil para a turma.');
   await expect(sheet(page)).toContainText('Das versões anteriores');
   await expect(sheet(page)).toContainText('Mais cinco bichinhos no recife'); // o que a 1.5.0 trouxe, para quem pulou direto para esta versão
@@ -1352,6 +1487,7 @@ test('o cartão de novidades (1.6.0) só fala da turma para quem está nela com 
   await sheet(page).getByRole('button', { name: 'Depois' }).click();
   await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
   const ui = (await stored(page)).ui;
+  expect(ui.tip_news17).toBe(1);
   expect(ui.tip_news16).toBe(1);
   expect(ui.tip_news15).toBe(1);
   expect(ui.tip_news12).toBe(1);
@@ -1359,14 +1495,14 @@ test('o cartão de novidades (1.6.0) só fala da turma para quem está nela com 
 
 test('com o progresso em pausa, ou sem a turma, o cartão de novidades não fala da turma; o painel só manda ver a Jornada', async ({ page }) => {
   await stubFriendsCloud(page, { friends: CREW, code: 'ABCD2345' });
-  await seed(page, { todayMl: 1400, social: Object.assign({}, SOCIAL_ON, { share: false }), ui: { tip_news16: 0 } });
+  await seed(page, { todayMl: 1400, social: Object.assign({}, SOCIAL_ON, { share: false }), ui: { tip_news17: 0 } });
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('Agora são 24 medalhas');
+  await expect(page.locator('#tTips .tip')).toContainText('6 medalhas novas');
   await expect(page.locator('#tTips .tip')).not.toContainText('turma');
   const p2 = await page.context().newPage();
   p2.on('pageerror', (e) => { errors.push(e.message); });
   await stubFriendsCloud(p2);
-  await seed(p2, { social: { on: false }, ui: { tip_news16: 0 } });
+  await seed(p2, { social: { on: false }, ui: { tip_news17: 0 } });
   await p2.goto('/');
   await expect(p2.locator('#tTips .tip')).not.toContainText('turma'); // quem não usa os amigos não precisa saber
   await p2.locator('#tTips .tip').getByRole('button', { name: 'Ver as novidades' }).click();
@@ -1375,24 +1511,24 @@ test('com o progresso em pausa, ou sem a turma, o cartão de novidades não fala
   await p2.close();
 });
 
-test('dispensar o cartão de novidades (o X) não abre o painel, apaga o cartão e ele não volta; os cartões antigos (1.2 e 1.5) nunca mais aparecem', async ({ page }) => {
+test('dispensar o cartão de novidades (o X) não abre o painel, apaga o cartão e ele não volta; os cartões antigos (1.2, 1.5 e 1.6) nunca mais aparecem', async ({ page }) => {
   await stubFriendsCloud(page);
-  await seed(page, { social: { on: false }, ui: { tip_news16: 0, tip_news15: 0, tip_news12: 0 } }); // quem nunca dispensou nenhum dos três
+  await seed(page, { social: { on: false }, ui: { tip_news17: 0, tip_news16: 0, tip_news15: 0, tip_news12: 0 } }); // quem nunca dispensou nenhum dos quatro
   await page.goto('/');
   await expect(page.locator('#tTips .tip')).toContainText('Novidades no Maré');
   await page.getByRole('button', { name: 'Dispensar dica' }).click();
   await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
   await expect(page.locator('#sheet')).toBeHidden();
   const ui = (await stored(page)).ui;
-  expect(ui.tip_news16).toBe(1);
+  expect(ui.tip_news17).toBe(1);
   await page.reload();
-  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré'); // o de 1.2 e o de 1.5 não ressurgem só porque ficaram em aberto
+  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré'); // o de 1.2, o de 1.5 e o de 1.6 não ressurgem só porque ficaram em aberto
 });
 
 test('layout: o painel de novidades e as medalhas do perfil cabem em qualquer tela', async ({ page }, info) => {
-  const all = CREW.map((f) => (f.uid === UID.bia ? { uid: f.uid, prof: Object.assign({}, f.prof, { md: 16777215 }) } : f));
+  const all = CREW.map((f) => (f.uid === UID.bia ? { uid: f.uid, prof: Object.assign({}, f.prof, { md: 16777215, md2: 63 }) } : f));
   await stubFriendsCloud(page, { friends: all, code: 'ABCD2345' });
-  await seed(page, { todayMl: 1400, social: SOCIAL_ON, medals: true, history: [30, 2800], ui: { tip_news16: 0 }, insignias: { concha: 30, estrela: 25, baiacu: 20, tartaruga: 12, cavalo: 3 } });
+  await seed(page, { todayMl: 1400, social: SOCIAL_ON, medals: true, history: [30, 2800], ui: { tip_news17: 0 }, insignias: { concha: 30, estrela: 25, baiacu: 20, tartaruga: 12, cavalo: 3 } });
   await page.goto('/');
   const over = async (n) => expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'rolagem lateral em ' + n).toBeLessThanOrEqual(0);
   const shot = (n) => page.screenshot({ path: 'test-results/shots/' + info.project.name + ' - ' + n + '.png', fullPage: true });
@@ -1410,8 +1546,8 @@ test('layout: o painel de novidades e as medalhas do perfil cabem em qualquer te
   await page.waitForTimeout(500);
   await openFriend(page, UID.bia);
   await page.waitForTimeout(500);
-  await over('painel do amigo com 24 medalhas');
-  await expect(sheet(page).locator('.mchips .mchip')).toHaveCount(24);
+  await over('painel do amigo com 30 medalhas');
+  await expect(sheet(page).locator('.mchips .mchip')).toHaveCount(30);
   const box = await page.locator('#sheetBody').boundingBox();
   const tall = await page.$$eval('#sheetBody .mchip', (els) => els.filter((e) => e.getBoundingClientRect().height > 40).map((e) => e.textContent)); // uma ficha nunca quebra em duas linhas
   expect(tall, 'fichas quebradas em duas linhas').toEqual([]);
@@ -1421,8 +1557,8 @@ test('layout: o painel de novidades e as medalhas do perfil cabem em qualquer te
   await expect(page.locator('#sheet')).toBeHidden();
   await page.getByRole('button', { name: 'Meu perfil' }).click();
   await page.waitForTimeout(500);
-  await over('meu perfil com 24 medalhas');
-  await expect(sheet(page).locator('.mchips .mchip')).toHaveCount(24);
+  await over('meu perfil com 30 medalhas');
+  await expect(sheet(page).locator('.mchips .mchip')).toHaveCount(30);
   await shot('meu perfil com medalhas');
 });
 

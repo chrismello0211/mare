@@ -7,7 +7,7 @@ Regras que valem para as três:
 - **Nenhuma apaga contas nem registros.** As que gravam algo (`attach-email` e `migrate-days`) só gravam com `--apply`; sem ele, mostram o que fariam e o comando exato para gravar.
 - **Para gravar, só vale o uid inteiro** (o da prévia). Apelido e começo do uid servem para olhar, nunca para gravar: eles podem apontar para outra conta.
 - Senhas nunca são lidas, mostradas nem guardadas. E-mails saem mascarados (`ma***@gmail.com`), exceto o que você mesmo digitou na prévia.
-- Foram testadas contra o emulador do Firestore e um Auth de mentira, e passaram a ser usadas no projeto de verdade em 29/10/2026 (o caso da Marianne: `inspect`, `migrate-days`, `attach-email`; a troca de e-mail do plano C é uma linha avulsa, sem teste). Em qualquer conta, a primeira vez é sempre a prévia (que só lê).
+- Foram testadas contra o emulador do Firestore e um Auth de mentira, e passaram a ser usadas no projeto de verdade em 29/10/2026 (o caso da esposa do dono: `inspect`, `migrate-days`, `attach-email`; a troca de e-mail do plano C é uma linha avulsa, sem teste). Em qualquer conta, a primeira vez é sempre a prévia (que só lê).
 
 Preparo (uma vez, e depois de cada `git pull` que mude `functions/package.json`):
 
@@ -88,7 +88,7 @@ Segurança: um dia que o destino ainda não tinha só é criado se continuar ine
 
 ## 4. Plano C: devolver o e-mail à conta antiga (a pessoa já criou conta nova)
 
-Foi o caminho que funcionou no caso real (a recuperação da Marianne, 23 a 29/10/2026). Vale quando a **conta nova ainda não tem amigos** (ou quase nada): em vez de copiar os registros para a nova (plano B), o e-mail sai da conta nova e vai para a **antiga**, e a pessoa volta com ela inteira, amigos e turma incluídos. **Ordem importa:**
+Foi o caminho que funcionou no caso real (a recuperação da esposa do dono, 23 a 29/10/2026). Vale quando a **conta nova ainda não tem amigos** (ou quase nada): em vez de copiar os registros para a nova (plano B), o e-mail sai da conta nova e vai para a **antiga**, e a pessoa volta com ela inteira, amigos e turma incluídos. **Ordem importa:**
 
 1. **A pessoa sai da conta nova** no celular novo: Ajustes → Conta → **Sair da conta**. O aparelho volta à tela de boas-vindas. (Se o e-mail da conta nova for trocado **com o app aberto** nela, o app mostra "Sua conta saiu deste aparelho" e o botão "Entrar de novo" só aceita o e-mail daquela conta: aí ela precisa de **Ajustes → Apagar tudo** e depois **Entrar na conta**, que é o que a própria mensagem do app diz. Por isso este passo vem primeiro.)
 2. **Copiar os dias da conta nova para a antiga** (a **origem é a nova** e o **destino é a antiga**, ao contrário do plano B): `node scripts/admin/migrate-days.mjs <uid da nova> <uid da antiga>` (prévia) e depois com `--apply` e os uids inteiros. A antiga precisa ter login (conta anônima serve).

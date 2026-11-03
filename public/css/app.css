@@ -530,6 +530,39 @@ body.no-tabs .wrap { padding-bottom: 20px; padding-bottom: calc(20px + env(safe-
 .wk-col.best .wk-bar i { opacity: 1; }
 .wk-plot.sm + .wk-labels + .ins-list { margin-top: 6px; }
 
+/* ---------- seus meses (1.7.0): o mês contra o anterior e o calendário colorido das últimas 13 semanas ---------- */
+.mo-r { padding: 12px 0; border-top: 1px solid var(--line); }
+.mo-r:first-child { padding-top: 0; border-top: 0; }
+.mo-k { font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.mo-b { display: flex; align-items: center; margin-top: 8px; }
+.mo-n { flex: none; width: 82px; font-size: 14px; font-weight: 700; color: var(--muted); }
+.mo-b.on .mo-n { color: var(--ink); }
+.mo-t { display: block; flex: 1; min-width: 0; height: 10px; overflow: hidden; border-radius: 99px; background: var(--surface2); }
+.mo-t i {
+  display: block; width: 0; height: 100%; border-radius: 99px; opacity: .45;
+  background: var(--water1); background: linear-gradient(90deg, var(--water1), var(--water2));
+  transition: width .7s cubic-bezier(.2,.8,.2,1);
+}
+.mo-b.on .mo-t i { opacity: 1; }
+.mo-v { flex: none; width: 78px; margin-left: 10px; font-size: 14px; font-weight: 800; text-align: right; white-space: nowrap; }
+.mo-r + .ins-list { margin-top: 2px; padding-top: 4px; border-top: 1px solid var(--line); }
+.hm { margin-bottom: 2px; }
+.hm-ms { position: relative; height: 16px; }
+.hm-ms span { position: absolute; top: 0; font-size: 10px; font-weight: 700; line-height: 14px; color: var(--muted); white-space: nowrap; }
+.hm-g { display: flex; }
+.hm-col { flex: 1; min-width: 0; margin: 0 1.5px; }
+.hm-col:first-child { margin-left: 0; }
+.hm-col:last-child { margin-right: 0; }
+.hm-c { display: block; width: 100%; height: 0; margin-bottom: 3px; padding-bottom: 100%; border-radius: 3px; background: var(--surface2); }
+.hm-c[data-day] { cursor: pointer; } /* o iOS só entrega o toque a um elemento que não é botão se ele "parece clicável" */
+.hm-c.pre { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.hm-c.l1 { background: rgba(92,194,255,.28); }
+.hm-c.l2 { background: rgba(26,127,232,.55); }
+.hm-c.l3 { background: var(--water2); background: linear-gradient(180deg, var(--water1), var(--water2)); }
+.hm-c.today { box-shadow: inset 0 0 0 2px var(--primary); }
+.hm + .legend { margin-top: 10px; }
+.legend + .ins-list { margin-top: 6px; }
+
 /* ---------- ajustes ---------- */
 .group { margin-bottom: 8px; padding: 2px 16px; border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow); }
 .row { display: flex; align-items: center; justify-content: space-between; min-height: 58px; padding: 10px 0; border-top: 1px solid var(--line); }
@@ -901,6 +934,8 @@ body.no-tabs .toast { bottom: 20px; bottom: calc(20px + env(safe-area-inset-bott
   .medals { grid-template-columns: 1fr 1fr; }
   .cal { grid-gap: 4px; gap: 4px; }
   .cal-d { height: 34px; font-size: 12px; }
+  .mo-n { width: 70px; font-size: 13px; }
+  .mo-v { width: 70px; margin-left: 8px; font-size: 13px; }
   .seg button { padding: 6px 4px; font-size: 12px; }
   .ob-title { font-size: 26px; }
   .stat b { font-size: 18px; }

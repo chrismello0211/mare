@@ -1,4 +1,4 @@
-// Maré — testes das medalhas da 1.6.0 (as 24 medalhas, o andamento, a data de cada uma) e de "Seus padrões". Rodar: npm test
+// Maré — testes das medalhas (as 30 medalhas: as de 1.6.0 e as 6 da 1.7.0, o andamento, a data de cada uma), de "Seus padrões" e de "Seus meses". Rodar: npm test
 // As datas são fixas (2026) e os horários, locais: valem em qualquer fuso.
 import { describe, it, expect, afterEach } from 'vitest';
 import * as C from '../public/js/core.js';
@@ -19,12 +19,15 @@ const streakOf = (from, n) => { const o = {}; for (let i = 0; i < n; i++) o[K(fr
 const rng = (seed) => () => { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; return seed / 0x80000000; };
 
 /* ---------- a lista, os grupos e o andamento ---------- */
-describe('as 24 medalhas: lista, grupos e andamento', () => {
-  it('cada medalha tem emoji, título e descrição; os ids são únicos e o último bit é o 23 (a lista está cheia: a 25ª pede regra nova)', () => {
-    expect(C.ACHIEVEMENTS.length).toBe(24);
+describe('as 30 medalhas: lista, grupos e andamento', () => {
+  it('cada medalha tem emoji, título e descrição; os ids são únicos; a 1ª palavra da máscara está cheia (24 bits) e a lista cabe nas duas (55 no total)', () => {
+    expect(C.ACHIEVEMENTS.length).toBe(30);
     expect(C.MEDAL_MAX).toBe(24);
+    expect(C.MEDAL_MAX2).toBe(31);
+    expect(C.MEDAL_CAP).toBe(55);
+    expect(C.ACHIEVEMENTS.length).toBeLessThanOrEqual(C.MEDAL_CAP); // a 56ª pede regra nova (uma terceira palavra)
     C.ACHIEVEMENTS.forEach((a) => { expect(a.e && a.t && a.d && typeof a.test === 'function', a.id).toBeTruthy(); });
-    expect(new Set(C.ACHIEVEMENTS.map((a) => a.id)).size).toBe(24);
+    expect(new Set(C.ACHIEVEMENTS.map((a) => a.id)).size).toBe(30);
     expect(C.ACHIEVEMENTS.filter((a) => a.id.length > 24).length).toBe(0); // o id vira chave no backup (corta em 24 letras)
     expect(C.achievementById('wwd').t).toBe('Dia Mundial da Água');
     expect(C.achievementById('nada')).toBeNull();
@@ -38,13 +41,13 @@ describe('as 24 medalhas: lista, grupos e andamento', () => {
   it('test e andamento (p) concordam: a medalha sai exatamente quando "quanto já fez" chega em "quanto precisa"', () => {
     C.ACHIEVEMENTS.filter((a) => a.p).forEach((a) => {
       for (let v = 0; v <= 130; v++) {
-        const c = { best: v, daysMet: v, missions: v, earlyDays: v, sunsetDays: v, thirdsDays: v, win30: v, weekends: v };
+        const c = { best: v, daysMet: v, missions: v, earlyDays: v, sunsetDays: v, thirdsDays: v, win30: v, weekends: v, daysUsed: v };
         const x = a.p(c);
         expect(a.test(c), a.id + ' com ' + v).toBe(x[0] >= x[1]);
       }
     });
-    // as medalhas "tudo ou nada" não têm andamento
-    ['first', 'goal', 'early', 'sunset', 'mission', 'weekend', 'back', 'wwd'].forEach((id) => { expect(C.achievementById(id).p, id).toBeUndefined(); });
+    // as medalhas "tudo ou nada" não têm andamento (a de verão também não: "faltam N dias" ficaria velho fora da estação)
+    ['first', 'goal', 'early', 'sunset', 'mission', 'weekend', 'back', 'wwd', 'summer', 'oceans', 'crew'].forEach((id) => { expect(C.achievementById(id).p, id).toBeUndefined(); });
   });
   it('medalProgress: nunca passa do total, nunca fica negativo e a unidade vem junto; "tudo ou nada" não tem andamento', () => {
     const s14 = C.achievementById('s14');
@@ -59,15 +62,15 @@ describe('as 24 medalhas: lista, grupos e andamento', () => {
   });
   it('nearestMedal: a que falta e está mais perto (maior fração), com pelo menos um passo; ignora as conquistadas e as "tudo ou nada"', () => {
     const S = C.defaults();
-    expect(C.nearestMedal(S, { best: 0, daysMet: 0, missions: 0, earlyDays: 0, sunsetDays: 0, thirdsDays: 0, win30: 0, weekends: 0 })).toBeNull(); // ninguém começou nada
-    const c = { best: 5, daysMet: 5, missions: 0, earlyDays: 6, sunsetDays: 0, thirdsDays: 2, win30: 5, weekends: 0 };
+    expect(C.nearestMedal(S, { best: 0, daysMet: 0, missions: 0, earlyDays: 0, sunsetDays: 0, thirdsDays: 0, win30: 0, weekends: 0, daysUsed: 0 })).toBeNull(); // ninguém começou nada
+    const c = { best: 5, daysMet: 5, missions: 0, earlyDays: 6, sunsetDays: 0, thirdsDays: 2, win30: 5, weekends: 0, daysUsed: 5 };
     const n = C.nearestMedal(S, c); // Alvorada: 6 de 7 (86%) é a mais perto; Semana fluida: 5 de 7 (71%)
     expect(n.a.id).toBe('early7');
     expect(n).toMatchObject({ have: 6, need: 7, unit: 'dias', pct: 86 });
     S.achievements.early7 = 1; // conquistada: sai da disputa
     expect(C.nearestMedal(S, c).a.id).toBe('s7');
-    expect(C.nearestMedal(S, { best: 150, daysMet: 150, missions: 150, earlyDays: 150, sunsetDays: 150, thirdsDays: 150, win30: 150, weekends: 150 })).toBeNull(); // tudo cumprido e ainda sem guardar: nada "falta"
-    expect(C.nearestMedal(S, { best: 99, daysMet: 0, missions: 0, earlyDays: 0, sunsetDays: 0, thirdsDays: 0, win30: 0, weekends: 0 }).a.id).toBe('s100'); // 99 de 100 ainda falta um
+    expect(C.nearestMedal(S, { best: 150, daysMet: 150, missions: 150, earlyDays: 150, sunsetDays: 150, thirdsDays: 150, win30: 150, weekends: 150, daysUsed: 150 })).toBeNull(); // tudo cumprido e ainda sem guardar: nada "falta"
+    expect(C.nearestMedal(S, { best: 99, daysMet: 0, missions: 0, earlyDays: 0, sunsetDays: 0, thirdsDays: 0, win30: 0, weekends: 0, daysUsed: 0 }).a.id).toBe('s100'); // 99 de 100 ainda falta um
   });
 });
 
@@ -179,6 +182,113 @@ describe('as medalhas novas da 1.6.0: o limite de cada uma', () => {
     const S = stateWith({ [K(2)]: dayOf(K(2), 2000, [[8, 0, 600], [12, 0, 1400, 'sparkling']]), [K(3)]: metDay(K(3), 10) }); // sábado e domingo, os dois na meta
     expect(ids(S)).toEqual(expect.arrayContaining(['first', 'goal', 'early', 'sunset', 'weekend']));
     expect(ids(S)).not.toContain('s3');
+  });
+});
+
+/* ---------- as medalhas da 1.7.0 ---------- */
+const spanOf = (from, n) => { const a = []; for (let i = 0; i < n; i++) a.push(C.addDays(from, i)); return a; };
+const metOn = (list) => { const o = {}; list.forEach((k) => { o[k] = metDay(k); }); return o; };
+describe('as medalhas novas da 1.7.0: o limite de cada uma', () => {
+  // n dias alternados (um sim, um não), cada um com 100 ml: água registrada, mas longe da meta
+  const waterDays = (n, drink) => { const o = {}; for (let i = 0; i < n; i++) o[K(i * 2)] = dayOf(K(i * 2), 2000, [[9, 0, 100, drink]]); return o; };
+  it('Um mês de Maré e Cem dias de Maré: água registrada em 30 e em 100 dias diferentes (qualquer quantidade, seguidos ou não; só café não conta)', () => {
+    expect(ids(stateWith(waterDays(29)))).not.toContain('m1');
+    expect(ids(stateWith(waterDays(30)))).toContain('m1');
+    expect(ids(stateWith(waterDays(30)))).not.toContain('use100');
+    expect(ids(stateWith(waterDays(99)))).not.toContain('use100');
+    expect(ids(stateWith(waterDays(100)))).toEqual(expect.arrayContaining(['m1', 'use100']));
+    expect(ids(stateWith(waterDays(30, 'coffee')))).not.toContain('m1'); // 30 dias, mas só de café
+    expect(ids(stateWith(waterDays(30, 'sparkling')))).toContain('m1'); // água com gás é água
+    const withTea = Object.assign(waterDays(29), { [K(100)]: dayOf(K(100), 2000, [[9, 0, 500, 'tea']]) }); // 29 de água e 1 dia só de chá
+    expect(ids(stateWith(withTea))).not.toContain('m1');
+    const twice = waterDays(29); twice[K(0)] = dayOf(K(0), 2000, [[9, 0, 100], [15, 0, 100]]); // dois registros no mesmo dia: um dia só
+    expect(ids(stateWith(twice))).not.toContain('m1');
+    expect(C.context(stateWith(waterDays(7))).daysUsed).toBe(7);
+  });
+  it('Um mês de Maré: o andamento conta os dias de água (e a medalha sai quando o andamento fecha)', () => {
+    expect(C.medalProgress(C.achievementById('m1'), { daysUsed: 12 })).toEqual({ have: 12, need: 30, unit: 'dias', pct: 40 });
+    expect(C.medalProgress(C.achievementById('use100'), { daysUsed: 99 })).toEqual({ have: 99, need: 100, unit: 'dias', pct: 99 });
+    expect(C.medalProgress(C.achievementById('use100'), { daysUsed: 400 })).toEqual({ have: 100, need: 100, unit: 'dias', pct: 100 });
+  });
+  it('Verão em dia: meta batida em 30 dias entre 21 de dezembro e 20 de março (a estação é uma só, mesmo virando o ano; 20/12 e 21/03 ficam de fora)', () => {
+    expect(ids(stateWith(metOn(spanOf('2025-12-21', 29))))).not.toContain('summer');
+    expect(ids(stateWith(metOn(spanOf('2025-12-21', 30))))).toContain('summer');
+    expect(ids(stateWith(metOn(['2025-12-20'].concat(spanOf('2025-12-21', 29)))))).not.toContain('summer'); // 20/12 ainda é primavera: são 29 de verão
+    expect(ids(stateWith(metOn(spanOf('2025-12-20', 30))))).not.toContain('summer');
+    expect(ids(stateWith(metOn(spanOf('2026-02-19', 30))))).toContain('summer'); // 19/02 a 20/03: o último dia do verão vale
+    expect(ids(stateWith(metOn(spanOf('2026-02-20', 30))))).not.toContain('summer'); // 20/02 a 21/03: 21/03 já é outono, ficam 29
+    expect(ids(stateWith(metOn(spanOf('2025-12-22', 10).concat(spanOf('2026-02-01', 20)))))).toContain('summer'); // dezembro e fevereiro: a mesma estação
+    expect(ids(stateWith(metOn(spanOf('2026-01-01', 15).concat(spanOf('2027-01-01', 15)))))).not.toContain('summer'); // janeiros de verões diferentes não se somam
+    expect(ids(stateWith(metOn(spanOf('2026-05-01', 90))))).not.toContain('summer'); // fora da estação nada vale
+    const gap = metOn(spanOf('2025-12-21', 30)); gap['2026-01-05'] = missDay('2026-01-05'); // um dia com água, mas sem meta
+    expect(ids(stateWith(gap))).not.toContain('summer');
+    expect(C.context(stateWith(metOn(spanOf('2025-12-21', 30)))).summer).toBe(30);
+    expect(C.context(stateWith(metOn(spanOf('2025-12-01', 20).concat(spanOf('2026-01-01', 12))))).summer).toBe(12); // 20 dias de novembro-dezembro fora da estação
+  });
+  it('Fins de semana de ouro: sábado e domingo na meta, em 12 fins de semana diferentes (11 não)', () => {
+    const wk = (n) => { const o = {}; for (let i = 0; i < n; i++) { o[K(2 + 7 * i)] = metDay(K(2 + 7 * i)); o[K(3 + 7 * i)] = metDay(K(3 + 7 * i)); } return o; };
+    expect(ids(stateWith(wk(11)))).toContain('weekends4');
+    expect(ids(stateWith(wk(11)))).not.toContain('weekends12');
+    expect(ids(stateWith(wk(12)))).toContain('weekends12');
+    expect(C.medalProgress(C.achievementById('weekends12'), { weekends: 5 })).toEqual({ have: 5, need: 12, unit: 'fins de semana', pct: 42 });
+  });
+  it('Dia dos Oceanos: água registrada em 8 de junho, de qualquer ano (café nesse dia, ou água em 7 e 9 de junho e em 8 de maio e de julho, não vale)', () => {
+    expect(ids(stateWith({ '2026-06-08': dayOf('2026-06-08', 2000, [[10, 0, 250]]) }))).toContain('oceans');
+    expect(ids(stateWith({ '2027-06-08': dayOf('2027-06-08', 2000, [[10, 0, 250, 'sparkling']]) }))).toContain('oceans');
+    expect(ids(stateWith({ '2026-06-08': dayOf('2026-06-08', 2000, [[10, 0, 800, 'coffee']]) }))).not.toContain('oceans');
+    expect(ids(stateWith({ '2026-06-07': missDay('2026-06-07'), '2026-06-09': missDay('2026-06-09'), '2026-05-08': missDay('2026-05-08'), '2026-07-08': missDay('2026-07-08') }))).not.toContain('oceans');
+    expect(ids(stateWith({ '2026-06-08': dayOf('2026-06-08', 2000, [[10, 0, 250]]) }))).not.toContain('wwd'); // uma data não vira a outra
+  });
+  it('Turma completa: não sai do histórico (nem com 400 dias de meta); só a turma a dá, na hora, e ela fica no mapa como qualquer outra', () => {
+    const S = stateWith(streakOf(0, 400));
+    expect(ids(S)).not.toContain('crew');
+    expect(C.medalDates(S).crew).toBeUndefined();
+    expect(C.ACHIEVEMENTS.filter((a) => a.live).map((a) => a.id)).toEqual(['crew']);
+    expect(C.CREW_MIN).toBe(3); // você e pelo menos 2 amigos
+    expect(C.achievementById('crew').d).toMatch(/2 amigos/);
+    S.achievements.crew = 123;
+    expect(C.medalMask2(S)).toBe(1 << 5); // o bit 29 da lista (a 6ª da segunda palavra)
+    expect(C.medalMask(S)).toBe(0);
+  });
+  it('as seis ficam no fim da lista, na ordem de sempre (cada uma é um bit da segunda palavra do perfil)', () => {
+    expect(C.ACHIEVEMENTS.slice(24).map((a) => a.id)).toEqual(['m1', 'use100', 'summer', 'weekends12', 'oceans', 'crew']);
+    expect(C.MEDALS_1_6).toBe(24);
+    const all = {}; C.ACHIEVEMENTS.forEach((a) => { all[a.id] = 1000; });
+    expect(C.medalMask({ achievements: all })).toBe(16777215);
+    expect(C.medalMask2({ achievements: all })).toBe(63); // seis bits
+  });
+});
+
+describe('context(): os campos da 1.7.0 (dias de uso, verão, Dia dos Oceanos) batem com uma conta feita à mão', () => {
+  [21, 22, 23, 24].forEach((seed) => {
+    it('histórico sorteado ' + seed + ' (de 1º de janeiro a 19 de julho)', () => {
+      const S = randomHistory(seed, 200), c = C.context(S), keys = Object.keys(S.days).sort();
+      const used = keys.filter((k) => S.days[k].entries.some((e) => C.isWater(e) && Math.round(e.ml) > 0));
+      const season = (k) => { const y = +k.slice(0, 4), md = k.slice(5); return md >= '12-21' ? y : md <= '03-20' ? y - 1 : 0; };
+      const bySeason = {};
+      keys.filter((k) => C.isMet(S.days[k]) && season(k)).forEach((k) => { bySeason[season(k)] = (bySeason[season(k)] || 0) + 1; });
+      expect(c.daysUsed).toBe(used.length);
+      expect(c.summer).toBe(Math.max.apply(null, [0].concat(Object.keys(bySeason).map((s) => bySeason[s]))));
+      expect(c.oceans).toBe(used.some((k) => k.slice(5) === '06-08'));
+      expect(c.wwd).toBe(used.some((k) => k.slice(5) === '03-22'));
+    });
+  });
+  it('context(S, dia) olha só até aquele dia (é o que medalDates usa)', () => {
+    const S = stateWith(Object.assign(metOn(spanOf('2025-12-21', 40)), { '2026-06-08': missDay('2026-06-08') }));
+    expect(C.context(S, '2026-01-09').summer).toBe(20);
+    expect(C.context(S, '2026-01-09').daysUsed).toBe(20);
+    expect(C.context(S, '2026-01-09').oceans).toBe(false);
+    expect(C.context(S).oceans).toBe(true);
+    expect(C.context(S).daysUsed).toBe(41);
+  });
+  it('as datas das novas: o dia em que o histórico fechou a conta (Verão em dia no 30º dia de meta; Dia dos Oceanos no próprio 8 de junho)', () => {
+    const S = stateWith(Object.assign(metOn(spanOf('2025-12-21', 40)), { '2026-06-08': missDay('2026-06-08') }));
+    const d = C.medalDates(S);
+    expect(d.summer).toBe(C.keyToDate('2026-01-19').getTime()); // 21/12 + 29 dias
+    expect(d.m1).toBe(C.keyToDate('2026-01-19').getTime());
+    expect(d.oceans).toBe(C.keyToDate('2026-06-08').getTime());
+    expect(d.use100).toBeUndefined();
+    expect(d.crew).toBeUndefined();
   });
 });
 

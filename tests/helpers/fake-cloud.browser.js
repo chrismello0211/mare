@@ -317,6 +317,6 @@ export async function initCloud(hooks) {
     },
   };
   // ajustes mais novos gravados por outro aparelho da mesma conta: chegam logo depois que a nuvem sobe
-  if (A.remotePrefs && A.user && !A.user.anon && hooks && hooks.onPrefs) setTimeout(() => { hooks.onPrefs(A.remotePrefs.prefs, A.remotePrefs.u); A.remotePrefs = null; }, 40);
+  if (A.remotePrefs && A.user && !A.user.anon && hooks && hooks.onPrefs) setTimeout(() => { A.prefsRet = hooks.onPrefs(A.remotePrefs.prefs, A.remotePrefs.u); A.remotePrefs = null; }, 40); // prefsRet: o que o app respondeu (true = este aparelho tem medalha que a nuvem não tinha)
   return cloud;
 }

@@ -11,7 +11,7 @@ import path from 'node:path';
 import { createSocial, SocialError, mapErr } from '../../public/js/social-cloud.js';
 import { profilePayload, pairId as pid, liveOf, statusText, CODE_CHARS, MAX_FRIENDS, fmtCode, weekOf, medalsShown } from '../../public/js/social.js';
 import * as C from '../../public/js/core.js';
-import { rules11x, rules14x } from '../helpers/old-rules.js';
+import { rules11x, rules14x, rules16x } from '../helpers/old-rules.js';
 
 FS.setLogLevel('silent'); // as recusas são esperadas nestes testes: sem barulho no terminal
 const { doc, getDoc, setDoc, deleteDoc, getDocs, collection, query, where, Timestamp } = FS;
@@ -20,12 +20,13 @@ const hp = (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080').split(':');
 const RULES = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../firestore.rules'), 'utf8');
 const OLD = rules11x(RULES); // as regras da 1.1.x: o perfil sem gl, wm e md (o site novo pode sair antes das regras)
 const OLD14 = rules14x(RULES); // as regras da 1.2.x a 1.4.x (as que estavam no ar antes da 1.5.0): com gl e wm, sem md (as medalhas)
+const OLD16 = rules16x(RULES); // as regras da 1.5.0 e da 1.6.0 (as que estavam no ar antes da 1.7.0): com md (24 bits), sem md2 (as medalhas novas)
 const CLOSED = 'rules_version = "2"; service cloud.firestore { match /databases/{d}/documents { match /{x=**} { allow read, write: if false; } } }';
 const U = (n) => n + 'x'.repeat(28 - n.length);
 const ANA = U('ana'), BRU = U('bruno'), CAI = U('caio');
 const TODAY = '2026-10-18';
 
-let env, closed, old, old14;
+let env, closed, old, old14, old16;
 const people = [];
 // Cada login de teste (contexto) abre conexões próprias com o emulador e a biblioteca só as encerra no fim de TODA a bateria. Sem
 // encerrar cada um ao fim do teste, elas se acumulam e, lá pelo 50º teste, o emulador deixa de responder. Por isso os contextos
@@ -43,9 +44,10 @@ beforeAll(async () => {
   closed = track(await initializeTestEnvironment({ projectId: 'demo-mare-social-closed', firestore: { host: hp[0], port: +hp[1], rules: CLOSED } }));
   old = track(await initializeTestEnvironment({ projectId: 'demo-mare-social-old', firestore: { host: hp[0], port: +hp[1], rules: OLD } }));
   old14 = track(await initializeTestEnvironment({ projectId: 'demo-mare-social-old14', firestore: { host: hp[0], port: +hp[1], rules: OLD14 } }));
+  old16 = track(await initializeTestEnvironment({ projectId: 'demo-mare-social-old16', firestore: { host: hp[0], port: +hp[1], rules: OLD16 } }));
 });
-afterAll(async () => { if (env) await env.cleanup(); if (closed) await closed.cleanup(); if (old) await old.cleanup(); if (old14) await old14.cleanup(); });
-beforeEach(async () => { await env.clearFirestore(); await old.clearFirestore(); await old14.clearFirestore(); });
+afterAll(async () => { if (env) await env.cleanup(); if (closed) await closed.cleanup(); if (old) await old.cleanup(); if (old14) await old14.cleanup(); if (old16) await old16.cleanup(); });
+beforeEach(async () => { await env.clearFirestore(); await old.clearFirestore(); await old14.clearFirestore(); await old16.clearFirestore(); });
 afterEach(() => {
   while (people.length) people.pop().sc.stop(); // nenhuma escuta aberta passa para o teste seguinte
   ctxs.splice(0).forEach((c) => { try { c.cleanup(); } catch (e) { /* já encerrado */ } });
@@ -55,6 +57,7 @@ afterEach(() => {
 const seed = async (fn) => { let out; await env.withSecurityRulesDisabled(async (ctx) => { out = await fn(ctx.firestore()); }); return out; };
 const seedOld = async (fn) => { let out; await old.withSecurityRulesDisabled(async (ctx) => { out = await fn(ctx.firestore()); }); return out; };
 const seedOld14 = async (fn) => { let out; await old14.withSecurityRulesDisabled(async (ctx) => { out = await fn(ctx.firestore()); }); return out; };
+const seedOld16 = async (fn) => { let out; await old16.withSecurityRulesDisabled(async (ctx) => { out = await fn(ctx.firestore()); }); return out; };
 const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 async function until(fn, what, ms) {
   const t0 = Date.now();
@@ -1381,20 +1384,43 @@ describe('as medalhas da 1.5.0 com as regras de verdade: a máscara md vai ao pe
   const profOf = async (uid) => (await seed((d) => getDoc(doc(d, 'profiles', uid)))).data();
   const ids = (f) => (medalsShown(f) || []).map((a) => a.id);
   const friendOf = (p, uid) => p.sc.state().friends.filter((f) => f.uid === uid)[0];
-  test('md acompanha as medalhas de quem publica (cada medalha é um bit, até 16777215 com as 24 de hoje, o máximo que as regras aceitam); em pausa o campo vira null, junto com a semana', async () => {
+  test('md acompanha as medalhas de quem publica (cada medalha é um bit, até 16777215 com as 24 primeiras, o máximo que as regras aceitam); em pausa o campo vira null, junto com a semana', async () => {
     const ana = person('Ana', ANA); drink(ana, 500);
     await join(ana);
     expect((await profOf(ANA)).md).toBe(0);
     ana.S.achievements = { first: 11, s7: 22 };
     await ana.sc.publish(ana.payload());
     expect((await profOf(ANA)).md).toBe(1 + 8);
-    C.ACHIEVEMENTS.forEach((a) => { ana.S.achievements[a.id] = 1; });
+    C.ACHIEVEMENTS.slice(0, C.MEDALS_1_6).forEach((a) => { ana.S.achievements[a.id] = 1; });
     await ana.sc.publish(ana.payload());
-    expect((await profOf(ANA)).md).toBe((1 << C.ACHIEVEMENTS.length) - 1);
+    expect((await profOf(ANA)).md).toBe((1 << C.MEDALS_1_6) - 1);
+    expect('md2' in (await profOf(ANA))).toBe(false); // sem nenhuma das medalhas novas, o perfil é o mesmo da 1.6.0: nem o campo md2 vai
     ana.S.social.share = false; await ana.sc.publish(ana.payload()); // pausou o progresso: as medalhas somem do perfil
     expect(await profOf(ANA)).toMatchObject({ sh: false, pct: null, wm: null, md: null });
     ana.S.social.share = true; await ana.sc.publish(ana.payload());
     expect((await profOf(ANA)).md).toBe(16777215); // as 24 medalhas (24 bits cheios) passam pelas regras de verdade
+  });
+  test('md2 leva as medalhas novas (a partir da 25ª): as 30 passam pelas regras de verdade, a pausa tira os dois campos de vez e voltar a mostrar traz de volta', async () => {
+    const ana = person('Ana', ANA); drink(ana, 500);
+    await join(ana);
+    ana.S.achievements = { first: 11, m1: 22 }; // m1 é a 25ª (o primeiro bit da segunda palavra)
+    await ana.sc.publish(ana.payload());
+    expect(await profOf(ANA)).toMatchObject({ md: 1, md2: 1 });
+    C.ACHIEVEMENTS.forEach((a) => { ana.S.achievements[a.id] = 1; });
+    await ana.sc.publish(ana.payload());
+    const tudo = await profOf(ANA);
+    expect(tudo).toMatchObject({ md: 16777215, md2: (1 << (C.ACHIEVEMENTS.length - C.MEDALS_1_6)) - 1 });
+    expect(tudo.md2).toBe(63);
+    expect(Object.keys(tudo).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'md', 'md2', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']); // só um campo a mais, e só o número da máscara
+    ana.S.social.share = false; await ana.sc.publish(ana.payload()); // pausou o progresso: o perfil é regravado inteiro, sem sobrar o md2 de antes
+    const pausa = await profOf(ANA);
+    expect(pausa).toMatchObject({ sh: false, pct: null, wm: null, md: null });
+    expect('md2' in pausa).toBe(false);
+    ana.S.social.share = true; await ana.sc.publish(ana.payload());
+    expect(await profOf(ANA)).toMatchObject({ md: 16777215, md2: 63 });
+    ana.S.achievements = { first: 1 }; await ana.sc.publish(ana.payload()); // (um estado sem as medalhas novas) o campo md2 também volta a sumir
+    const so = await profOf(ANA);
+    expect(so.md).toBe(1); expect('md2' in so).toBe(false);
   });
   test('o amigo recebe a lista na ordem do app; medalha nova chega ao vivo; pausar o progresso esconde (md nulo, sem bloco); quem não é amigo não lê nada', async () => {
     const ana = person('Ana', ANA), bru = person('Bruno', BRU);
@@ -1417,6 +1443,28 @@ describe('as medalhas da 1.5.0 com as regras de verdade: a máscara md vai ao pe
     const e = await err(getDoc(doc(env.authenticatedContext(CAI).firestore(), 'profiles', ANA))); // Caio não é amigo de Ana
     expect(e && e.code).toBe('permission-denied');
   });
+  test('o amigo recebe as medalhas novas na ordem do app (md2); a nova chega ao vivo; a pausa esconde tudo; e o amigo da 1.6.0 (sem md2) mostra só as 24 primeiras, sem erro', async () => {
+    const ana = person('Ana', ANA), bru = person('Bruno', BRU);
+    ana.S.achievements = { first: 1, m1: 2 };
+    await befriend(ana, bru);
+    expect(friendOf(bru, ANA)).toMatchObject({ md: 1, md2: 1 });
+    expect(ids(friendOf(bru, ANA))).toEqual(['first', 'm1']);
+    ana.S.achievements.crew = 3; // a última da lista (o bit 5 da segunda palavra), junto com uma das 24 primeiras
+    ana.S.achievements.wwd = 4;
+    await ana.sc.publish(ana.payload());
+    await until(() => friendOf(bru, ANA).md2 === 1 + 32, 'as medalhas novas chegaram ao amigo');
+    expect(ids(friendOf(bru, ANA))).toEqual(['first', 'wwd', 'm1', 'crew']);
+    ana.S.social.share = false; await ana.sc.publish(ana.payload());
+    await until(() => friendOf(bru, ANA).sh === false, 'a pausa chegou ao amigo');
+    expect(friendOf(bru, ANA)).toMatchObject({ md: null, md2: 0 });
+    expect(medalsShown(friendOf(bru, ANA))).toBeNull();
+    ana.S.social.share = true; await ana.sc.publish(ana.payload());
+    await until(() => friendOf(bru, ANA).md2 === 33, 'voltou a mostrar');
+    const p = await profOf(ANA); delete p.md2; // é assim que o app da 1.6.0 publicaria (a mesma Ana, só com as 24 primeiras)
+    await seed((d) => setDoc(doc(d, 'profiles', ANA), p));
+    await until(() => friendOf(bru, ANA).md2 === 0, 'o perfil sem md2 chegou');
+    expect(ids(friendOf(bru, ANA))).toEqual(['first', 'wwd']);
+  });
   test('o amigo que ainda usa o app da 1.4 (perfil sem md): o app novo não mostra medalhas dele, e o resto do perfil segue normal', async () => {
     const ana = person('Ana', ANA), bru = person('Bruno', BRU);
     await befriend(ana, bru);
@@ -1435,6 +1483,15 @@ describe('as medalhas da 1.5.0 com as regras de verdade: a máscara md vai ao pe
     expect(prof.md).toBe(3);
     expect(JSON.stringify(prof)).not.toMatch(/1700000|first|goal|Primeira|Na mosca/); // só o número da máscara: sem datas, ids ou títulos
   });
+  test('com medalhas novas o perfil leva só mais um número (md2): nenhuma data, nenhum id, nenhum título', async () => {
+    const ana = person('Ana', ANA); drink(ana, 1234);
+    ana.S.achievements = { first: 1700000000000, summer: 1700000001234, crew: 1700000002345 };
+    await join(ana);
+    const prof = await profOf(ANA);
+    expect(Object.keys(prof).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'md', 'md2', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']);
+    expect(prof.md).toBe(1); expect(prof.md2).toBe(4 + 32);
+    expect(JSON.stringify(prof)).not.toMatch(/1700000|first|summer|crew|Verão|Turma/);
+  });
 });
 
 /* ============================== o site novo antes das regras novas ============================== */
@@ -1443,6 +1500,7 @@ describe('as medalhas da 1.5.0 com as regras de verdade: a máscara md vai ao pe
 // em vez de ser recusado.
 describe('o site novo antes das regras novas (o servidor ainda está na 1.1.x): os amigos seguem funcionando', () => {
   const profOld = async (uid) => (await seedOld((d) => getDoc(doc(d, 'profiles', uid)))).data();
+  const profNew = async (uid) => (await seed((d) => getDoc(doc(d, 'profiles', uid)))).data();
   const spyFS = (log) => Object.assign({}, FS, { setDoc: function (ref) { if (String(ref.path).indexOf('profiles/') === 0) log.push(ref.path); return FS.setDoc.apply(FS, arguments); } });
   test('entrar e publicar passam: o perfil vai no formato antigo e o convite sai normal', async () => {
     const ana = person('Ana', ANA, { env: old }); drink(ana, 1234);
@@ -1484,6 +1542,44 @@ describe('o site novo antes das regras novas (o servidor ainda está na 1.1.x): 
     expect(weekOf(fb, TODAY).known).toBe(true);
     expect(medalsShown(fb)).toBeNull();
   });
+  // O caso de verdade da 1.7.0: as regras no ar são as da 1.5.0 e da 1.6.0 (com md de 24 bits, sem md2). Só as medalhas novas ficam de fora; o resto continua indo.
+  const profOld16 = async (uid) => (await seedOld16((d) => getDoc(doc(d, 'profiles', uid)))).data();
+  test('com as regras da 1.6.0 (as de antes da 1.7.0): entrar e publicar passam, a semana, a meta em ml e as 24 primeiras medalhas continuam indo, e só as novas (md2) ficam de fora', async () => {
+    const ana = person('Ana', ANA, { env: old16 }); drink(ana, 1234); ana.S.social.goal = true; ana.S.achievements = { first: 1, m1: 2, crew: 3 };
+    await join(ana);
+    const p = await profOld16(ANA);
+    expect(Object.keys(p).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'md', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']);
+    expect(p).toMatchObject({ gl: 2000, wm: 0, md: 1 });
+    metDay(ana, TODAY); ana.S.achievements.s7 = 4; await ana.sc.publish(ana.payload());
+    expect(await profOld16(ANA)).toMatchObject({ met: true, wm: 1, gl: 2000, md: 9 });
+    expect(ana.sc.state().err).toBeFalsy();
+  });
+  test('dois amigos com as regras da 1.6.0 se enxergam como antes (semana, meta em ml e as 24 medalhas); só as medalhas novas faltam, sem erro na tela', async () => {
+    const ana = person('Ana', ANA, { env: old16 }), bru = person('Bruno', BRU, { env: old16 });
+    metDay(ana, TODAY); ana.S.achievements = { first: 1, goal: 2, m1: 3 }; drink(bru, 1000); bru.S.social.goal = true; bru.S.achievements = { s3: 1, oceans: 2 };
+    await befriend(ana, bru);
+    const fb = ana.sc.state().friends.filter((f) => f.uid === BRU)[0], fa = bru.sc.state().friends.filter((f) => f.uid === ANA)[0];
+    expect(fb).toMatchObject({ nm: 'Bruno', pct: 50, gl: 2000, wm: 0, md: 4, md2: 0 });
+    expect(fa).toMatchObject({ nm: 'Ana', md: 3, md2: 0 });
+    expect(medalsShown(fb).map((a) => a.id)).toEqual(['s3']);
+    expect(medalsShown(fa).map((a) => a.id)).toEqual(['first', 'goal']);
+    expect(ana.sc.state().err).toBeFalsy(); expect(bru.sc.state().err).toBeFalsy();
+  });
+  test('quando as regras novas entram no ar (o mesmo projeto, regras trocadas), a próxima abertura do app já publica as medalhas novas: nada fica preso no formato antigo', async () => {
+    const swap = track(await initializeTestEnvironment({ projectId: 'demo-mare-social-swap', firestore: { host: hp[0], port: +hp[1], rules: OLD16 } }));
+    await swap.clearFirestore();
+    const read = async (e) => { let out; await e.withSecurityRulesDisabled(async (ctx) => { out = (await getDoc(doc(ctx.firestore(), 'profiles', ANA))).data(); }); return out; };
+    const ana = person('Ana', ANA, { env: swap }); ana.S.achievements = { first: 1, m1: 2 };
+    await join(ana);
+    expect(await read(swap)).toMatchObject({ md: 1 });
+    expect('md2' in (await read(swap))).toBe(false); // as regras antigas ainda estão no ar: só as 24 primeiras foram
+    ana.sc.stop();
+    const novo = track(await initializeTestEnvironment({ projectId: 'demo-mare-social-swap', firestore: { host: hp[0], port: +hp[1], rules: RULES } })); // "firebase deploy --only firestore:rules"
+    const outra = person('Ana', ANA, { env: novo }); outra.S.achievements = { first: 1, m1: 2 }; // o app abre de novo
+    await outra.sc.publish(outra.payload(), true);
+    expect(await read(novo)).toMatchObject({ md: 1, md2: 1 });
+    await swap.clearFirestore();
+  });
   test('quantas tentativas: uma com as regras novas; duas com as da 1.4 (a segunda sem md); três com as da 1.1.x (sem md, gl e wm); e a recusa de verdade continua chegando à tela', async () => {
     const novo = [], v14 = [], velho = [], fechado = [];
     const a = person('Ana', ANA, { FS: spyFS(novo) }); await a.sc.publish(a.payload(), true);
@@ -1521,5 +1617,37 @@ describe('o site novo antes das regras novas (o servidor ainda está na 1.1.x): 
     const pm = cm.payload(); delete pm.gl; delete pm.wm; // só com md
     expect((await err(cm.sc.publish(pm, true))).code).toBe('rules');
     expect(callsMd).toHaveLength(2);
+  });
+  test('quantas tentativas com as medalhas novas (md2): uma com as regras novas; duas com as da 1.6.0; três com as da 1.4; quatro com as da 1.1.x; e a recusa de verdade continua chegando à tela', async () => {
+    const novo = [], v16 = [], v14 = [], velho = [], fechado = [];
+    const com = (nick, uid, o) => { const x = person(nick, uid, o); x.S.achievements = { first: 2, m1: 1 }; return x; };
+    const a = com('Ana', ANA, { FS: spyFS(novo) }); await a.sc.publish(a.payload(), true);
+    expect(a.payload()).toHaveProperty('md2', 1);
+    expect(novo).toHaveLength(1);
+    expect(await profNew(ANA)).toMatchObject({ md: 1, md2: 1 });
+    const e = com('Eva', ANA, { env: old16, FS: spyFS(v16) }); await e.sc.publish(e.payload(), true);
+    expect(v16).toHaveLength(2);
+    expect(Object.keys(await profOld16(ANA)).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'md', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']);
+    const d = com('Dani', ANA, { env: old14, FS: spyFS(v14) }); await d.sc.publish(d.payload(), true);
+    expect(v14).toHaveLength(3);
+    expect(Object.keys(await profOld14(ANA)).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']);
+    const b = com('Bia', BRU, { env: old, FS: spyFS(velho) }); await b.sc.publish(b.payload(), true);
+    expect(velho).toHaveLength(4);
+    expect(Object.keys(await profOld(BRU)).sort()).toEqual(['day', 'ins', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v']);
+    const c = com('Caio', CAI, { env: closed, FS: spyFS(fechado) });
+    const r = await err(c.sc.publish(c.payload(), true));
+    expect(r && r.code).toBe('rules');
+    expect(fechado).toHaveLength(4);
+  });
+  test('um perfil sem md nem md2 não paga tentativa a mais: sem md2 no perfil, a conta é a de sempre', async () => {
+    const calls = [], callsMd2 = [];
+    const c = person('Caio', CAI, { env: closed, FS: spyFS(calls) });
+    expect(c.payload()).not.toHaveProperty('md2'); // nenhuma medalha nova: o perfil é o de antes
+    expect((await err(c.sc.publish(c.payload(), true))).code).toBe('rules');
+    expect(calls).toHaveLength(3); // as três formas de antes: completo, sem md, sem md, gl e wm
+    const cm = person('Caio', CAI, { env: closed, FS: spyFS(callsMd2) });
+    const pm = cm.payload(); pm.md2 = 1; delete pm.gl; delete pm.wm; // só com md e md2
+    expect((await err(cm.sc.publish(pm, true))).code).toBe('rules');
+    expect(callsMd2).toHaveLength(3); // completo, sem md2, sem md nem md2
   });
 });

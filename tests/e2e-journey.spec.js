@@ -1,4 +1,4 @@
-// Maré — testes de interface da Jornada da 1.6.0: as 24 medalhas (por grupo, com quanto falta), "Mais perto de conquistar" e "Seus padrões" em gráficos.
+// Maré — testes de interface da Jornada (1.6.0 e 1.7.0): as 30 medalhas (por grupo, com quanto falta), "Mais perto de conquistar", "Seus padrões" em gráficos e "Seus meses".
 // Cada teste roda em todos os aparelhos do playwright.config.js. Qualquer erro de JavaScript na página reprova.
 // Os históricos são montados com tests/helpers/seed.js (history = um registro às 10h por dia; rows = dias com horários à escolha). Como a data do teste
 // muda, nada aqui depende do dia da semana em que ele roda: o que depende (fim de semana, 22 de março) fica de fora das contas exatas.
@@ -23,20 +23,21 @@ const NOON = (page, ago) => page.evaluate((n) => { const d = new Date(); d.setDa
 const OCEAN = { concha: 6 }; // com a concha guardada, quem tem uma estrela-do-mar (10 L) a ganha em silêncio, sem o painel "Nova insígnia!"
 const REEF5 = { concha: 40, estrela: 38, baiacu: 30, tartaruga: 20, cavalo: 10 };
 
-test('jornada: as 24 medalhas vêm em 5 grupos, e as que faltam mostram quanto já foi', async ({ page }) => {
+test('jornada: as 30 medalhas vêm em 6 grupos, e as que faltam mostram quanto já foi', async ({ page }) => {
   await seed(page, { history: [5, 2800], insignias: OCEAN }); // 5 dias seguidos na meta, às 10h
   await page.goto('/');
   await tab(page, 'Jornada').click();
-  await expect(page.locator('.mg-h h3')).toHaveText(['Começos e missões', 'Sequências', 'Metas batidas', 'Rotina do dia', 'Fins de semana e datas']);
-  await expect(page.locator('.medals .medal')).toHaveCount(24);
+  await expect(page.locator('.mg-h h3')).toHaveText(['Começos e missões', 'Sequências', 'Metas batidas', 'Rotina do dia', 'Fins de semana e datas', 'Com a turma']);
+  await expect(page.locator('.medals .medal')).toHaveCount(30);
   const won = await page.locator('.medals .medal:not(.off)').count(); // o número do título é o das medalhas conquistadas que estão na tela
   expect(won).toBeGreaterThanOrEqual(5);
-  await expect(page.locator('.card-h.out', { has: page.locator('h2', { hasText: /^Medalhas$/ }) }).locator('small')).toHaveText(won + ' de 24');
+  await expect(page.locator('.card-h.out', { has: page.locator('h2', { hasText: /^Medalhas$/ }) }).locator('small')).toHaveText(won + ' de 30');
   // a contagem de cada grupo (os grupos que não dependem do dia da semana em que o teste roda)
-  await expect(page.locator('.mg-h').nth(0)).toContainText('2 de 5'); // Primeira gota e Na mosca
+  await expect(page.locator('.mg-h').nth(0)).toContainText('2 de 7'); // Primeira gota e Na mosca
   await expect(page.locator('.mg-h').nth(1)).toContainText('1 de 6'); // Pegando o ritmo
   await expect(page.locator('.mg-h').nth(2)).toContainText('0 de 5');
   await expect(page.locator('.mg-h').nth(3)).toContainText('2 de 5'); // Antes do pôr do sol e Relógio da maré
+  await expect(page.locator('.mg-h').nth(5)).toContainText('0 de 1'); // Turma completa
   // conquistada: sem barra e com a data
   await expect(medal(page, 'Pegando o ritmo')).not.toHaveClass(/off/);
   await expect(medal(page, 'Pegando o ritmo').locator('em')).toBeVisible();
@@ -51,6 +52,19 @@ test('jornada: as 24 medalhas vêm em 5 grupos, e as que faltam mostram quanto j
   await expect(medal(page, 'Mês de ouro')).toContainText('5 de 25 dias');
   await expect(medal(page, 'Explorador')).toContainText('0 de 10 missões');
   await expect(medal(page, 'Alvorada')).toContainText('0 de 7 dias');
+  // as medalhas da 1.7.0: dias de uso, fins de semana de ouro, e as que são "tudo ou nada" (o verão, o Dia dos Oceanos e a turma)
+  await expect(medal(page, 'Um mês de Maré')).toContainText('5 de 30 dias');
+  await expect(medal(page, 'Cem dias de Maré')).toContainText('5 de 100 dias');
+  await expect(medal(page, 'Fins de semana de ouro')).toContainText(' de 12 fins de semana');
+  for (const nome of ['Verão em dia', 'Turma completa']) {
+    const m = medal(page, nome);
+    await expect(m, nome).toHaveClass(/off/);
+    await expect(m.locator('.mprog'), nome).toHaveCount(0);
+    await expect(m.locator('.sr'), nome).toHaveText('Ainda não conquistada');
+  }
+  await expect(medal(page, 'Verão em dia')).toContainText('Meta batida em 30 dias entre 21 de dezembro e 20 de março');
+  await expect(medal(page, 'Turma completa')).toContainText('Você e pelo menos 2 amigos bateram a meta no mesmo dia');
+  await expect(medal(page, 'Dia dos Oceanos')).toContainText('Água registrada em 8 de junho');
   // "tudo ou nada": sem barra, só o aviso para o leitor de tela
   const back = medal(page, 'Volta por cima');
   await expect(back).toHaveClass(/off/);
@@ -79,7 +93,7 @@ test('"Mais perto de conquistar" aponta a medalha mais adiantada, no desenho da 
   await seed(p2, {});
   await p2.goto('/');
   await p2.locator('#tabbar').getByRole('button', { name: 'Jornada', exact: true }).click();
-  await expect(p2.locator('.medals .medal')).toHaveCount(24);
+  await expect(p2.locator('.medals .medal')).toHaveCount(30);
   await expect(p2.locator('.mission.near')).toHaveCount(0);
   await expect(p2.locator('.card-h.out + .mg-h')).toHaveCount(1);
   await p2.close();
@@ -140,7 +154,7 @@ test('seus padrões: o resumo, o ritmo do dia (com a faixa mais seca e a de mais
   const pat = page.locator('.card-h.out', { has: page.locator('h2', { hasText: /^Seus padrões$/ }) });
   await expect(pat).toBeVisible();
   // resumo
-  const cards = page.locator('section.card').filter({ has: page.locator('.ins-list') });
+  const cards = page.locator('section.card').filter({ has: page.locator('.ins-list') }).filter({ hasNot: page.locator('.hm, .mo-b') }); // os cartões de "Seus meses" têm as suas frases também
   await expect(cards).toHaveCount(3);
   await expect(cards.nth(0)).toContainText('Você bateu a meta em 10 dos últimos 10 dias (100%). Constância de respeito!');
   await expect(cards.nth(0)).toContainText('+133% de hidratação nos últimos 7 dias em relação aos 7 anteriores.');
@@ -234,34 +248,141 @@ test('seus padrões: a semana mostra o melhor dia e o ponto fraco, e o fim de se
   expect(h[0]).toBe(h[6]);
 });
 
-test('quem já usava o Maré ganha as medalhas novas de uma vez, sem chuva de cartões, com a data em que as merecia; o cartão de novidades conta', async ({ page }) => {
-  // o estado da 1.5.x: 40 dias seguidos na meta, às 10h, e só as 12 medalhas daquela versão guardadas
-  await seed(page, { history: [40, 2800], insignias: REEF5, medals: ['first', 'goal', 's3', 's7', 's14', 's30', 'sunset', 'd10', 'weekend'], ui: { tip_news16: 0 } });
+// Dois meses de uso, montados no navegador (o fuso do teste é o do aparelho): o mês anterior com 1000 ml por dia (50% da meta de 2000) e o mês de agora, até
+// ontem, com 3000 ml (meta batida). O "mês de agora" é o do último dia que acabou; se ele ainda tem menos de 7 dias (começo de mês), vale o mês que passou.
+// Com holes = true, os dias 5, 10, 15, 20, 25 e 30 de cada mês ficam sem nenhum registro (nCur e nPrev contam só os dias com água; curDays e prevDays, os do calendário).
+async function twoMonths(page, holes) {
+  await page.goto('about:blank');
+  return page.evaluate((holes) => {
+    const NAMES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+    const now = new Date(), D = (n) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - n), ym = (d) => d.getFullYear() * 12 + d.getMonth(), last = D(1);
+    const cur = last.getDate() < 7 ? ym(last) - 1 : ym(last), rows = [];
+    let nCur = 0, nPrev = 0, cal = 0, oldest = 0;
+    for (let n = 1; n <= 75; n++) {
+      const d = D(n), m = ym(d), hole = holes && d.getDate() % 5 === 0;
+      if (m === cur) { cal++; if (!hole) { rows.push([n, [[10, 0, 3000]], 2000]); nCur++; } oldest = n; } else if (m === cur - 1) { if (!hole) { rows.push([n, [[10, 0, 1000]], 2000]); nPrev++; } oldest = n; }
+    }
+    const len = (m) => new Date(Math.floor(m / 12), (m % 12) + 1, 0).getDate();
+    return { rows: rows, cur: NAMES[cur % 12], prev: NAMES[(cur - 1) % 12], nCur: nCur, nPrev: nPrev, span: oldest + 1, curDays: cal, prevDays: len(cur - 1), sample: rows[0][0], sampleMl: rows[0][1][0][2] };
+  }, !!holes);
+}
+const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+
+test('seus meses: com pouco histórico só o convite, e o calendário já mostra o que há', async ({ page }) => {
+  await seed(page, { history: [3, 2800], insignias: OCEAN }); // o app foi criado há 10 dias; 3 deles com a meta batida
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('Agora são 24 medalhas');
+  await tab(page, 'Jornada').click();
+  const head = page.locator('.card-h.out', { has: page.locator('h2', { hasText: /^Seus meses$/ }) });
+  await expect(head.locator('small')).toHaveText('mês a mês');
+  await expect(page.locator('.empty', { hasText: 'Com pelo menos uma semana de uso em dois meses seguidos' })).toBeVisible();
+  await expect(page.locator('.mo-b')).toHaveCount(0);
+  const cal = page.locator('section.card').filter({ has: page.getByRole('heading', { name: 'Seu calendário' }) });
+  await expect(cal.locator('.card-h small')).toHaveText('últimos 3 meses');
+  await expect(cal.locator('.hm-col')).toHaveCount(13); // 13 semanas, a última é a de hoje
+  await expect(cal.locator('.hm-c.today')).toHaveCount(1);
+  await expect(cal.locator('.hm-c.l3')).toHaveCount(3); // os 3 dias com a meta batida
+  await expect(cal.locator('.hm-c.pre').first()).toBeVisible(); // o espaço de antes de a pessoa começar fica vazio, sem cor
+  expect(await cal.locator('.hm-ms span').count()).toBeGreaterThanOrEqual(1);
+  await expect(cal.getByRole('img', { name: /Calendário dos últimos 3 meses, uma coluna por semana e um quadradinho por dia\. Você bateu a meta em 3 de 11 dias\./ })).toBeVisible();
+  await expect(cal.locator('.ins-list')).toContainText('Você bateu a meta em 3 de 11 dias.'); // do primeiro dia de uso até hoje
+  await expect(cal.locator('.legend')).toContainText('Menos');
+  await expect(cal.locator('.legend')).toContainText('Meta');
+});
+
+test('seus meses: o mês de agora contra o anterior em barras e em duas frases, e o calendário pinta cada dia pelo nível da meta', async ({ page }) => {
+  const pl = await twoMonths(page);
+  await seed(page, { rows: pl.rows, insignias: OCEAN });
+  await page.goto('/');
+  await tab(page, 'Jornada').click();
+  const head = page.locator('.card-h.out', { has: page.locator('h2', { hasText: /^Seus meses$/ }) });
+  await expect(head.locator('small')).toHaveText(pl.cur + ' e ' + pl.prev);
+  const mo = page.locator('section.card').filter({ has: page.locator('.mo-b') });
+  await expect(mo.locator('.mo-k')).toHaveText(['Média por dia', 'Dias na meta']);
+  await expect(mo.locator('.mo-n')).toHaveText([cap(pl.cur), cap(pl.prev), cap(pl.cur), cap(pl.prev)]);
+  await expect(mo.locator('.mo-b.on')).toHaveCount(2); // o mês de agora é o destacado, nas duas linhas
+  await expect(mo.locator('.mo-v')).toHaveText(['3.000 ml', '1.000 ml', pl.curDays + ' de ' + pl.curDays, '0 de ' + pl.prevDays]);
+  await expect(mo.locator('.mo-v').nth(3)).toBeVisible();
+  expect(await mo.locator('.mo-t i').evaluateAll((els) => els.map((e) => +e.getAttribute('data-w')))).toEqual([100, 33, 100, 0]);
+  await page.waitForTimeout(900); // as barras crescem até o valor
+  expect(await mo.locator('.mo-t i').evaluateAll((els) => els.map((e) => Math.round((e.getBoundingClientRect().width / e.parentElement.getBoundingClientRect().width) * 100)))).toEqual([100, 33, 100, 0]);
+  await expect(mo).toContainText('Sua média por dia em ' + pl.cur + ' está 200% acima da de ' + pl.prev + '.');
+  await expect(mo).toContainText('Você bateu a meta em 100% dos dias de ' + pl.cur + ', contra 0% em ' + pl.prev + '. Que evolução!');
+  // o calendário: cada dia no seu nível (meta batida, metade da meta, sem registro) e o texto conta os dias na meta
+  const cal = page.locator('section.card').filter({ has: page.getByRole('heading', { name: 'Seu calendário' }) });
+  await expect(cal.locator('.hm-c.l3')).toHaveCount(pl.nCur);
+  await expect(cal.locator('.hm-c.l2')).toHaveCount(pl.nPrev); // 1000 de 2000 ml: metade da meta
+  await expect(cal.locator('.ins-list')).toContainText('Você bateu a meta em ' + pl.nCur + ' de ' + pl.span + ' dias.');
+  expect(await cal.locator('.hm-ms span').count()).toBeGreaterThanOrEqual(2); // dois ou três rótulos de mês, nunca sobrepostos (o layout confere as posições)
+});
+
+test('seus meses: os dias sem nenhum registro contam no mês, e o "N de M" e a média usam os dias do calendário, não só os dias com água', async ({ page }) => {
+  const pl = await twoMonths(page, true);
+  expect(pl.curDays, 'o mês de agora precisa ter dias sem registro').toBeGreaterThan(pl.nCur);
+  expect(pl.prevDays, 'o mês anterior também').toBeGreaterThan(pl.nPrev);
+  await seed(page, { rows: pl.rows, insignias: OCEAN });
+  await page.goto('/');
+  await tab(page, 'Jornada').click();
+  const mo = page.locator('section.card').filter({ has: page.locator('.mo-b') });
+  const ml = (n) => n.toLocaleString('pt-BR') + ' ml', avgC = Math.round((pl.nCur * 3000) / pl.curDays), avgP = Math.round((pl.nPrev * 1000) / pl.prevDays);
+  await expect(mo.locator('.mo-v')).toHaveText([ml(avgC), ml(avgP), pl.nCur + ' de ' + pl.curDays, '0 de ' + pl.prevDays]); // a meta foi batida nos dias com água; os outros contam como dia sem meta
+  await expect(mo).toContainText('Você bateu a meta em ' + Math.round((pl.nCur / pl.curDays) * 100) + '% dos dias de ' + pl.cur + ', contra 0% em ' + pl.prev + '.');
+  const top = Math.max(avgC, avgP);
+  await page.waitForTimeout(900); // as barras crescem até o valor
+  expect(await mo.locator('.mo-t i').evaluateAll((els) => els.map((e) => +e.getAttribute('data-w')))).toEqual([Math.round((avgC / top) * 100), Math.round((avgP / top) * 100), Math.round((pl.nCur / pl.curDays) * 100), 0]);
+});
+
+test('seus meses: tocar num quadradinho do calendário abre o dia, como no Histórico', async ({ page }) => {
+  const pl = await twoMonths(page);
+  await seed(page, { rows: pl.rows, insignias: OCEAN });
+  await page.goto('/');
+  await tab(page, 'Jornada').click();
+  const k = await page.evaluate((n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }, pl.sample);
+  const cell = page.locator('.hm-c[data-day="' + k + '"]');
+  await expect(cell).toHaveCount(1);
+  await expect(cell).toHaveAttribute('title', /^\d{1,2} de [a-zç]+: [\d.]+ ml$/);
+  await cell.scrollIntoViewIfNeeded();
+  await cell.click();
+  await expect(page.locator('#sheet')).toBeVisible();
+  await expect(page.locator('#sheetBody .day-sum b')).toHaveText((pl.sampleMl >= 1000 ? Math.floor(pl.sampleMl / 1000) + '.' + String(pl.sampleMl % 1000).padStart(3, '0') : String(pl.sampleMl)) + ' ml');
+  await expect(sheetOf(page)).toContainText('de 2.000 ml');
+  await expect(sheetOf(page).getByRole('button', { name: 'Adicionar registro' })).toBeVisible(); // o mesmo painel do Histórico: dá para acrescentar um registro
+});
+
+test('quem já usava o Maré ganha as medalhas novas de uma vez, sem chuva de cartões, com a data em que as merecia; o cartão de novidades conta', async ({ page }) => {
+  // o estado da 1.6.x: 40 dias seguidos na meta, às 10h, e só as 24 medalhas daquela versão que estavam guardadas (as de 1.6.0 que o histórico cumpre ainda não foram dadas)
+  await seed(page, { history: [40, 2800], insignias: REEF5, medals: ['first', 'goal', 's3', 's7', 's14', 's30', 'sunset', 'd10', 'weekend'], ui: { tip_news17: 0 } });
+  await page.goto('/');
+  await expect(page.locator('#tTips .tip')).toContainText('6 medalhas novas');
+  await expect(page.locator('#tTips .tip')).toContainText('o seu mês contra o anterior');
   await page.waitForTimeout(2500); // se houvesse cartão de medalha por causa da atualização, ele já estaria na tela
   await expect(page.locator('.medal-pop')).toHaveCount(0);
   await expect(page.locator('#sheet')).toBeHidden();
   const st = await stored(page), got = st.achievements;
-  ['d30', 'sunset5', 'win25', 'weekends4'].forEach((id) => { expect(got[id], id).toBeGreaterThan(0); });
-  ['s60', 's100', 'd100', 'm30', 'early7', 'thirds7', 'back'].forEach((id) => { expect(got[id], id).toBeUndefined(); });
+  ['d30', 'sunset5', 'win25', 'weekends4', 'm1'].forEach((id) => { expect(got[id], id).toBeGreaterThan(0); });
+  ['s60', 's100', 'd100', 'm30', 'early7', 'thirds7', 'back', 'use100', 'weekends12', 'crew'].forEach((id) => { expect(got[id], id).toBeUndefined(); }); // a da turma só sai ao vivo, nunca pelo histórico
   // a data é a do dia em que o histórico passou a cumprir a medalha, e não a de hoje
   expect(got.d30, 'a 30ª meta bateu há 11 dias').toBe(await NOON(page, 11));
+  expect(got.m1, 'o 30º dia de água foi há 11 dias').toBe(await NOON(page, 11));
   expect(got.sunset5, 'a 5ª meta bateu há 36 dias').toBe(await NOON(page, 36));
   expect(got.win25, 'a 25ª meta bateu há 16 dias').toBe(await NOON(page, 16));
   OLD12.filter((id) => st.achievements[id] === 1).forEach((id) => { expect(got[id], id + ' (já guardada) não muda').toBe(1); });
   // o painel de novidades diz quantas já vieram, e a Jornada mostra as datas
   await page.locator('#tTips').getByRole('button', { name: 'Ver as novidades' }).click();
-  await expect(sheetOf(page)).toContainText('12 medalhas novas');
-  await expect(sheetOf(page)).toContainText(/Você já conquistou [45] das novas, com a data em que as merecia\./); // 4 (5 se o 22 de março cair nos últimos 40 dias)
+  await expect(sheetOf(page)).toContainText('6 medalhas novas');
+  await expect(sheetOf(page)).toContainText(/Você já conquistou [1-3] das novas, com a data em que as merecia\./); // o mês de Maré e, conforme o dia do teste, o Dia dos Oceanos ou o verão
+  await expect(sheetOf(page)).toContainText('Seus meses');
+  await expect(sheetOf(page)).toContainText('Medalhas na conta');
   await sheetOf(page).getByRole('button', { name: 'Ver minhas medalhas' }).click();
   await expect(tab(page, 'Jornada')).toHaveAttribute('aria-current', 'page');
   await expect(medal(page, 'Trinta na meta')).not.toHaveClass(/off/);
   await expect(medal(page, 'Trinta na meta').locator('em')).toBeVisible();
+  await expect(medal(page, 'Um mês de Maré')).not.toHaveClass(/off/);
+  await expect(medal(page, 'Um mês de Maré').locator('em')).toBeVisible();
   await expect(medal(page, 'Cem na meta')).toHaveClass(/off/);
   await expect(medal(page, 'Cem na meta')).toContainText('40 de 100 dias');
+  await expect(medal(page, 'Cem dias de Maré')).toContainText('40 de 100 dias');
   await expect(medal(page, 'Maré viva')).toContainText('40 de 60 dias'); // 40 dias seguidos
-  await expect(page.locator('.mission.near')).toContainText('Maré viva: faltam 20 dias'); // a mais adiantada: 40 de 60 (67%); Cem na meta, 40%
+  await expect(page.locator('.mission.near')).toContainText('Maré viva: faltam 20 dias'); // a mais adiantada: 40 de 60 (67%); Cem na meta e Cem dias de Maré, 40%
   // reabrir o app não mexe em nada (nem nas datas)
   await page.reload();
   await expect(page.locator('#view')).toBeVisible();
@@ -270,7 +391,8 @@ test('quem já usava o Maré ganha as medalhas novas de uma vez, sem chuva de ca
   // e registrar água depois disso não faz chover cartão de medalha antiga
   await tab(page, 'Hoje').click();
   await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré'); // abrir o painel apagou o cartão (também depois de recarregar)
-  expect((await stored(page)).ui.tip_news16).toBe(1);
+  const ui = (await stored(page)).ui;
+  expect([ui.tip_news17, ui.tip_news16, ui.tip_news15, ui.tip_news12]).toEqual([1, 1, 1, 1]);
   await cup(page, '250 ml').click();
   await page.waitForTimeout(1500);
   await expect(page.locator('.medal-pop')).toHaveCount(0);
@@ -281,9 +403,9 @@ test('quem já usava o Maré ganha as medalhas novas de uma vez, sem chuva de ca
 
 test('o cartão de novidades só fala da turma para quem mostra o progresso a ela, e dispensá-lo o apaga para sempre', async ({ page }) => {
   // sem a turma ligada: nada sobre a turma, nem no cartão nem no painel
-  await seed(page, { history: [6, 2800], insignias: OCEAN, ui: { tip_news16: 0 } });
+  await seed(page, { history: [6, 2800], insignias: OCEAN, ui: { tip_news17: 0 } });
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('Agora são 24 medalhas');
+  await expect(page.locator('#tTips .tip')).toContainText('6 medalhas novas');
   await expect(page.locator('#tTips .tip')).not.toContainText('turma');
   await page.locator('#tTips').getByRole('button', { name: 'Ver as novidades' }).click();
   await expect(sheetOf(page)).toContainText('Veja o que cada uma pede, na Jornada.');
@@ -292,14 +414,15 @@ test('o cartão de novidades só fala da turma para quem mostra o progresso a el
   await expect(sheetOf(page).getByRole('button', { name: 'Conhecer a turma' })).toBeVisible();
   await expect(sheetOf(page).getByRole('button', { name: 'Depois' })).toBeVisible();
   await expect(sheetOf(page)).toContainText('Das versões anteriores');
-  await expect(sheetOf(page)).toContainText('12 medalhas novas');
+  await expect(sheetOf(page)).toContainText('Quanto falta e seus padrões');
+  await expect(sheetOf(page)).toContainText('Mais cinco bichinhos no recife');
   await sheetOf(page).getByRole('button', { name: 'Conhecer a turma' }).click();
   await expect(page.locator('#tabbar').getByRole('button', { name: /^Amigos/ })).toHaveAttribute('aria-current', 'page');
 });
 
 test('o cartão de novidades: com a turma ligada e o progresso compartilhado ele avisa que as medalhas novas aparecem para a turma', async ({ page }) => {
   await stubFriendsCloud(page, { code: 'ABCD2345' });
-  await seed(page, { history: [6, 2800], insignias: OCEAN, social: SOCIAL_ON, ui: { tip_news16: 0 } });
+  await seed(page, { history: [6, 2800], insignias: OCEAN, social: SOCIAL_ON, ui: { tip_news17: 0 } });
   await page.goto('/');
   await expect(page.locator('#tTips .tip')).toContainText('As medalhas novas também aparecem para a turma.');
   await page.locator('#tTips').getByRole('button', { name: 'Ver as novidades' }).click();
@@ -308,9 +431,9 @@ test('o cartão de novidades: com a turma ligada e o progresso compartilhado ele
 
 test('o cartão de novidades: quem está na turma mas não compartilha o progresso não ouve falar de medalhas na turma', async ({ page }) => {
   await stubFriendsCloud(page, { code: 'ABCD2345' });
-  await seed(page, { history: [6, 2800], insignias: OCEAN, social: Object.assign({}, SOCIAL_ON, { share: false }), ui: { tip_news16: 0 } });
+  await seed(page, { history: [6, 2800], insignias: OCEAN, social: Object.assign({}, SOCIAL_ON, { share: false }), ui: { tip_news17: 0 } });
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('Agora são 24 medalhas');
+  await expect(page.locator('#tTips .tip')).toContainText('6 medalhas novas');
   await expect(page.locator('#tTips .tip')).not.toContainText('turma');
   // o painel também não promete a turma: com o progresso escondido, os amigos não veem as medalhas
   await page.locator('#tTips').getByRole('button', { name: 'Ver as novidades' }).click();
@@ -324,13 +447,13 @@ test('o cartão de novidades: quem está na turma mas não compartilha o progres
 });
 
 test('o cartão de novidades: dispensar no "x" o apaga para sempre, sem abrir o painel', async ({ page }) => {
-  await seed(page, { history: [6, 2800], insignias: OCEAN, ui: { tip_news16: 0 } });
+  await seed(page, { history: [6, 2800], insignias: OCEAN, ui: { tip_news17: 0 } });
   await page.goto('/');
   await expect(page.locator('#tTips .tip')).toContainText('Novidades no Maré');
   await page.locator('#tTips .tip').getByRole('button', { name: 'Dispensar dica' }).click();
   await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
   await expect(page.locator('#sheet')).toBeHidden();
-  expect((await stored(page)).ui.tip_news16).toBe(1);
+  expect((await stored(page)).ui.tip_news17).toBe(1);
   await page.reload();
   await expect(page.locator('#view')).toBeVisible();
   await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
@@ -359,7 +482,10 @@ test('importar um backup da 1.5 (só as medalhas antigas) já traz as medalhas n
   expect(got.s7, 'a 7ª meta seguida bateu há 34 dias').toBe(await NOON(page, 34));
   expect(got.s30, 'a 30ª bateu há 11 dias').toBe(await NOON(page, 11));
   expect(got.d30, 'a 30ª bateu há 11 dias').toBe(await NOON(page, 11));
+  expect(got.m1, 'o 30º dia de água foi há 11 dias').toBe(await NOON(page, 11));
   expect(got.s60).toBeUndefined();
+  expect(got.use100).toBeUndefined();
+  expect(got.crew).toBeUndefined();
 });
 
 test('medalha nova ao vivo: bater a meta depois de 3 dias sem bater comemora "Volta por cima" uma vez só', async ({ page }) => {
@@ -382,10 +508,10 @@ test('medalha nova ao vivo: bater a meta depois de 3 dias sem bater comemora "Vo
   await expect(medal(page, 'Volta por cima').locator('em')).toBeVisible();
 });
 
-test('layout: a Jornada com 24 medalhas e os gráficos cabe em qualquer tela, no tema claro e no escuro', async ({ page }, info) => {
-  // 21 dias com horários variados (cedo, tarde, noite), alguns dias de meta e outros não
+test('layout: a Jornada com 30 medalhas, os gráficos e o seu mês cabe em qualquer tela, no tema claro e no escuro', async ({ page }, info) => {
+  // 70 dias (dois meses de uso, em qualquer dia do ano) com horários variados (cedo, tarde, noite), alguns dias de meta e outros não
   const rows = [];
-  for (let i = 1; i <= 21; i++) rows.push([i, i % 3 ? [[7, 40, 400], [9, 30, 350], [12, 30, 700], [16, 0, 600], [20, 30, 500]] : [[10, 0, 300], [22, 20, 400]], 2000]);
+  for (let i = 1; i <= 70; i++) rows.push([i, i % 3 ? [[7, 40, 400], [9, 30, 350], [12, 30, 700], [16, 0, 600], [20, 30, 500]] : [[10, 0, 300], [22, 20, 400]], 2000]);
   const look = async (pg, scheme) => {
     await pg.locator('#tabbar').getByRole('button', { name: 'Jornada', exact: true }).click();
     await pg.waitForTimeout(900); // as barras terminam de crescer
@@ -394,9 +520,22 @@ test('layout: a Jornada com 24 medalhas e os gráficos cabe em qualquer tela, no
     expect(over, 'rolagem lateral (' + scheme + ')').toBeLessThanOrEqual(0);
     const out = await pg.evaluate(() => {
       const w = window.innerWidth, bad = [];
-      document.querySelectorAll('.medals .medal, .mission.near, .rh, .wk-plot.sm, .rh-leg span, .mg-h').forEach((e) => {
+      document.querySelectorAll('.medals .medal, .mission.near, .rh, .wk-plot.sm, .rh-leg span, .mg-h, .mo-b, .mo-v, .hm, .hm-g, .hm .hm-c, .hm + .legend').forEach((e) => {
         const r = e.getBoundingClientRect();
         if (r.left < -0.5 || r.right > w + 0.5) bad.push(e.className + ' ' + Math.round(r.left) + '–' + Math.round(r.right));
+      });
+      document.querySelectorAll('.hm-ms span').forEach((b) => { // os rótulos de mês do calendário ficam dentro do cartão e não se sobrepõem
+        const r = b.getBoundingClientRect(), c = b.closest('.card').getBoundingClientRect();
+        if (r.left < c.left || r.right > c.right) bad.push('mês ' + b.textContent);
+      });
+      const ms = Array.prototype.slice.call(document.querySelectorAll('.hm-ms span')).map((b) => b.getBoundingClientRect());
+      for (let q = 1; q < ms.length; q++) if (ms[q].left < ms[q - 1].right + 2) bad.push('rótulos de mês sobrepostos');
+      // cada rótulo fica em cima da semana em que o mês começa (a coluna com o dia 1), ou em cima da primeira coluna (o rótulo que diz o mês de quem abre o calendário)
+      const cols = Array.prototype.slice.call(document.querySelectorAll('.hm-col')), at = cols.filter((c) => c.querySelector('.hm-c[data-day$="-01"]')).map((c) => c.getBoundingClientRect().left).concat([cols[0].getBoundingClientRect().left]);
+      ms.forEach((r, q) => { if (!at.some((x) => Math.abs(x - r.left) <= 4)) bad.push('rótulo de mês ' + q + ' fora da sua semana'); });
+      document.querySelectorAll('.mo-b').forEach((b) => { // o nome do mês e o valor cabem na linha, e a barra tem largura
+        const n = b.querySelector('.mo-n'), t = b.querySelector('.mo-t'), v = b.querySelector('.mo-v');
+        if (n.scrollWidth > n.clientWidth + 0.5 || v.scrollWidth > v.clientWidth + 0.5 || t.getBoundingClientRect().width < 30) bad.push('linha do mês ' + n.textContent);
       });
       document.querySelectorAll('.rh-x b').forEach((b) => { // os rótulos de hora ficam dentro do cartão
         const r = b.getBoundingClientRect(), c = b.closest('.card').getBoundingClientRect();
@@ -414,6 +553,12 @@ test('layout: a Jornada com 24 medalhas e os gráficos cabe em qualquer tela, no
     const g = await pg.evaluate(() => { const p = document.querySelector('.rh-plot').getBoundingClientRect(), b = document.querySelector('.rh-b').getBoundingClientRect(); return { h: p.height, bw: b.width }; });
     expect(g.h).toBeGreaterThan(80);
     expect(g.bw).toBeGreaterThan(6);
+    // o calendário colorido: 13 colunas, quadradinhos quadrados e legíveis (pelo menos 9 px) até na tela mais estreita
+    const h = await pg.evaluate(() => { const c = document.querySelector('.hm-c[data-day]').getBoundingClientRect(); return { w: c.width, h: c.height, cols: document.querySelectorAll('.hm-col').length, mo: document.querySelectorAll('.mo-b').length }; });
+    expect(h.cols).toBe(13);
+    expect(h.mo, 'o mês contra o anterior aparece (dois meses de uso)').toBe(4);
+    expect(h.w, 'quadradinho do calendário').toBeGreaterThanOrEqual(9);
+    expect(Math.abs(h.w - h.h), 'quadradinho quadrado').toBeLessThanOrEqual(1);
   };
   await seed(page, { rows: rows, todayMl: 900, profile: { theme: 'light' }, insignias: REEF5 });
   await page.goto('/');

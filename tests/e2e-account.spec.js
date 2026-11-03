@@ -113,13 +113,13 @@ test.describe('sem conta', () => {
     await expect(page.getByRole('button', { name: 'Apagar', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Excluir', exact: true })).toHaveCount(0);
     await expect(page.locator('.about')).toContainText('a cópia na nuvem só volta com uma conta'); // sem conta, a cópia na nuvem não ajuda quem perde o aparelho
-    await expect(page.locator('.about')).toContainText('v1.6.0');
+    await expect(page.locator('.about')).toContainText('v1.7.0');
   });
 
   test('a dica da conta vem primeiro, só a partir do segundo dia; dispensar não tira o cartão de Ajustes', async ({ page }) => {
     // um dia só: ainda não há o que perder
     await stubFriendsCloud(page);
-    await seed(page, { todayMl: 500, ui: { tip_account: 0, tip_news16: 0 } });
+    await seed(page, { todayMl: 500, ui: { tip_account: 0, tip_news17: 0 } });
     await page.goto('/');
     await expect(page.locator('.tip')).toContainText('Novidades no Maré');
     await page.evaluate(() => sessionStorage.clear());
@@ -127,7 +127,7 @@ test.describe('sem conta', () => {
     const p2 = await page.context().newPage();
     p2.on('pageerror', (e) => { errors.push(e.message); });
     await stubFriendsCloud(p2);
-    await seed(p2, { history: [2, 1500], todayMl: 500, ui: { tip_account: 0, tip_news16: 0 } });
+    await seed(p2, { history: [2, 1500], todayMl: 500, ui: { tip_account: 0, tip_news17: 0 } });
     await p2.goto('/');
     await expect(p2.locator('.tip')).toHaveCount(1);
     await expect(p2.locator('.tip')).toContainText('Proteja seus dados');
@@ -345,7 +345,8 @@ test.describe('entrar', () => {
     expect(Object.keys(s.days)).toHaveLength(5);
     expect(s.ui.tip_news12).toBe(1);
     expect(s.ui.tip_news15).toBe(1);
-    expect(s.ui.tip_news16).toBe(1); // quem chega pela conta não vê o cartão de novidades
+    expect(s.ui.tip_news16).toBe(1);
+    expect(s.ui.tip_news17).toBe(1); // quem chega pela conta não vê o cartão de novidades
     expect(await hint(page)).toEqual({ uid: MARI_UID, email: MARI, verified: true });
     expect((await acct(page)).user).toMatchObject({ uid: MARI_UID, email: MARI });
     await tabS(page).click();
@@ -373,6 +374,33 @@ test.describe('entrar', () => {
     expect(keyOfTs(s.achievements.first)).toBe(dkey(5)); // a data de cada uma é a do dia em que o histórico passou a cumpri-la
     expect(keyOfTs(s.achievements.goal)).toBe(dkey(5));
     expect(keyOfTs(s.achievements.s3)).toBe(dkey(3));
+  });
+
+  // 1.7.0: os ajustes da conta guardam o dia real de cada medalha (ach, em minutos). Em aparelho novo, ele vale mais que a data refeita pelo histórico
+  test('aparelho novo: a conta devolve o dia real de cada medalha, que vale mais que a data refeita pelo histórico; a Turma completa, que o histórico não mostra, volta junto', async ({ page }) => {
+    const days = {};
+    [5, 4, 3, 2].forEach((n) => { days[dkey(n)] = metDay(dkey(n), 'm' + n, Date.now() - n * 864e5); });
+    const at = (n, h, mi) => { const d = new Date(); d.setDate(d.getDate() - n); d.setHours(h, mi, 0, 0); return d.getTime(); };
+    const m = (t) => Math.floor(t / 6e4);
+    // a Primeira gota saiu 9 dias atrás (antes do que os registros daqui mostram); a Na mosca, às 20h30 do dia em que o histórico passou a cumpri-la (o histórico diria meio-dia)
+    const firstAt = at(9, 7, 15), goalAt = at(5, 20, 30), crewAt = Date.now() - 864e5;
+    const prefs = PREFS({ ach: { first: m(firstAt), goal: m(goalAt), crew: m(crewAt), nope: m(goalAt), s7: m(Date.now() + 40 * 864e5) } }); // uma medalha que o app não conhece e uma datada do futuro
+    const users = {}; users[MARI] = account({ cloud: Object.assign({}, account().cloud, { days: days, prefs: prefs }) });
+    await openFresh(page, users);
+    await page.getByRole('button', { name: 'Entrar na conta' }).click();
+    await fill(page, MARI, MARI_PW);
+    await primary(page).click();
+    await expect(toast(page)).toContainText('4 dias de registros voltaram');
+    await expect(page.locator('#tabbar')).toBeVisible();
+    await expect(page.locator('.medal-pop')).toHaveCount(0); // tudo em silêncio: são conquistas antigas
+    const s = await stored(page);
+    expect(s.achievements.first, 'o dia real da Primeira gota, mais antigo que o do histórico, no minuto').toBe(m(firstAt) * 6e4);
+    expect(s.achievements.goal, 'o dia real da Na mosca (20h30) vale, e não o meio-dia que o histórico refaria').toBe(m(goalAt) * 6e4);
+    expect(s.achievements.crew, 'a Turma completa só a conta sabe').toBe(m(crewAt) * 6e4);
+    expect(s.achievements.nope, 'medalha que o app não conhece não entra').toBeUndefined();
+    expect(s.achievements.s7, 'data do futuro não vale, e os 4 dias não dão uma semana').toBeUndefined();
+    expect(keyOfTs(s.achievements.s3)).toBe(dkey(3)); // as que a conta não guardava seguem com a data do histórico
+    expect(keyOfTs(s.achievements.sunset)).toBe(dkey(5));
   });
 
   test('conta criada pelo administrador (sem ajustes salvos): os registros voltam e o onboarding vem preenchido', async ({ page }) => {
@@ -1122,6 +1150,33 @@ test.describe('com conta', () => {
     expect(s.achievements.first).toBe(before.achievements.first); // as que já havia ficam como estavam
   });
 
+  test('com conta, "Importar" traz também o dia real das medalhas do arquivo: a data mais antiga vale, a medalha que só o arquivo tem entra em silêncio e o que o app não conhece fica de fora', async ({ page }) => {
+    const m = (t) => Math.floor(t / 6e4) * 6e4, mineFirst = m(Date.now() - 2 * 864e5), mineGoal = m(Date.now() - 3 * 864e5);
+    await withAccount(page, { medals: { first: mineFirst, goal: mineGoal } }, { verified: true });
+    await page.goto('/');
+    await tabS(page).click();
+    const before = await stored(page);
+    expect(before.achievements.first).toBe(mineFirst);
+    expect(before.achievements.crew).toBeUndefined();
+    const olderFirst = m(Date.now() - 30 * 864e5), laterGoal = m(Date.now() - 864e5), crewAt = m(Date.now() - 5 * 864e5);
+    const days = {};
+    days[dkey(12)] = metDay(dkey(12), 'bk12', 5); // um dia novo, para o aviso contar (as datas das medalhas não mexem no aviso)
+    const data = { v: 1, onboarded: true, profile: { name: 'Outra Pessoa', weight: 99, theme: 'dark' }, days: days, achievements: { first: olderFirst, goal: laterGoal, crew: crewAt, nope: crewAt } };
+    const file = { name: 'mare-backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ app: 'mare', v: 1, data: data })) };
+    const synced = (await acct(page)).prefsSynced;
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'Importar' }).click()]);
+    await chooser.setFiles(file);
+    await sheet(page).getByRole('button', { name: 'Juntar' }).click();
+    await expect(toast(page)).toContainText('1 dia do backup entrou na sua conta');
+    await expect(page.locator('.medal-pop')).toHaveCount(0);
+    const st = await stored(page);
+    expect(st.achievements.first, 'a data mais antiga é a do arquivo').toBe(olderFirst);
+    expect(st.achievements.goal, 'a data deste aparelho era a mais antiga: fica').toBe(mineGoal);
+    expect(st.achievements.crew, 'a medalha que só o arquivo tem entra com a data dele').toBe(crewAt);
+    expect(st.achievements.nope, 'uma medalha que o app não conhece não entra').toBeUndefined();
+    expect((await acct(page)).prefsSynced, 'os ajustes (com as datas das medalhas) sobem de novo para a conta').toBeGreaterThan(synced);
+  });
+
   test('dias de outro aparelho da mesma conta chegam com o app aberto: as medalhas que eles cumprem entram em silêncio, com a data de cada dia', async ({ page }) => {
     await withAccount(page, null, { verified: true });
     await page.goto('/');
@@ -1135,6 +1190,30 @@ test.describe('com conta', () => {
     expect(keyOfTs(s.achievements.goal)).toBe(dkey(12));
     expect(keyOfTs(s.achievements.s3)).toBe(dkey(10));
     expect(Object.keys(s.days)).toEqual(expect.arrayContaining([dkey(12), dkey(11), dkey(10)]));
+  });
+
+  test('ajustes de outro aparelho da mesma conta trazem o dia real das medalhas: a data mais antiga vence e a medalha que só a conta tem entra em silêncio', async ({ page }) => {
+    const m = (t) => Math.floor(t / 6e4) * 6e4, firstAt = m(Date.now() - 20 * 864e5), crewAt = m(Date.now() - 864e5);
+    // o app recebe os ajustes já limpos (cleanPrefs): as medalhas chegam em ms, no minuto
+    const remote = { u: Date.now() + 5000, prefs: Object.assign(JSON.parse(PREFS().j), { ach: { first: firstAt, crew: crewAt } }) };
+    await withAccount(page, null, { verified: true, remotePrefs: remote });
+    await page.goto('/');
+    await tabS(page).click();
+    await expect.poll(async () => (await stored(page)).achievements.crew).toBe(crewAt);
+    const s = await stored(page);
+    expect(s.achievements.first, 'a data do outro aparelho é mais antiga que a refeita pelo histórico daqui').toBe(firstAt);
+    await expect(page.locator('.medal-pop')).toHaveCount(0);
+    expect(await page.evaluate(() => window.__acct.prefsRet), 'a nuvem já tinha todas as medalhas daqui: nada a reenviar').toBe(false);
+  });
+
+  test('ajustes de outro aparelho com uma data mais nova para a mesma medalha não mudam a que este aparelho já tem (vale a mais antiga)', async ({ page }) => {
+    const m = (t) => Math.floor(t / 6e4) * 6e4, mine = m(Date.now() - 30 * 864e5), theirs = m(Date.now() - 2 * 864e5);
+    const remote = { u: Date.now() + 5000, prefs: Object.assign(JSON.parse(PREFS({ profile: { name: 'Ana Clara', weight: 64.5, activity: 'athlete', wake: '05:30', sleep: '22:00', unit: 'ml', theme: 'dark', others: true, mix: false, mascot: '' } }).j), { ach: { first: theirs } }) };
+    await withAccount(page, { medals: { first: mine } }, { verified: true, remotePrefs: remote });
+    await page.goto('/');
+    await expect.poll(async () => (await stored(page)).profile.name).toBe('Ana Clara'); // os ajustes chegaram
+    expect((await stored(page)).achievements.first).toBe(mine);
+    expect(await page.evaluate(() => window.__acct.prefsRet), 'a nuvem ficou com a data mais nova: este aparelho avisa que os ajustes precisam subir de novo').toBe(true);
   });
 
   test('sem conta, "Importar" continua substituindo os dados do aparelho (o aviso é outro)', async ({ page }) => {

@@ -25,6 +25,14 @@ function used() {
   return S;
 }
 
+// medalhas (1.7.0): o backup guarda o instante em que cada uma saiu, em MINUTOS. Três instantes de verdade, em dias e horas diferentes (o último,
+// a um milissegundo de virar o minuto seguinte: o arredondamento tem de ser estável) e ids de medalhas reais do app.
+const MIN = 6e4, at = (ms) => Math.round(ms / MIN);
+const T1 = Date.UTC(2025, 8, 3, 15, 30, 12, 345), T2 = Date.UTC(2025, 9, 1, 12, 0, 0, 0), T3 = Date.UTC(2025, 9, 20, 23, 59, 59, 999); // em 2025: sempre no passado
+function medalsUsed() { const S = used(); S.achievements = { first: T1, s7: T2, crew: T3 }; return S; }
+// o app todo conquistado: as 30 medalhas, uma por dia (para medir o tamanho do pior caso)
+function allMedals() { const S = used(); C.ACHIEVEMENTS.forEach((a, i) => { S.achievements[a.id] = Date.UTC(2025, 8, 1 + i, 9, 15 + (i % 40), 7, 123); }); return S; }
+
 describe('e-mail', () => {
   it('cleanEmail tira espaços (até os invisíveis), põe em minúsculas e limita o tamanho', () => {
     expect(A.cleanEmail('  Ana.Paula@Gmail.COM \n')).toBe('ana.paula@gmail.com');
@@ -187,12 +195,29 @@ describe('backup dos ajustes: o que sai do aparelho', () => {
     const S = used(); S.ui = { tip_a: 0, tip_b: 1, 'tip_com espaço': 1, 'tip_': 1, tip_ok: true, frRank: 'inventado', outro: 1 };
     expect(A.prefsSnapshot(S).ui).toEqual({ tip_b: 1, tip_ok: 1, frRank: 'day' });
   });
+  it('as medalhas vão com o instante em que saíram, em minutos, só as que o app conhece e na ordem do app', () => {
+    const S = medalsUsed();
+    Object.assign(S.achievements, { inventada: T1, goal: 0, s3: 'x', s14: -4, s30: null, early: NaN, sunset: Infinity });
+    const snap = A.prefsSnapshot(S);
+    expect(snap.ach).toEqual({ first: at(T1), s7: at(T2), crew: at(T3) });
+    expect(Object.keys(snap.ach)).toEqual(['first', 's7', 'crew']); // a ordem do app, não a de quem gravou: o texto é o mesmo em qualquer aparelho
+    expect(at(T3)).toBe(at(T3 + 1)); // a um milissegundo do minuto seguinte, o arredondamento é o mesmo nos dois lados
+    expect(A.prefsSnapshot(used()).ach).toEqual({});
+    const velho = used(); delete velho.achievements; // estado de uma versão muito antiga, sem o campo
+    expect(A.prefsSnapshot(velho).ach).toEqual({});
+  });
   it('é estável: o mesmo estado dá sempre o mesmo texto (senão o app regravaria à toa)', () => {
     const a = A.prefsPack(used(), 5).j, S = used();
     S.ui = { frRank: 'week', tip_install: 1, tip_news15: 1, tip_news12: 1 }; // outra ordem das chaves
     expect(A.prefsPack(S, 9).j).toBe(a);
     S.profile.weight = 62;
     expect(A.prefsPack(S, 9).j).not.toBe(a);
+    // com medalhas: a ordem em que saíram e os segundos de cada uma não mudam o texto; uma medalha nova ou outro minuto, sim
+    const m = A.prefsPack(medalsUsed(), 5).j, M = medalsUsed();
+    M.achievements = { crew: T3 + 20, s7: T2 + 10000, first: T1 - 5000 }; // outra ordem e outros segundos, mesmos minutos
+    expect(A.prefsPack(M, 9).j).toBe(m);
+    M.achievements.goal = T1; expect(A.prefsPack(M, 9).j).not.toBe(m);
+    M.achievements = { first: T1 + 5 * MIN, s7: T2, crew: T3 }; expect(A.prefsPack(M, 9).j).not.toBe(m);
   });
   it('o documento tem v, u e j, e o texto cabe no limite das regras do Firestore (conferido no firestore.rules)', () => {
     const p = A.prefsPack(used(), 1790000000123);
@@ -225,13 +250,50 @@ describe('backup dos ajustes: o que sai do aparelho', () => {
     const T = used(); T.profile.name = 'x'.repeat(5000);
     expect(A.prefsPack(T, 1)).toBe(null);
   });
+  it('com as 30 medalhas o texto ainda cabe com folga, e cada medalha cabe com a sua data', () => {
+    const S = allMedals(), p = A.prefsPack(S, 1), o = JSON.parse(p.j);
+    expect(C.ACHIEVEMENTS.length).toBe(30);
+    expect(Object.keys(o.ach)).toEqual(C.ACHIEVEMENTS.map((a) => a.id));
+    C.ACHIEVEMENTS.forEach((a) => expect(o.ach[a.id], a.id).toBe(at(S.achievements[a.id])));
+    expect(p.j.length).toBeLessThan(A.PREFS_MAX - 2000); // sobra para o nome, o apelido e os recados, no pior caso
+    S.profile.name = 'ç'.repeat(30); S.social.nick = '🐠'.repeat(20);
+    for (let i = 0; i < 60; i++) S.ui['tip_' + 'x'.repeat(20) + i] = 1;
+    const q = A.prefsPack(S, 1);
+    expect(q).not.toBe(null);
+    expect(q.j.length).toBeLessThanOrEqual(A.PREFS_MAX);
+    expect(Object.keys(JSON.parse(q.j).ach)).toHaveLength(30); // o pior caso de antes continua cabendo, agora com as 30 datas dentro
+  });
+  it('se passar do limite, saem primeiro os recados e só depois as datas das medalhas (os ajustes nunca saem)', () => {
+    // 1) só os recados já resolvem: as datas ficam
+    const M = allMedals();
+    for (let i = 0; i < 400; i++) M.ui['tip_' + 'y'.repeat(20) + i] = 1;
+    const a = A.prefsPack(M, 2);
+    expect(a).not.toBe(null);
+    const oa = JSON.parse(a.j);
+    expect(oa.ui).toEqual({}); expect(Object.keys(oa.ach)).toHaveLength(30);
+    // 2) sem os recados ainda passa, mas sem as datas cabe: as datas saem e o resto do backup fica inteiro
+    const S = allMedals(); S.ui = {};
+    const semDatas = (x) => JSON.stringify(Object.assign(A.prefsSnapshot(x), { ach: {} })).length;
+    S.profile.name = 'x'.repeat(A.PREFS_MAX - semDatas(S) + S.profile.name.length - 50); // sem as datas sobram 50; com elas passa do limite
+    expect(semDatas(S)).toBe(A.PREFS_MAX - 50);
+    expect(JSON.stringify(A.prefsSnapshot(S)).length).toBeGreaterThan(A.PREFS_MAX);
+    const b = A.prefsPack(S, 3);
+    expect(b).not.toBe(null);
+    expect(b.j.length).toBeLessThanOrEqual(A.PREFS_MAX);
+    const ob = JSON.parse(b.j);
+    expect(ob.ach).toEqual({}); expect(ob.profile.name).toBe(S.profile.name); expect(ob.cups).toEqual(A.prefsSnapshot(S).cups); expect(ob.social).toEqual(A.prefsSnapshot(S).social);
+    // 3) nem sem as datas cabe: não faz backup (como antes)
+    S.profile.name = 'x'.repeat(A.PREFS_MAX);
+    expect(A.prefsPack(S, 4)).toBe(null);
+  });
 });
 
 describe('backup dos ajustes: o que volta é sempre limpo', () => {
   it('lixo vira o padrão do app, sem estourar', () => {
     const D = C.defaults();
-    [null, undefined, 5, 'x', [], {}, { profile: 5, goal: [], cups: 'a', social: null, ui: 3 }].forEach((raw) => {
+    [null, undefined, 5, 'x', [], {}, { profile: 5, goal: [], cups: 'a', social: null, ui: 3 }, { ach: 7 }, { ach: 'first' }, { ach: [at(T1), at(T2)] }, { ach: null }, { ach: { first: { x: 1 }, goal: [at(T1), at(T2)], s3: true } }].forEach((raw) => {
       const p = A.cleanPrefs(raw);
+      expect(p.ach).toEqual({});
       expect(p.profile).toEqual(Object.assign({}, D.profile, { name: '' }));
       expect(p.goal).toEqual({ mode: 'auto', manual: 2500, climate: false });
       expect(p.cups).toEqual(D.cups);
@@ -256,6 +318,18 @@ describe('backup dos ajustes: o que volta é sempre limpo', () => {
     expect(p.social).toMatchObject({ on: false, share: true, goal: null, push: true, hit: false, week: true }); // só um true ou false de verdade conta
     expect(p.ui).toEqual({ tip_x: 1, frRank: 'day' });
     expect(p.createdAt).toBe(0); // 5 ms não é uma data de criação plausível
+  });
+  it('medalhas: só as que o app conhece, com um instante que faça sentido (depois de 2017 e, no máximo, amanhã)', () => {
+    const now = Date.now();
+    const p = A.cleanPrefs({ ach: { first: at(T1), goal: at(now + 30 * 36e5), s3: at(1.4e12), s7: 'ontem', s14: -5, s30: 0, early: null, sunset: NaN, mission: Infinity,
+      m10: at(now + 20 * 36e5), weekend: at(1.5e12 - 2 * MIN), d10: at(1.5e12 + 2 * MIN), inventada: at(T1), crew: String(at(T3)), s60: at(T2) + 0.123456789 } });
+    expect(Object.keys(p.ach).sort()).toEqual(['crew', 'd10', 'first', 'm10', 's60']);
+    expect(p.ach.s60).toBe(Math.round((at(T2) + 0.123456789) * MIN)); // um minuto quebrado (de outro app) vira milissegundo inteiro
+    expect(p.ach.first).toBe(at(T1) * MIN); // volta em milissegundos, nos minutos cheios
+    expect(p.ach.crew).toBe(at(T3) * MIN); // um número escrito como texto também vale (o JSON de outro aparelho)
+    expect(p.ach.m10).toBe(at(now + 20 * 36e5) * MIN); // 20 h à frente (relógio adiantado do outro aparelho) ainda vale; 30 h, não
+    expect(p.ach.d10).toBe(at(1.5e12 + 2 * MIN) * MIN);
+    Object.keys(p.ach).forEach((k) => expect(Number.isInteger(p.ach[k]), k).toBe(true));
   });
   it('acordar e dormir iguais voltam ao padrão (o app não aceita os dois no mesmo horário)', () => {
     const p = A.cleanPrefs({ profile: { wake: '08:00', sleep: '08:00' } });
@@ -288,7 +362,17 @@ describe('backup dos ajustes: o que volta é sempre limpo', () => {
     const p = A.prefsParse({ v: 1, u: 5, j: '{"__proto__":{"x":1},"profile":{"__proto__":{"y":2},"name":"Ana"},"constructor":{"prototype":{"z":3}}}' });
     expect(p.prefs.profile.name).toBe('Ana');
     expect(({}).x).toBeUndefined(); expect(({}).y).toBeUndefined(); expect(({}).z).toBeUndefined();
-    expect(Object.keys(p.prefs).sort()).toEqual(['cups', 'createdAt', 'goal', 'last', 'lastO', 'profile', 'reminders', 'social', 'ui'].sort());
+    expect(Object.keys(p.prefs).sort()).toEqual(['ach', 'cups', 'createdAt', 'goal', 'last', 'lastO', 'profile', 'reminders', 'social', 'ui'].sort());
+  });
+  it('JSON com "__proto__" e "constructor" dentro das medalhas também não contamina nada', () => {
+    const ms = at(T1), j = '{"ach":{"__proto__":{"first":' + ms + ',"polluted":1},"constructor":{"prototype":{"z":3}},"first":' + ms + ',"hasOwnProperty":' + ms + '}}';
+    const p = A.prefsParse({ v: 1, u: 5, j: j });
+    expect(p.prefs.ach).toEqual({ first: ms * MIN });
+    expect(Object.getPrototypeOf(p.prefs.ach)).toBe(Object.prototype);
+    expect(({}).first).toBeUndefined(); expect(({}).polluted).toBeUndefined(); expect(({}).z).toBeUndefined();
+    const S = C.defaults(); A.applyPrefs(S, p.prefs, 'restore');
+    expect(S.achievements).toEqual({ first: ms * MIN });
+    expect(({}).first).toBeUndefined();
   });
 });
 
@@ -329,6 +413,85 @@ describe('aplicar ajustes ao app', () => {
     const a = used(), pack = A.prefsPack(a, 10), b = C.defaults();
     A.applyPrefs(b, A.prefsParse(JSON.parse(JSON.stringify(pack))).prefs, 'restore');
     expect(A.prefsSnapshot(b)).toEqual(A.prefsSnapshot(a));
+  });
+  it('restaurar: as medalhas da conta entram com a data em que saíram de verdade; a mais antiga de cada uma vale e as que só existem aqui ficam', () => {
+    const p = A.cleanPrefs(A.prefsSnapshot(medalsUsed()));
+    const S = fresh(); S.achievements = { first: T1 + 3 * 864e5, goal: T2 }; // "Primeira gota" daqui é mais nova que a da conta; "Na mosca" só existe aqui
+    A.applyPrefs(S, p, 'restore');
+    expect(S.achievements.first).toBe(at(T1) * MIN); // a da conta é mais antiga e vence (em minutos cheios)
+    expect(S.achievements.goal).toBe(T2); // só daqui: fica como está
+    expect(S.achievements.s7).toBe(at(T2) * MIN); expect(S.achievements.crew).toBe(at(T3) * MIN); // só da conta: entram
+    expect(Object.keys(S.achievements).sort()).toEqual(['crew', 'first', 'goal', 's7']);
+  });
+  it('a data daqui, se for mais antiga, fica (uma medalha nunca "rejuvenesce" ao ler a conta)', () => {
+    const p = A.cleanPrefs(A.prefsSnapshot(medalsUsed()));
+    const S = fresh(); S.achievements = { first: T1 - 5 * 864e5, s7: T2 + 1 };
+    A.applyPrefs(S, p, 'restore');
+    expect(S.achievements.first).toBe(T1 - 5 * 864e5); // 5 dias antes da data da conta: a daqui é a mais antiga e fica
+    expect(S.achievements.s7).toBe(T2); // 1 ms depois da data da conta: a da conta é a mais antiga e vence
+    const igual = fresh(); igual.achievements = { first: at(T1) * MIN };
+    expect(A.applyPrefs(igual, p, 'restore').achievements.first).toBe(at(T1) * MIN); // a mesma data: nada muda
+  });
+  it('sincronizar também junta as medalhas (idempotente) e nunca tira nenhuma', () => {
+    const p = A.cleanPrefs(A.prefsSnapshot(medalsUsed()));
+    const S = fresh(); S.achievements = { s30: T2 };
+    A.applyPrefs(S, p, 'sync');
+    const once = JSON.stringify(S.achievements);
+    expect(Object.keys(S.achievements).sort()).toEqual(['crew', 'first', 's30', 's7']);
+    A.applyPrefs(S, p, 'sync'); A.applyPrefs(S, p, 'restore');
+    expect(JSON.stringify(S.achievements)).toBe(once);
+    const semAch = A.cleanPrefs(A.prefsSnapshot(used())); // ajustes de um aparelho que não tinha medalha nenhuma (ou de uma versão antiga)
+    A.applyPrefs(S, semAch, 'sync');
+    expect(JSON.stringify(S.achievements)).toBe(once); // uma nuvem sem medalhas não apaga as daqui
+  });
+  it('ajustes de uma versão sem "ach" (anterior à 1.7.0) continuam entrando, sem medalhas e sem erro', () => {
+    const velho = JSON.parse(JSON.stringify(A.prefsSnapshot(used()))); delete velho.ach;
+    const p = A.prefsParse({ v: 1, u: 9, j: JSON.stringify(velho) });
+    expect(p.prefs.ach).toEqual({});
+    const S = fresh(); S.achievements = { first: T1 };
+    A.applyPrefs(S, p.prefs, 'restore');
+    expect(S.achievements).toEqual({ first: T1 });
+    expect(S.profile.name).toBe('Marianne');
+  });
+  it('ida e volta com medalhas: S → nuvem → aparelho novo dá as mesmas medalhas, e a nuvem não parece "atrasada" (senão o app regravaria a cada leitura)', () => {
+    const a = medalsUsed(), pack = A.prefsPack(a, 10), b = C.defaults(), back = A.prefsParse(JSON.parse(JSON.stringify(pack)));
+    A.applyPrefs(b, back.prefs, 'restore');
+    expect(A.prefsSnapshot(b)).toEqual(A.prefsSnapshot(a));
+    expect(Object.keys(b.achievements).sort()).toEqual(['crew', 'first', 's7']);
+    expect(A.achAhead(a.achievements, back.prefs.ach)).toBe(false);
+    expect(A.achAhead(b.achievements, back.prefs.ach)).toBe(false);
+    const all = allMedals(), c = C.defaults(), cb = A.prefsParse(A.prefsPack(all, 11));
+    A.applyPrefs(c, cb.prefs, 'restore');
+    expect(Object.keys(c.achievements)).toHaveLength(30);
+    C.ACHIEVEMENTS.forEach((x) => expect(Math.abs(c.achievements[x.id] - all.achievements[x.id]), x.id).toBeLessThanOrEqual(MIN / 2)); // a data só perde os segundos
+    expect(A.achAhead(all.achievements, cb.prefs.ach)).toBe(false);
+  });
+});
+
+describe('a nuvem ficou para trás? (achAhead)', () => {
+  const m = 28333333 * MIN; // um minuto cheio
+  it('não, quando a nuvem tem todas as medalhas daqui, com a mesma data ou uma mais antiga', () => {
+    expect(A.achAhead({}, {})).toBe(false);
+    expect(A.achAhead({ first: m }, { first: m })).toBe(false);
+    expect(A.achAhead({ first: m }, { first: m - 5 * MIN })).toBe(false); // a da nuvem é mais antiga: vale a da nuvem
+    expect(A.achAhead({ first: m + 20000 }, { first: m })).toBe(false); // segundos de diferença não contam (o backup é em minutos)
+    expect(A.achAhead({ first: m + 40000 }, { first: m })).toBe(false); // a daqui é mais nova (por arredondamento, um minuto): a nuvem já tem a mais antiga
+    expect(A.achAhead({ first: m }, { first: m, goal: m, s3: m })).toBe(false); // a nuvem pode ter medalhas a mais: o app junta
+  });
+  it('sim, quando falta uma medalha na nuvem ou a data daqui é mais antiga (por mais de meio minuto)', () => {
+    expect(A.achAhead({ first: m }, {})).toBe(true);
+    expect(A.achAhead({ first: m, s7: m }, { first: m })).toBe(true);
+    expect(A.achAhead({ first: m - MIN }, { first: m })).toBe(true);
+    expect(A.achAhead({ first: m - 5 * 864e5 }, { first: m })).toBe(true);
+    expect(A.achAhead({ crew: m }, { first: m })).toBe(true); // a nuvem tem outra medalha, mas não esta
+  });
+  it('só conta o que vale: medalhas desconhecidas e datas sem sentido não fazem a nuvem parecer atrasada', () => {
+    expect(A.achAhead({ inventada: m }, {})).toBe(false);
+    expect(A.achAhead({ first: 0, goal: -1, s3: 'x', s7: NaN, s14: null, s30: Infinity }, {})).toBe(false);
+    expect(A.achAhead(null, null)).toBe(false);
+    expect(A.achAhead(undefined, 5)).toBe(false);
+    expect(A.achAhead({ first: m }, 'texto')).toBe(true);
+    expect(A.achAhead({ first: m }, [m])).toBe(true);
   });
 });
 

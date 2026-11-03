@@ -189,7 +189,7 @@ describe('profiles: o perfil que os amigos veem', () => {
     await no(updateDoc(doc(as(ANA), 'profiles', BRU), { wm: 0 }));
   });
   test('com as medalhas (md): máscara inteira de 0 a 16777215 (24 bits), null ou ausente; qualquer outra coisa é recusada', async () => {
-    const good = [['sem md', prof()], ['md 0', prof({ md: 0 })], ['md 1', prof({ md: 1 })], ['md 9', prof({ md: 9 })], ['md 4095 (as 12 medalhas de hoje)', prof({ md: 4095 })],
+    const good = [['sem md', prof()], ['md 0', prof({ md: 0 })], ['md 1', prof({ md: 1 })], ['md 9', prof({ md: 9 })], ['md 4095 (as 12 primeiras medalhas)', prof({ md: 4095 })],
       ['md 16777215 (o teto: 24 bits)', prof({ md: 16777215 })], ['md null (em pausa)', prof({ md: null })], ['gl, wm e md juntos', prof({ gl: 2500, wm: 85, md: 4095 })],
       ['em pausa: sem pct, gl, wm nem md', prof({ sh: false, pct: null, gl: null, wm: null, md: null })]];
     for (const [nome, d] of good) await ok(setDoc(doc(as(ANA), 'profiles', ANA), d), nome);
@@ -214,6 +214,35 @@ describe('profiles: o perfil que os amigos veem', () => {
     await ok(updateDoc(doc(as(BRU), 'profiles', BRU), { md: deleteField() })); // progresso em pausa (ou app que não conhece medalhas): o campo some
     const t = (await ok(getDoc(doc(as(ANA), 'profiles', BRU)))).data();
     if ('md' in t) throw new Error('sem a escolha da pessoa, as medalhas não podem ficar no perfil');
+  });
+  test('com a segunda palavra das medalhas (md2, 1.7.0): inteiro de 0 a 2147483647 (31 bits), null ou ausente; qualquer outra coisa é recusada, e nenhum campo a mais passa', async () => {
+    const good = [['sem md2', prof({ md: 5 })], ['md2 0', prof({ md2: 0 })], ['md2 1', prof({ md2: 1 })], ['md2 63 (as 6 medalhas novas)', prof({ md: 16777215, md2: 63 })],
+      ['md2 2147483647 (o teto: 31 bits)', prof({ md: 16777215, md2: 2147483647 })], ['md2 null (em pausa)', prof({ md2: null })], ['md2 sem md', prof({ md2: 4 })],
+      ['gl, wm, md e md2 juntos', prof({ gl: 2500, wm: 85, md: 4095, md2: 33 })], ['em pausa: sem pct, gl, wm, md nem md2', prof({ sh: false, pct: null, gl: null, wm: null, md: null, md2: null })]];
+    for (const [nome, d] of good) await ok(setDoc(doc(as(ANA), 'profiles', ANA), d), nome);
+    const bad = [['md2 2147483648 (32º bit)', prof({ md2: 2147483648 })], ['md2 2^32', prof({ md2: 4294967296 })], ['md2 enorme', prof({ md2: 1e15 })], ['md2 negativo', prof({ md2: -1 })],
+      ['md2 decimal', prof({ md2: 3.5 })], ['md2 texto', prof({ md2: '7' })], ['md2 booleano', prof({ md2: true })], ['md2 lista', prof({ md2: [1] })], ['md2 mapa', prof({ md2: { d: 1 } })],
+      ['md2 NaN', prof({ md2: NaN })], ['md2 infinito', prof({ md2: Infinity })], ['md acima dos 24 bits, mesmo com md2 certo', prof({ md: 16777216, md2: 1 })],
+      ['md3 (um campo que não existe)', prof({ md: 1, md2: 1, md3: 1 })], ['md2 com outro nome', prof({ mdx: 1 })], ['as datas das medalhas (nunca vão ao perfil)', prof({ md: 1, md2: 1, ma: { first: 1700000000000 } })]];
+    for (const [nome, d] of bad) await no(setDoc(doc(as(ANA), 'profiles', ANA), d), nome);
+  });
+  test('as medalhas novas no perfil: o amigo lê md e md2; quem não é amigo não; o dono muda ou tira quando quiser; o amigo não mexe', async () => {
+    await seedPair();
+    await ok(setDoc(doc(as(BRU), 'profiles', BRU), prof({ nm: 'Bruno', mc: 'polvo', gl: 2400, wm: 93, md: 2049, md2: 33 })));
+    const s = await ok(getDoc(doc(as(ANA), 'profiles', BRU)));
+    const keys = Object.keys(s.data()).sort().join();
+    if (keys !== 'day,gl,ins,mc,md,md2,met,nm,pct,sh,st,v,wm') throw new Error('o perfil com as medalhas novas deveria ter exatamente os campos combinados: ' + keys);
+    if (s.data().md !== 2049 || s.data().md2 !== 33) throw new Error('o amigo deveria ler as duas máscaras de medalhas');
+    await no(getDoc(doc(as(CAI), 'profiles', BRU))); // um terceiro continua de fora
+    await ok(updateDoc(doc(as(BRU), 'profiles', BRU), { md2: 63 })); // ganhou mais medalhas
+    await no(updateDoc(doc(as(BRU), 'profiles', BRU), { md2: 2147483648 }));
+    await no(updateDoc(doc(as(BRU), 'profiles', BRU), { md2: -1 }));
+    await no(updateDoc(doc(as(ANA), 'profiles', BRU), { md2: 0 })); // o amigo não escreve no perfil do outro
+    await no(updateDoc(doc(as(CAI), 'profiles', BRU), { md2: 0 }));
+    await ok(updateDoc(doc(as(BRU), 'profiles', BRU), { md2: deleteField() })); // progresso em pausa (ou app da 1.6.0): o campo some
+    const t = (await ok(getDoc(doc(as(ANA), 'profiles', BRU)))).data();
+    if ('md2' in t) throw new Error('sem a escolha da pessoa, as medalhas novas não podem ficar no perfil');
+    if (t.md !== 2049) throw new Error('tirar o md2 não pode mexer no md');
   });
   test('ser amigo de alguém não dá acesso ao perfil dos amigos dele', async () => {
     await seedPair(); // ANA e BRU

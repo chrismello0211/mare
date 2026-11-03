@@ -1,7 +1,8 @@
 // Maré — aplicativo (Parte 3C). Liga estado, telas, lembretes, clima, celebrações e a nuvem opcional.
 // Toda alteração segue: muda S → save() → afterChange() (lembrete, conquistas, nuvem) → atualiza só o necessário.
 import { ACTIVITY, drink, isWater, mixOn, retired, uid, dayKey, keyToDate, minOf, fmtHM, expectedBy, nextReminderAt, climateBonus, goalToday,
-  missionFor, missionProgress, newAchievements, medalDates, newInsignias, insigniaDates, insigniaById, streak, buildICS, defaults, migrate } from './core.js';
+  missionFor, missionProgress, newAchievements, medalDates, newInsignias, insigniaDates, insigniaById, achievementById, mergeAch, CREW_MIN, streak, buildICS, defaults,
+  migrate } from './core.js';
 import { KEY, S, SOC, ACCT, setS, applyMix, hooks, load, save, clamp, num, plural, byT, shiftYm, today, goalNow, totalNow, otherNow, othersOn, ensureDay,
   syncTodayGoal, allMl, U, vol, toMl, fromMl, big, esc, wait } from './store.js';
 import { $, $$, tween, animBars, onBack, hPush, hBack, toast, hideToast, runToastAction, showBanner, sheetBody, sheetIsOpen, openSheet,
@@ -15,10 +16,10 @@ import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboard
 import { friendsView, friendSheet, profileSheet, codeSheet, aboutSheet, friendsSig, inviteInfo, alertsOn, alertsNote, hitOn, weekOn, hitNote, weekNote } from './friends-view.js';
 import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inviteLink, inviteText, fmtCode, profilePayload, liveOf, myLive, turma,
   waveFor, seenWaves, arrivals, joinedText, rankId, errText } from './social.js';
-import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs } from './account.js';
+import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs, achAhead } from './account.js';
 import { createSheet, signinSheet, resetSheet, resetDoneSheet, deleteSheet } from './account-view.js';
 
-export const APP_VERSION = '1.6.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.7.0'; // aumente a cada deploy, junto com VERSION no sw.js
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'friends', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -180,7 +181,7 @@ function finishOb() {
   S.onboarded = true;
   ob = null;
   if (n) hBack(n); // remove as entradas do onboarding: "voltar" na tela Hoje sai do app
-  S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; S.ui.tip_news16 = 1; // quem está começando agora já nasce com tudo: a dica de novidades é só para quem já usava
+  S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; S.ui.tip_news16 = 1; S.ui.tip_news17 = 1; // quem está começando agora já nasce com tudo: a dica de novidades é só para quem já usava
   grantInsignias(false); // a concha (0 L) vem de presente, sem festa
   syncTodayGoal(); save();
   tab = 'today';
@@ -652,6 +653,7 @@ function applyBackup(s) {
 function mergeBackup(s) {
   const keys = fillDays(s.days);
   keys.forEach(touch); // o dia que o arquivo trouxe passa a ser o mais recente: sobe para a conta e vence nos outros aparelhos
+  mergeAch(S.achievements, s.achievements); // as medalhas do arquivo, com a data em que saíram (de cada uma vale a mais antiga)
   grantMedals(); // conquistas antigas: sem festa, datadas pelo dia em que o histórico as cumpriu
   grantInsignias(false);
   if (s.createdAt && (!S.createdAt || s.createdAt < S.createdAt)) S.createdAt = s.createdAt;
@@ -878,15 +880,28 @@ function announceSocial(prev, st) {
       { label: 'Ver', fn: () => go('friends') });
   }
 }
-// Quando todo mundo da turma bateu a meta, uma comemoração por dia
+// Quando todo mundo da turma bateu a meta, uma comemoração por dia. A medalha "Turma completa" (1.7.0) sai na primeira vez em que isso acontece com pelo
+// menos CREW_MIN pessoas (você e mais 2): é a única medalha que o histórico não mostra, então só nasce aqui (e viaja pela conta, em ach).
 function crewCheck(st) {
   if (!S.social.on || !st || !st.ready || !st.friends.length) return;
-  const k = today();
-  if (S.ui.crewAt === k) return;
-  if (turma(myLive(S, k), st.friends.map((f) => liveOf(f, k))).kind !== 'all') return;
-  S.ui.crewAt = k; save();
-  if (!popBusy()) confetti();
-  pop('🌊', 'Turma completa!', 'Todo mundo bateu a meta hoje', 'A maré está cheia');
+  const k = today(), daily = S.ui.crewAt !== k, medal = !S.achievements.crew;
+  if (!daily && !medal) return;
+  const tm = turma(myLive(S, k), st.friends.map((f) => liveOf(f, k)));
+  if (tm.kind !== 'all') return;
+  const award = medal && tm.total >= CREW_MIN, a = achievementById('crew');
+  if (!daily && !award) return;
+  if (daily) S.ui.crewAt = k;
+  if (award) S.achievements.crew = Date.now();
+  save();
+  if (daily) {
+    if (!popBusy()) confetti();
+    pop('🌊', 'Turma completa!', 'Todo mundo bateu a meta hoje', 'A maré está cheia');
+  }
+  if (award) {
+    pop(a.e, 'Nova medalha', a.t, a.d);
+    socTouch(); // a turma passa a ver a medalha no perfil
+    if (tab === 'journey' && !typing()) render(true);
+  }
 }
 // Os acenos de agora viram "vistos" quando a aba Amigos está aberta (a bolinha da aba some)
 function markWavesSeen() {
@@ -1186,13 +1201,15 @@ function accountRefresh() {
 }
 // Ajustes mais novos gravados por outro aparelho da mesma conta (chega no começo da sessão, vindo de firebase.js). Os amigos não são ligados nem
 // desligados por aqui, e os lembretes ficam como estão: ligar é do aparelho (precisa da permissão de notificação dele).
+// Devolve true quando este aparelho tem medalha (ou data mais antiga) que a cópia da nuvem não tinha: o firebase.js faz os ajustes subirem de novo.
 function applyRemotePrefs(p) {
-  if (!S.onboarded || ob || !p) return;
+  if (!S.onboarded || ob || !p) return false;
   applyPrefs(S, p, 'sync');
   applyMix(); syncTodayGoal(); save(); applyTheme();
   if (S.reminders.enabled) planReminder();
   paintTabs();
   refreshUI();
+  return achAhead(S.achievements, p.ach);
 }
 // O e-mail foi confirmado (a pessoa tocou no link que chegou)? O app só descobre perguntando: confere ao abrir Ajustes e ao voltar ao app (no máximo a cada 30 s)
 function checkVerified() {
@@ -1345,10 +1362,11 @@ function applyAccount(u, data) {
   clearLocal();
   if (inv) S.ui.invite = inv;
   const plan = restorePlan(data), keys = fillDays(data.days);
-  grantMedals(); // conquistas antigas: sem festa
+  mergeAch(S.achievements, plan.prefs && plan.prefs.ach); // as medalhas que a conta guardava, com a data em que saíram de verdade (1.7.0)
+  grantMedals(); // conquistas antigas que só o histórico mostra: sem festa, datadas pelo dia em que o histórico as cumpriu
   grantInsignias(false); // as insígnias dos registros (delas sai o mascote automático)
   const done = applyPlan(S, plan);
-  S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; S.ui.tip_news16 = 1; // quem chega pela conta não precisa da dica de novidades
+  S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; S.ui.tip_news16 = 1; S.ui.tip_news17 = 1; // quem chega pela conta não precisa da dica de novidades
   applyMix();
   setAcct(u);
   if (done) {
@@ -1565,7 +1583,7 @@ const A = {
   ins: (el, d) => { openSheet(insigniaSheet(d.id)); animBars(sheetBody); },
   mascot: (el, d) => setMascot(d.id),
   reef: () => { closeSheet(); go('journey'); },
-  news: () => { S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; S.ui.tip_news16 = 1; save(); refreshPart('tTips'); openSheet(newsSheet()); }, // abrir o painel dispensa o cartão (o de agora e os antigos)
+  news: () => { S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; S.ui.tip_news16 = 1; S.ui.tip_news17 = 1; save(); refreshPart('tTips'); openSheet(newsSheet()); }, // abrir o painel dispensa o cartão (o de agora e os antigos)
   'news-go': () => { closeSheet(); go('journey'); },
   'news-friends': () => { closeSheet(); go('friends'); },
   // amigos

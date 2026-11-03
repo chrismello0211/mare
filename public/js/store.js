@@ -1,6 +1,6 @@
 // Maré — estado e utilidades compartilhadas (Parte 3A).
 // O app.js foi dividido em store.js, ui.js, views.js e app.js (mesma lógica, arquivos menores).
-import { dayKey, keyToDate, addDays, goalToday, dayTotal, dayWater, dayOther, setMix, defaults, migrate, OZ, fmtVol, fmtNum, fmtL } from './core.js';
+import { dayKey, keyToDate, addDays, goalToday, dayTotal, dayWater, dayOther, setMix, defaults, migrate, OZ, fmtVol, fmtNum, fmtL, MONTH_NAMES } from './core.js';
 import { cleanState } from './social.js';
 
 export const KEY = 'mare:v1';
@@ -45,7 +45,7 @@ export const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /* ---------- datas ---------- */
 export const WD = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
-export const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+export const MONTHS = MONTH_NAMES;
 export const today = () => dayKey();
 export const longDate = (k) => { const d = keyToDate(k); return WD[d.getDay()] + ', ' + d.getDate() + ' de ' + MONTHS[d.getMonth()]; };
 export const shortDate = (ms) => { const d = new Date(ms); return p2(d.getDate()) + '/' + p2(d.getMonth() + 1); };

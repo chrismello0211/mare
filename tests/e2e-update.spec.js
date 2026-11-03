@@ -24,7 +24,9 @@ test.describe.configure({ timeout: 90000 });
 let tmp = [], servers = [];
 test.beforeEach(async ({}, testInfo) => { test.skip(testInfo.project.name !== 'Pixel 5', 'Service Worker de verdade: um perfil basta'); });
 test.afterEach(async () => {
-  await Promise.all(servers.splice(0).map((s) => new Promise((r) => { s.close(r); })));
+  // O servidor de teste fecha À FORÇA: a página ainda está aberta quando este gancho roda (o Playwright só a fecha depois dele) e o Service Worker pode ter uma conexão
+  // pendurada; com um close() só, o gancho esperava essa conexão e estourava os 90 s do teste (visto na 1.6.0 e na 1.7.0, sempre com a máquina carregada).
+  await Promise.all(servers.splice(0).map((s) => new Promise((r) => { s.close(r); s.closeAllConnections(); })));
   tmp.splice(0).forEach((d) => { fs.rmSync(d, { recursive: true, force: true }); });
 });
 

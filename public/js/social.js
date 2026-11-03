@@ -4,12 +4,13 @@
 // registros, os horários, o peso nem a localização. Desde a 1.2.0 há ranking (Hoje, Semana, Sequência), uma decisão do dono: a lista deixou de
 // ser alfabética e a meta em ml é visível (com ela e a %, dá para calcular mais ou menos quanto a pessoa bebeu, e o app diz isso com todas as letras).
 // Tudo o que vem da nuvem passa por cleanFriend() antes de chegar à tela (um amigo mal-intencionado não pode quebrar o app).
-import { INSIGNIAS, insigniaById, addDays, keyToDate, goalToday, dayTotal, isMet, streak, mascotOf, unlockedInsignias, MEDAL_MAX, medalMask, medalsFromMask } from './core.js';
+import { INSIGNIAS, insigniaById, addDays, keyToDate, goalToday, dayTotal, isMet, streak, mascotOf, unlockedInsignias, MEDAL_MAX, MEDAL_MAX2, medalMask, medalMask2, medalsFromMask } from './core.js';
 
 export const MAX_FRIENDS = 30; // limite combinado no app (as regras do servidor não contam documentos); a turma inteira tem no máximo 31 pessoas
 export const GOAL_MAX = 10000; // teto da meta em ml que vai ao perfil (as regras aceitam até aqui)
 export const WEEK = 7; // dias da janela "Semana"
 export const MD_MAX = (1 << MEDAL_MAX) - 1; // maior máscara de medalhas que vai ao perfil (as regras aceitam até aqui)
+export const MD2_MAX = Math.pow(2, MEDAL_MAX2) - 1; // o mesmo para a segunda palavra das medalhas (md2, 1.7.0): 2147483647
 export const NICK_MAX = 20;
 export const CODE_LEN = 8;
 // Alfabeto do código: sem I, L, O, 0 e 1, que se confundem na hora de digitar ou ler em voz alta (31 símbolos, ~40 bits)
@@ -83,8 +84,8 @@ export const otherOf = (m, me) => (Array.isArray(m) ? m.filter((x) => x !== me)[
 
 /* ---------- o que vai para a nuvem ---------- */
 // Só isto sai do aparelho: nome escolhido, mascote, insígnias, % da meta de hoje (0–100), se bateu a meta, a sequência, quais dos últimos 7 dias
-// bateram a meta (wm, uma máscara de 7 bits), quais medalhas a pessoa tem (md, uma máscara de bits na ordem de ACHIEVEMENTS; 1.5.0) e, só se a
-// pessoa deixar, a meta do dia em ml (gl). Sem peso, sem volumes bebidos, sem horários, sem localização. share = false esconde o progresso e as
+// bateram a meta (wm, uma máscara de 7 bits), quais medalhas a pessoa tem (md, uma máscara de bits na ordem de ACHIEVEMENTS; 1.5.0; md2, a segunda
+// palavra, com as de índice 24 em diante, só quando não é zero; 1.7.0) e, só se a pessoa deixar, a meta do dia em ml (gl). Sem peso, sem volumes bebidos, sem horários, sem localização. share = false esconde o progresso e as
 // medalhas (só nome e insígnias): medalha é hábito (sequência, madrugador…), então segue o mesmo interruptor. S.social.goal só vale true com uma
 // escolha explícita (null = a pessoa ainda não decidiu, e então a meta não sai).
 // wm: o bit i (0 a 6) diz se o dia (k − i) bateu a meta; o bit 0 é o dia do perfil (day). Quem olha desloca a janela pelos dias que passaram.
@@ -96,7 +97,7 @@ export function weekMask(S, k) {
 export function profilePayload(S, k) {
   // A meta é a do dia (a mesma da tela e de isMet); sem registro do dia, a de hoje pelas configurações
   const sc = S.social || {}, share = sc.share !== false, day = S.days[k], goal = (day && day.goal) || goalToday(S, k) || 2000, total = dayTotal(day);
-  return {
+  const p = {
     v: 1,
     nm: cleanNick(sc.nick) || 'Amigo',
     mc: mascotOf(S).id,
@@ -110,11 +111,15 @@ export function profilePayload(S, k) {
     wm: share ? weekMask(S, k) : null,
     md: share ? medalMask(S) : null,
   };
+  // md2 só vai quando há medalha da segunda palavra: quem ainda não tem nenhuma segue mandando o formato de antes (que as regras antigas aceitam)
+  const m2 = share ? medalMask2(S) : 0;
+  if (m2) p.md2 = m2;
+  return p;
 }
 export function samePayload(a, b) {
   if (!a || !b) return false;
   return a.nm === b.nm && a.mc === b.mc && a.pct === b.pct && a.met === b.met && a.st === b.st && a.day === b.day && a.sh === b.sh &&
-    a.gl === b.gl && a.wm === b.wm && a.md === b.md && (a.ins || []).join(',') === (b.ins || []).join(',');
+    a.gl === b.gl && a.wm === b.wm && a.md === b.md && (a.md2 || 0) === (b.md2 || 0) && (a.ins || []).join(',') === (b.ins || []).join(',');
 }
 
 /* ---------- o que chega da nuvem (nunca confiar) ---------- */
@@ -135,7 +140,7 @@ export function cleanFriend(uid, prof, pair, me) {
   return {
     uid: uid, nm: nm, mc: mascotId(p.mc || (fromReq ? q.mc : q.tc)), ins: ins,
     pct: p.pct == null ? null : int(p.pct, 0, 100), met: p.met === true, st: int(p.st, 0, 9999), day: dayOk(p.day), sh: p.sh !== false,
-    gl: goalOf(p.gl), wm: p.wm == null ? null : int(p.wm, 0, 127), md: p.md == null ? null : int(p.md, 0, MD_MAX),
+    gl: goalOf(p.gl), wm: p.wm == null ? null : int(p.wm, 0, 127), md: p.md == null ? null : int(p.md, 0, MD_MAX), md2: p.md2 == null ? 0 : int(p.md2, 0, MD2_MAX),
     since: ms(q.ok) || ms(q.at),
     mine: waveOf(w[String(me || '')]), theirs: waveOf(w[uid]), // mine: o aceno que eu mandei; theirs: o que ele mandou
   };
@@ -157,7 +162,7 @@ export function cleanInvite(code, raw, me) {
 // Perfil "de reserva" montado a partir da cópia guardada no aparelho: enquanto o perfil novo não chega da nuvem, a tela continua
 // mostrando o que já se sabia do amigo, em vez de piscar em branco.
 export function profileOfCached(f) {
-  return f ? { nm: f.nm, mc: f.mc, ins: f.ins, pct: f.pct, met: f.met, st: f.st, day: f.day, sh: f.sh, gl: f.gl, wm: f.wm, md: f.md } : null;
+  return f ? { nm: f.nm, mc: f.mc, ins: f.ins, pct: f.pct, met: f.met, st: f.st, day: f.day, sh: f.sh, gl: f.gl, wm: f.wm, md: f.md, md2: f.md2 } : null;
 }
 
 /* ---------- leitura do estado de um amigo ---------- */
@@ -220,9 +225,10 @@ export function weekOf(p, today) {
 }
 // As medalhas que alguém mostra (p = um amigo limpo por cleanFriend, ou o meu perfil de profilePayload): a lista, na ordem de ACHIEVEMENTS (pode
 // ser vazia), ou null quando não dá para saber: versão antiga do app (sem md) ou progresso em pausa (sh = false). Quem recebe null não mostra o bloco.
+// Amigo na 1.6.0 ou antes (sem md2) mostra só as 24 primeiras: as outras ele ainda não conhece.
 export function medalsShown(p) {
   if (!p || p.md == null || p.sh === false) return null;
-  return medalsFromMask(int(p.md, 0, MD_MAX));
+  return medalsFromMask(int(p.md, 0, MD_MAX), int(p.md2 || 0, 0, MD2_MAX));
 }
 // Uma pessoa no ranking: o amigo (limpo por cleanFriend) ou eu mesmo. live = o estado de hoje; week = os 7 dias; gl = a meta em ml (ou null)
 export function memberOf(f, today) {

@@ -292,9 +292,11 @@ export async function initCloud(hooks) {
     if (!snap.exists()) return;
     const p = prefsParse(snap.data());
     if (!p || p.u <= (mark.pu || 0)) return;
-    hooks.onPrefs(p.prefs, p.u);
+    const ahead = hooks.onPrefs(p.prefs, p.u) === true; // true: este aparelho tem medalha (ou data mais antiga) que a cópia da nuvem não tinha
     const again = prefsPack(hooks.state(), p.u);
-    mark.pu = p.u; mark.ph = again ? hash(again.j) : 0; saveMark(); // o que acabou de ser aplicado não precisa voltar para a nuvem
+    // o que acabou de ser aplicado não precisa voltar para a nuvem; as medalhas que só este aparelho tinha precisam (ph = 0 força a gravação)
+    mark.pu = p.u; mark.ph = again && !ahead ? hash(again.j) : 0; saveMark();
+    if (ahead) { prefsDirty = true; later(); }
   }
   function flush() {
     clearTimeout(timer);

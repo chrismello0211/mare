@@ -410,34 +410,62 @@ describe('conquistas', () => {
   });
   it('a ordem das medalhas é um contrato: cada uma é um bit do perfil que a turma vê (só se acrescenta no fim)', () => {
     expect(C.ACHIEVEMENTS.map((a) => a.id)).toEqual(['first', 'goal', 's3', 's7', 's14', 's30', 'early', 'sunset', 'mission', 'm10', 'weekend', 'd10', // 1.0 a 1.5: bits 0 a 11
-      's60', 's100', 'd30', 'd100', 'm30', 'early7', 'sunset5', 'thirds7', 'win25', 'back', 'weekends4', 'wwd']); // 1.6.0: bits 12 a 23, só no fim
+      's60', 's100', 'd30', 'd100', 'm30', 'early7', 'sunset5', 'thirds7', 'win25', 'back', 'weekends4', 'wwd', // 1.6.0: bits 12 a 23 (a 1ª palavra, "md", fica cheia)
+      'm1', 'use100', 'summer', 'weekends12', 'oceans', 'crew']); // 1.7.0: bits 24 a 29 (a 2ª palavra, "md2"), só no fim
     expect(C.MEDALS_1_5).toBe(12);
+    expect(C.MEDALS_1_6).toBe(24);
     expect(new Set(C.ACHIEVEMENTS.map((a) => a.id)).size).toBe(C.ACHIEVEMENTS.length);
-    expect(C.ACHIEVEMENTS.length).toBeLessThanOrEqual(C.MEDAL_MAX);
-    expect(C.MEDAL_MAX).toBe(24); // as regras do Firestore aceitam até 24 bits (16777215)
+    expect(C.MEDAL_MAX).toBe(24); // as regras do Firestore de 30/10/2026 aceitam até 24 bits em "md" (16777215)
+    expect(C.MEDAL_MAX2).toBe(31); // e a 1.7.0 acrescenta "md2", com até 31 bits (2147483647)
+    expect(C.MEDAL_CAP).toBe(55);
+    expect(C.ACHIEVEMENTS.length).toBeLessThanOrEqual(C.MEDAL_CAP);
     C.ACHIEVEMENTS.forEach((a) => { expect(a.e && a.t && a.d, a.id).toBeTruthy(); }); // a tela da turma mostra emoji, título e descrição
   });
-  it('medalMask / medalsFromMask: cada medalha, cada par, "as k primeiras", "todas menos uma" e 3.000 combinações sorteadas vão e voltam; o que o app não conhece não vira bit', () => {
-    expect(C.medalMask({})).toBe(0); // backup antigo, sem o mapa
-    expect(C.medalMask(C.defaults())).toBe(0);
-    expect(C.medalsFromMask(0)).toEqual([]);
-    const n = C.ACHIEVEMENTS.length, all = (1 << n) - 1;
-    const check = (m) => {
+  it('medalMask e medalMask2 / medalsFromMask: cada medalha, cada par, "as k primeiras", "todas menos uma" e 3.000 combinações sorteadas vão e voltam; o que o app não conhece não vira bit', () => {
+    expect(C.medalMask({})).toBe(0); expect(C.medalMask2({})).toBe(0); // backup antigo, sem o mapa
+    expect(C.medalMask(C.defaults())).toBe(0); expect(C.medalMask2(C.defaults())).toBe(0);
+    expect(C.medalsFromMask(0)).toEqual([]); expect(C.medalsFromMask(0, 0)).toEqual([]);
+    const n = C.ACHIEVEMENTS.length, ix = (id) => C.ACHIEVEMENTS.findIndex((a) => a.id === id);
+    const check = (picked) => { // picked = os índices das medalhas que a pessoa tem
       const S = { achievements: { ghost: 1 } }; // uma medalha de versão futura (ou lixo) no mapa não conta
-      C.ACHIEVEMENTS.forEach((a, i) => { if ((m >> i) & 1) S.achievements[a.id] = 1000 + i; });
-      if (C.medalMask(S) !== m) throw new Error('máscara errada para ' + m + ': ' + C.medalMask(S));
-      const back = C.medalsFromMask(m).map((a) => a.id).join();
-      if (back !== C.ACHIEVEMENTS.filter((a, i) => (m >> i) & 1).map((a) => a.id).join()) throw new Error('volta errada para ' + m);
+      let m1 = 0, m2 = 0;
+      picked.forEach((i) => { S.achievements[C.ACHIEVEMENTS[i].id] = 1000 + i; if (i < 24) m1 += Math.pow(2, i); else m2 += Math.pow(2, i - 24); });
+      if (C.medalMask(S) !== m1) throw new Error('md errado para ' + picked + ': ' + C.medalMask(S));
+      if (C.medalMask2(S) !== m2) throw new Error('md2 errado para ' + picked + ': ' + C.medalMask2(S));
+      const back = C.medalsFromMask(m1, m2).map((a) => a.id).join();
+      if (back !== C.ACHIEVEMENTS.filter((a, i) => picked.indexOf(i) >= 0).map((a) => a.id).join()) throw new Error('volta errada para ' + picked);
     };
-    check(0); check(all);
+    const all = []; for (let i = 0; i < n; i++) all.push(i);
+    check([]); check(all);
     for (let i = 0; i < n; i++) {
-      check(1 << i); check(all ^ (1 << i)); check((1 << (i + 1)) - 1);
-      for (let j = i + 1; j < n; j++) check((1 << i) | (1 << j));
+      check([i]); check(all.filter((x) => x !== i)); check(all.slice(0, i + 1));
+      for (let j = i + 1; j < n; j++) check([i, j]);
     }
     let seed = 20261102; // gerador fixo: são sempre as mesmas combinações
-    for (let t = 0; t < 3000; t++) { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; check(seed & all); }
-    expect(C.medalsFromMask((1 << 24) | (1 << 3)).map((a) => a.id)).toEqual(['s7']); // o bit 24 não existe (a lista cabe em 24 bits): ignorado
-    expect(C.medalsFromMask(C.medalMask({ achievements: { first: 0 } }))).toEqual([]); // carimbo 0 = não tem
+    for (let t = 0; t < 3000; t++) { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; check(all.filter((i) => (seed >> (i % 30)) & 1)); }
+    // valores conhecidos (o que vai para a nuvem e as regras do Firestore conferem)
+    const one = (id) => { const S = { achievements: {} }; S.achievements[id] = 5; return [C.medalMask(S), C.medalMask2(S)]; };
+    expect(one('first')).toEqual([1, 0]); expect(one('wwd')).toEqual([8388608, 0]); expect(one('m1')).toEqual([0, 1]); expect(one('crew')).toEqual([0, 32]);
+    expect(ix('wwd')).toBe(23); expect(ix('m1')).toBe(24); expect(ix('crew')).toBe(29);
+    const full = {}; C.ACHIEVEMENTS.forEach((a) => { full[a.id] = 5; });
+    expect([C.medalMask({ achievements: full }), C.medalMask2({ achievements: full })]).toEqual([16777215, 63]);
+    // a leitura: o que um app novo faz com os dois números
+    expect(C.medalsFromMask(16777215).length).toBe(24); // sem a 2ª palavra: só as 24 primeiras (amigo que ainda está na 1.6.0)
+    expect(C.medalsFromMask(0, 2147483647).map((a) => a.id)).toEqual(['m1', 'use100', 'summer', 'weekends12', 'oceans', 'crew']); // bits que não existem ainda (6 a 30) ficam de fora
+    expect(C.medalsFromMask(0, 1 << 30)).toEqual([]);
+    expect(C.medalsFromMask((1 << 24) | (1 << 3), 0).map((a) => a.id)).toEqual(['s7']); // o bit 24 de "md" não existe: ignorado (a 2ª palavra é que traz as outras)
+    expect(C.medalsFromMask(1, 1).map((a) => a.id)).toEqual(['first', 'm1']);
+    expect(C.medalsFromMask(C.medalMask({ achievements: { first: 0 } }), C.medalMask2({ achievements: { m1: 0 } }))).toEqual([]); // carimbo 0 = não tem
+  });
+  it('mergeAch: junta as medalhas de outra cópia (só ids que o app conhece e carimbos de verdade); de cada uma vale a data mais antiga; devolve quantas mudaram', () => {
+    const into = { first: 5000, goal: 9000, early: 0 };
+    const n = C.mergeAch(into, { first: 6000, goal: 3000, s3: 4000, ghost: 1, s7: 0, s14: -5, s30: NaN, sunset: Infinity, early: 777, mission: 'x', m10: null });
+    expect(into).toEqual({ first: 5000, goal: 3000, early: 777, s3: 4000 }); // first: a daqui é mais antiga; goal: a de lá; early: 0 daqui não valia; s3: nova
+    expect(n).toBe(3);
+    expect(C.mergeAch(into, { first: 5000, goal: 3000 })).toBe(0); // as mesmas datas: nada muda
+    expect(C.mergeAch(into, null)).toBe(0); expect(C.mergeAch(into, 'texto')).toBe(0); expect(C.mergeAch(into, [])).toBe(0); expect(C.mergeAch(into, undefined)).toBe(0);
+    expect(C.mergeAch({}, { crew: 123 })).toBe(1);
+    expect(into).toEqual({ first: 5000, goal: 3000, early: 777, s3: 4000 });
   });
 });
 

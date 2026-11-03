@@ -197,7 +197,7 @@ const nPrefs = () => H.sets.filter((p) => /\/backup\/prefs$/.test(p)).length;
 const T1 = Date.now() - 2 * 864e5, T2 = Date.now() - 3600e3;
 const dayDoc = (goal, ml, t) => ({ goal: goal, entries: [{ id: 'e' + t, t: t, ml: ml, d: 'water' }], u: t });
 const stateFor = (over) => { const S = C.defaults(Date.now() - 30 * 864e5); S.onboarded = true; Object.assign(S.profile, over || {}); return S; };
-const packOf = (over, u) => ACC.prefsPack(stateFor(over), u);
+const packOf = (over, u, ach) => { const S = stateFor(over); Object.assign(S.achievements, ach || {}); return ACC.prefsPack(S, u); };
 const PACK = packOf({ name: 'Ana', weight: 64, wake: '06:30', sleep: '22:30', unit: 'oz' }, 777000);
 // O que um aparelho antigo já deixou na nuvem desta conta
 async function seedAna(e, withPrefs) {
@@ -222,11 +222,12 @@ async function boot(o) {
   if (o.mark) store.set('mare:cloud', JSON.stringify(o.mark));
   const S = stateFor(o.profile);
   S.onboarded = o.onboarded !== false;
-  Object.assign(S.social, o.social || {}); Object.assign(S.reminders, o.reminders || {}); Object.assign(S.days, o.days || {});
+  Object.assign(S.social, o.social || {}); Object.assign(S.reminders, o.reminders || {}); Object.assign(S.days, o.days || {}); Object.assign(S.achievements, o.ach || {});
   const status = [], remote = [], prefs = [];
   const ended = [];
   const hooks = { state: () => S, onRemote: (d) => { remote.push(d); }, onStatus: (s) => { status.push(s); }, onEnded: () => { ended.push(Date.now()); } };
-  if (o.onPrefs !== false) hooks.onPrefs = (p, u) => { prefs.push({ p: p, u: u }); ACC.applyPrefs(S, p, 'sync'); };
+  // como o app: aplica e devolve true quando as medalhas daqui estão à frente da cópia da nuvem (aí o firebase.js faz os ajustes subirem de novo)
+  if (o.onPrefs !== false) hooks.onPrefs = (p, u) => { prefs.push({ p: p, u: u }); ACC.applyPrefs(S, p, 'sync'); return ACC.achAhead(S.achievements, p.ach); };
   const mod = await getMod();
   const cloud = await mod.initCloud(hooks);
   await sleep(250); // o primeiro "puxar" da nuvem termina e agenda a primeira gravação
@@ -451,6 +452,68 @@ describe('initCloud: os ajustes da conta', () => {
     a.S.profile.weight = 65; a.cloud.syncPrefs(); hidden();
     await until(async () => { const x = await readDoc(env, PREFS); return x && ACC.prefsParse(x).prefs.profile.weight === 65; }, 'o peso novo na nuvem');
     expect(nPrefs()).toBe(2);
+  });
+  test('as datas das medalhas vão no backup (o mesmo documento de sempre: v, u e j), voltam como minutos cheios e uma medalha nova regrava', async () => {
+    const t1 = Date.now() - 5 * 864e5 - 12345;
+    const a = await boot({ user: ACCT, profile: { name: 'Ana' }, ach: { first: t1 } });
+    a.cloud.syncPrefs(); hidden();
+    const d = await until(() => readDoc(env, PREFS), 'os ajustes na nuvem');
+    expect(Object.keys(d).sort()).toEqual(['j', 'u', 'v']);
+    expect(JSON.parse(d.j).ach).toEqual({ first: Math.round(t1 / 6e4) });
+    expect(ACC.prefsParse(d).prefs.ach).toEqual({ first: Math.round(t1 / 6e4) * 6e4 });
+    expect(nPrefs()).toBe(1);
+    a.cloud.syncPrefs(); hidden(); await sleep(300);
+    expect(nPrefs()).toBe(1); // nada mudou: não regrava
+    a.S.achievements.s7 = Date.now(); a.cloud.syncPrefs(); hidden();
+    await until(async () => { const x = await readDoc(env, PREFS); return x && ACC.prefsParse(x).prefs.ach.s7; }, 'a medalha nova na nuvem');
+    expect(nPrefs()).toBe(2);
+    expect(Object.keys(ACC.prefsParse(await readDoc(env, PREFS)).prefs.ach).sort()).toEqual(['first', 's7']);
+  });
+  test('com as 30 medalhas e o pior caso de nome, apelido e recados, o documento passa nas regras de verdade (até 4000 letras)', async () => {
+    const all = {}; C.ACHIEVEMENTS.forEach((x, i) => { all[x.id] = Date.now() - (40 - i) * 864e5 - i * 777; });
+    const a = await boot({ user: ACCT, profile: { name: 'ç'.repeat(30) }, social: { nick: '🐠'.repeat(20) }, ach: all });
+    for (let i = 0; i < 60; i++) a.S.ui['tip_' + 'x'.repeat(20) + i] = 1;
+    a.cloud.syncPrefs(); hidden();
+    const d = await until(() => readDoc(env, PREFS), 'os ajustes na nuvem');
+    expect(d.j.length).toBeLessThanOrEqual(4000);
+    const back = ACC.prefsParse(d).prefs;
+    expect(Object.keys(back.ach)).toHaveLength(30);
+    expect(Object.keys(back.ui).length).toBeGreaterThan(40); // nada foi solto: coube tudo
+  });
+  test('ajustes de outro aparelho que NÃO têm as medalhas daqui (um aparelho antigo gravou por cima): o app aplica o que chegou, guarda as suas medalhas e elas sobem de novo', async () => {
+    const t1 = Date.now() - 3 * 864e5, t2 = Date.now() - 864e5;
+    await seed(env, async (db) => { await FS.setDoc(FS.doc(db, PREFS), packOf({ name: 'Ana Remota', weight: 80 }, Date.now() - 5000)); }); // sem nenhuma medalha
+    const a = await boot({ user: ACCT, profile: { name: 'Ana', weight: 64 }, ach: { first: t1, goal: t2 } });
+    expect(a.prefs).toHaveLength(1);
+    expect(a.S.profile).toMatchObject({ name: 'Ana Remota', weight: 80 }); // o que chegou foi aplicado
+    expect(Object.keys(a.S.achievements).sort()).toEqual(['first', 'goal']); // e nenhuma medalha daqui se perdeu
+    hidden();
+    const d = await until(async () => { const x = await readDoc(env, PREFS); return x && ACC.prefsParse(x).prefs.ach.first ? x : null; }, 'as medalhas daqui voltaram para a nuvem');
+    expect(Object.keys(ACC.prefsParse(d).prefs.ach).sort()).toEqual(['first', 'goal']);
+    expect(ACC.prefsParse(d).prefs.profile.name).toBe('Ana Remota'); // sem desfazer o que o outro aparelho mudou
+    expect(nPrefs()).toBe(1);
+    await sleep(2000);
+    expect(nPrefs()).toBe(1); // e para por aí: não fica regravando
+  });
+  test('a nuvem já tem as medalhas daqui (com a mesma data ou mais antiga): o que chegou entra e nada volta; a data mais antiga vale nos dois lados', async () => {
+    // A nuvem guarda minutos inteiros (arredondados para o mais próximo). Os segundos abaixo são escolhidos de propósito (e não os de Date.now(), que mudam a cada rodada):
+    // 40 s sobem para o minuto seguinte (a data da nuvem fica 20 s MAIS NOVA que a daqui: a daqui fica) e 20 s descem (a da nuvem fica 20 s mais antiga: ela vale).
+    const m = (t) => Math.floor(t / 6e4) * 6e4, velha = Date.now() - 20 * 864e5, nova = m(Date.now() - 2 * 864e5) + 40000, baixa = m(Date.now() - 3 * 864e5) + 20000;
+    await seed(env, async (db) => { await FS.setDoc(FS.doc(db, PREFS), packOf({ name: 'Ana Remota', weight: 80 }, Date.now() - 5000, { first: velha, s7: nova, s14: baixa })); });
+    const a = await boot({ user: ACCT, profile: { name: 'Ana', weight: 64 }, ach: { first: nova, s7: nova, s14: baixa } }); // aqui "Primeira gota" tem a data refeita (mais nova)
+    expect(a.prefs).toHaveLength(1);
+    expect(a.S.achievements.first).toBe(Math.round(velha / 6e4) * 6e4); // a data real da nuvem (a mais antiga) vence a refeita
+    expect(a.S.achievements.s7).toBe(nova); // a daqui já era a mesma (a nuvem a guardou no minuto seguinte, 20 s mais nova): fica
+    expect(a.S.achievements.s14).toBe(m(baixa)); // a nuvem a guardou no minuto de baixo, 20 s mais antiga: vale a mais antiga
+    hidden(); await sleep(600);
+    expect(nPrefs()).toBe(0); // nada para devolver: as duas já estão no mesmo minuto da nuvem
+  });
+  test('sem medalhas aqui nem lá: a leitura dos ajustes de outro aparelho segue como antes (nada volta para a nuvem)', async () => {
+    await seed(env, async (db) => { await FS.setDoc(FS.doc(db, PREFS), packOf({ name: 'Ana Remota' }, Date.now() - 5000)); });
+    const a = await boot({ user: ACCT });
+    expect(a.prefs).toHaveLength(1);
+    hidden(); await sleep(500);
+    expect(nPrefs()).toBe(0);
   });
   test('o onboarding ainda não foi feito: não grava ajustes (ainda não são da pessoa)', async () => {
     const a = await boot({ user: ACCT, onboarded: false });
@@ -791,6 +854,34 @@ describe('de um aparelho para outro: a recuperação', () => {
     await sleep(300); cloud.syncMeta(); hidden(); await sleep(500);
     expect(remote).toHaveLength(0);
     for (const k of Object.keys(days)) expect((await readDoc(env, 'users/' + ANA + '/days/' + k)).updatedAt.toMillis()).toBe(before[k]);
+    cloud.dispose();
+  });
+  test('as medalhas voltam no aparelho novo com a data real em que saíram, inclusive a da turma (que o histórico não refaz), e seguem iguais na nuvem depois que o aparelho novo grava', async () => {
+    H.accounts.set(MAIL, { uid: ANA, pw: PW, verified: true });
+    const days = { '2026-10-20': dayDoc(2400, 600, T1) };
+    const t1 = Date.now() - 40 * 864e5 - 5000, t2 = Date.now() - 3 * 864e5 - 5000;
+    const A = await boot({ user: { uid: ANA, email: MAIL, verified: true }, profile: { name: 'Ana', weight: 64 }, days: days, ach: { first: t1, crew: t2 } });
+    A.cloud.syncDays(Object.keys(days)); A.cloud.syncMeta(); A.cloud.syncPrefs(); hidden();
+    await until(async () => (await ids(env, 'users/' + ANA + '/days')).length === 1 && (await readDoc(env, PREFS)), 'tudo na nuvem');
+    A.cloud.dispose();
+    store.clear(); H.calls.length = 0;
+    login({ uid: ANA, email: MAIL, verified: true }); H.user = null;
+    const mod = await getMod(), kit = await mod.accountKit();
+    await kit.signIn(MAIL, PW);
+    const data = await kit.fetchData(), plan = ACC.restorePlan(data);
+    expect(plan.prefs.ach).toEqual({ first: Math.round(t1 / 6e4) * 6e4, crew: Math.round(t2 / 6e4) * 6e4 });
+    const S2 = C.defaults(Date.now());
+    Object.keys(data.days).forEach((k) => { S2.days[k] = data.days[k]; });
+    expect(ACC.applyPlan(S2, plan)).toBe(true);
+    expect(S2.onboarded).toBe(true);
+    expect(S2.achievements.first).toBe(Math.round(t1 / 6e4) * 6e4);
+    expect(S2.achievements.crew).toBe(Math.round(t2 / 6e4) * 6e4); // a medalha da turma só sai ao vivo: sem o backup, este aparelho nunca a teria
+    expect(ACC.achAhead(S2.achievements, plan.prefs.ach)).toBe(false);
+    store.set('mare:acct', JSON.stringify({ uid: ANA, email: MAIL, verified: true })); // o app guarda a dica da conta ao entrar
+    const cloud = await mod.initCloud({ state: () => S2, onRemote: () => {}, onStatus: () => {}, onPrefs: () => {} });
+    expect(cloud.acct).toMatchObject({ uid: ANA, anon: false });
+    await sleep(300); cloud.syncMeta(); cloud.syncPrefs(); hidden(); await sleep(600);
+    expect(ACC.prefsParse(await readDoc(env, PREFS)).prefs.ach).toEqual(plan.prefs.ach); // o que o aparelho novo grave, as duas datas seguem as mesmas na nuvem
     cloud.dispose();
   });
   test('conta feita pelo administrador (e-mail ligado ao uid antigo, sem backup de ajustes): entra e traz registros, horários e apelido; o onboarding vem pré-preenchido', async () => {
