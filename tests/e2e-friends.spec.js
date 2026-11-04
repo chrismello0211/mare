@@ -54,6 +54,7 @@ test.describe('entrada', () => {
     await expect(page.locator('.see')).toContainText('Só se você deixar'); // a meta em ml: a turma só vê com um "sim"
     await expect(page.locator('.see')).toContainText('A sua meta do dia em ml');
     await expect(page.locator('.see')).toContainText('as medalhas que você conquistou'); // 1.5.0: as medalhas fazem parte do que a turma vê
+    await expect(page.locator('.see')).toContainText('a porcentagem da meta de hoje (até 150%)'); // 1.8.0: a % vai até 150, e a tela de entrada avisa
     await expect(page.getByText('os últimos 7 dias e as medalhas. Desligado, seus amigos veem só o apelido e as insígnias.')).toBeVisible(); // e a chave do progresso diz isso
     await expect(page.locator('#frNick')).toHaveValue('Ana'); // o primeiro nome vira o apelido de partida
     await expect(page.getByRole('switch', { name: /Mostrar meu progresso/ })).toHaveAttribute('aria-checked', 'true');
@@ -1084,6 +1085,7 @@ test.describe('painéis', () => {
     await expect(sheet(page)).toContainText('sua localização');
     await expect(sheet(page)).toContainText('a sua meta do dia em ml'); // só se a pessoa deixar
     await expect(sheet(page)).toContainText('as medalhas que você conquistou'); // 1.5.0: com o progresso ligado
+    await expect(sheet(page)).toContainText('a porcentagem da meta de hoje que você fez (até 150%)'); // 1.8.0
     await expect(sheet(page)).toContainText('nunca o dia nem a hora em que cada uma veio');
     await expect(sheet(page)).toContainText('as turmas dos dois se juntam'); // como a turma cresce
     await expect(sheet(page)).toContainText('Sair da turma');
@@ -1575,6 +1577,118 @@ test('exportar o backup não leva os amigos (são deste aparelho)', async ({ pag
   expect(j.social == null || j.social.on !== true).toBe(true);
 });
 
+/* ---------- a % acima da meta (1.8.0) ---------- */
+// Até a 1.7.0 a turma só via "100%" de quem batia a meta. Na 1.8.0 vê a % real, de 100 a 150 ("150%+" no teto): o ranking de Hoje, a ficha do amigo e "Meu perfil".
+// Um amigo de um app mais antigo manda 100 (é o caso da Duda abaixo) e continua aparecendo como antes.
+test.describe('a % acima da meta (1.8.0)', () => {
+  const OVER = [
+    { uid: UID.caio, prof: { nm: 'Caio', mc: 'estrela', ins: ['concha', 'estrela'], pct: 150, met: true, st: 5 } }, // passou muito da meta: o teto
+    { uid: UID.bia, prof: { nm: 'Bia', mc: 'tartaruga', ins: ['concha', 'estrela', 'baiacu', 'tartaruga'], pct: 118, met: true, st: 12 } },
+    { uid: UID.edu, prof: { nm: 'Edu', mc: 'concha', ins: ['concha'], pct: 102, met: true, st: 2 } }, // passou só um pouco
+    { uid: UID.duda, prof: { nm: 'Duda', mc: 'cavalo', ins: ['concha'], pct: 100, met: true, st: 1 } }, // o app dela é de antes da 1.8.0: manda 100
+    { uid: UID.fe, prof: { nm: 'Fê', mc: 'baiacu', ins: ['concha'], pct: 60, st: 0 } }, // ainda no caminho
+  ];
+  // 2.800 ml é a meta do dia nos testes; 2.940 ml = 105% e 3.304 ml = 118%. Ordem de Hoje: Caio 150%+, Bia 118%, eu 105%, Edu 102%, Duda 100%, Fê 60%
+
+  test('o ranking de Hoje usa a % real de quem passou da meta: 150%+ no teto, 118%, 105% (eu), 102%, 100% (app antigo) e 60%, nessa ordem', async ({ page }) => {
+    await open(page, { friends: OVER }, { todayMl: 2940 });
+    const rk = rank(page);
+    await expect(rk.locator('li.pd .pd-n')).toHaveText(['Bia', 'Caio', 'Você']); // o pódio põe o 1º no meio: Bia em 2º, Caio em 1º e eu em 3º
+    await expect(rk.locator('li.pd.r1 .pd-s b')).toHaveText('150%+');
+    await expect(rk.locator('li.pd.r2 .pd-s b')).toHaveText('118%');
+    await expect(rk.locator('li.pd.r3 .pd-s b')).toHaveText('105%');
+    await expect(rk.locator('li.pd.r1 .pd-b')).toHaveAttribute('aria-label', '1º lugar: Caio, 150% ou mais da meta de hoje'); // quem lê a tela em voz alta ouve o teto por extenso
+    await expect(rk.locator('li.pd.r2 .pd-b')).toHaveAttribute('aria-label', '2º lugar: Bia, 118% da meta de hoje');
+    const rows = rk.locator('ul.rk-l').first().locator('li.rk-r');
+    await expect(rows.locator('.rk-t b')).toHaveText(['Edu', 'Duda', 'Fê']);
+    await expect(rows.locator('.rk-v b')).toHaveText(['102%', '100%', '60%']);
+    await expect(rows.nth(0).locator('.rk-main')).toHaveAttribute('aria-label', '4º lugar: Edu, 102% da meta de hoje');
+    await expect(rows.nth(0).locator('.fr-s')).toHaveText('Meta batida hoje 🎉'); // o número grande já diz 102%: a nota embaixo do nome não repete
+    await expect(rows.nth(1).locator('.fr-s')).toHaveText('Meta batida hoje 🎉'); // quem manda 100 aparece como sempre apareceu
+    await expect(rows.nth(0).locator('.rk-v b')).toHaveClass('ok'); // quem bateu a meta continua em verde
+    await expect(page.getByText('5 de 6 já bateram a meta hoje')).toBeVisible(); // eu, Caio, Bia, Edu e Duda
+  });
+
+  test('ao vivo: quem bate a meta e passa dela com o app aberto sobe no ranking com o número real', async ({ page }) => {
+    await open(page, { friends: OVER }, { todayMl: 2940 });
+    const rk = rank(page);
+    await expect(rk.locator('li.pd .pd-n')).toHaveText(['Bia', 'Caio', 'Você']);
+    await page.evaluate((u) => window.__fake.person(u, { pct: 130, met: true }), UID.fe); // a Fê bate a meta e vai a 130%
+    await expect(rk.locator('li.pd .pd-n')).toHaveText(['Fê', 'Caio', 'Bia']); // Fê em 2º (130%), Bia em 3º (118%)
+    await expect(rk.locator('li.pd.r2 .pd-s b')).toHaveText('130%');
+    const rows = rk.locator('ul.rk-l').first().locator('li.rk-r');
+    await expect(rows.locator('.rk-t b')).toHaveText([/^Ana/, 'Edu', 'Duda']); // eu (105%), Edu (102%) e Duda (100%) logo abaixo do pódio
+    await expect(rows.locator('.rk-v b')).toHaveText(['105%', '102%', '100%']);
+    await page.evaluate((u) => window.__fake.person(u, { pct: 400, met: true }), UID.fe); // um perfil com número maluco (outro app, dado ruim) nunca passa do teto
+    await expect(rk.locator('li.pd .pd-s b')).toHaveText(['150%+', '150%+', '118%']);
+    await expect(rk.locator('li.pd .pd-n')).toHaveText(['Caio', 'Fê', 'Bia']); // Caio e Fê empatam em 150 (a sequência de Caio é maior): posições 1 e 1
+  });
+
+  test('a ficha do amigo diz quanto ele passou da meta ("Meta batida hoje 🎉 · 118%", "· 150%+"); quem manda 100 fica só em "Meta batida hoje 🎉"', async ({ page }) => {
+    await open(page, { friends: OVER }, { todayMl: 2940 });
+    for (const [uid, want] of [[UID.bia, 'Meta batida hoje 🎉 · 118%'], [UID.caio, 'Meta batida hoje 🎉 · 150%+'], [UID.edu, 'Meta batida hoje 🎉 · 102%'], [UID.duda, 'Meta batida hoje 🎉'], [UID.fe, '60% da meta de hoje']]) {
+      await openFriend(page, uid);
+      await expect(sheet(page).locator('.fs-s')).toHaveText(want);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#sheet')).toBeHidden();
+    }
+  });
+
+  test('Meu perfil mostra a % que os amigos veem (118%) e o que o aparelho publica é o mesmo número, sem volumes', async ({ page }) => {
+    await open(page, { friends: OVER }, { todayMl: 3304 });
+    const p = await payload(page);
+    expect(p).toMatchObject({ pct: 118, met: true, sh: true });
+    expect(JSON.stringify(p)).not.toMatch(/3304|2800|ml/);
+    await page.getByRole('button', { name: 'Meu perfil' }).click();
+    await expect(sheet(page).locator('.fs-s')).toHaveText('Meta batida hoje 🎉 · 118%');
+    await expect(sheet(page)).toContainText('a porcentagem da meta de hoje (até 150%)');
+    await page.keyboard.press('Escape');
+    await expect(rank(page).locator('li.rk-r.me .rk-v b, li.pd.me .pd-s b').first()).toHaveText('118%'); // e na minha linha do ranking
+  });
+
+  test('com mais do que o dobro da meta, o número publicado trava em 150 e a tela diz "150%+"; a tela Hoje segue com o número real', async ({ page }) => {
+    await stubFriendsCloud(page, { friends: OVER, code: 'ABCD2345' });
+    await seed(page, { todayMl: 7000, social: SOCIAL_ON }); // 7.000 de 2.800 = 250%
+    await page.goto('/');
+    await expect(page.locator('#view')).toContainText('250%'); // a tela Hoje não tem teto
+    expect(await payload(page)).toMatchObject({ pct: 150, met: true });
+    await tabF(page).click();
+    await expect(rank(page).locator('li.pd .pd-n')).toHaveText(['Caio', 'Você', 'Bia']); // eu e Caio empatamos no teto (Caio tem a sequência maior)
+    await expect(rank(page).locator('li.pd.r1 .pd-s b').first()).toHaveText('150%+');
+    await page.getByRole('button', { name: 'Meu perfil' }).click();
+    await expect(sheet(page).locator('.fs-s')).toHaveText('Meta batida hoje 🎉 · 150%+');
+  });
+
+  test('o progresso em pausa continua escondendo tudo: sem % para os amigos, mesmo com a meta batida e passada', async ({ page }) => {
+    await open(page, { friends: OVER }, { todayMl: 3304, social: Object.assign({}, SOCIAL_ON, { share: false }) });
+    expect(await payload(page)).toMatchObject({ sh: false, pct: null, met: false, st: 0 });
+    await page.getByRole('button', { name: 'Meu perfil' }).click();
+    await expect(sheet(page).locator('.fs-s')).toHaveText('Progresso do dia em pausa');
+    await expect(sheet(page)).not.toContainText('118%');
+  });
+
+  test('Semana e Sequência: a nota de quem passou da meta diz quanto ("Meta batida hoje 🎉 · 150%+"), quem manda 100 fica sem número e a % de hoje só desempata', async ({ page }) => {
+    const WK = [ // Caio (150%+) e eu (105%) ficam com pouca semana e pouca sequência: nas linhas do ranking, onde a nota aparece (o pódio não tem nota)
+      { uid: UID.caio, prof: { nm: 'Caio', mc: 'estrela', ins: ['concha'], pct: 150, met: true, st: 1, wm: 1 } },
+      { uid: UID.bia, prof: { nm: 'Bia', mc: 'tartaruga', ins: ['concha'], pct: 118, met: true, st: 12, wm: 127 } },
+      { uid: UID.duda, prof: { nm: 'Duda', mc: 'cavalo', ins: ['concha'], pct: 100, met: true, st: 4, wm: 63 } },
+      { uid: UID.edu, prof: { nm: 'Edu', mc: 'concha', ins: ['concha'], pct: 60, st: 3, wm: 31 } },
+    ];
+    await open(page, { friends: WK }, { todayMl: 2940 });
+    const rows = rank(page).locator('li.rk-r');
+    for (const v of ['week', 'streak']) {
+      await page.locator('#view [data-action="fr-rank"][data-v="' + v + '"]').click();
+      await expect(rank(page).locator('li.pd .pd-n')).toHaveText(['Duda', 'Bia', 'Edu']);
+      await expect(rows.locator('.rk-t b')).toHaveText(['Caio', /^Ana/]); // empate no valor: quem passou mais da meta hoje vem primeiro (Caio, 150%+; eu, 105%)
+      await expect(rows.nth(0).locator('.fr-s')).toHaveText('Meta batida hoje 🎉 · 150%+');
+      await expect(rows.nth(1).locator('.fr-s')).toHaveText('Meta batida hoje 🎉 · 105%');
+    }
+    await page.locator('#view [data-action="fr-rank"][data-v="day"]').click();
+    await expect(rank(page).locator('li.pd .pd-n')).toHaveText(['Bia', 'Caio', 'Você']);
+    await expect(rows.locator('.fr-s').first()).toHaveText('Meta batida hoje 🎉'); // no ranking de Hoje o número já é o grande: a nota não repete
+  });
+});
+
 /* ---------- layout ---------- */
 test('layout: amigos sem rolagem lateral, alvos de toque confortáveis e screenshots', async ({ page }, info) => {
   // o 3º lugar (Caio) com a meta mais comprida que existe (10.000 ml): o texto do degrau tem de ficar numa linha só
@@ -1646,4 +1760,48 @@ test('layout: a entrada dos amigos cabe em qualquer tela', async ({ page }, info
   const cta = await page.locator('#frCta').boundingBox();
   expect(cta && cta.height).toBeGreaterThanOrEqual(44);
   await page.screenshot({ path: 'test-results/shots/' + info.project.name + ' - Amigos entrada.png', fullPage: true });
+});
+
+test('layout: a % acima da meta ("150%+", "118%") cabe em qualquer tela, no ranking, na ficha do amigo e em Meu perfil', async ({ page }, info) => {
+  // os piores casos juntos: o teto (150%+), a meta mais comprida (10.000 ml), uma sequência de três dígitos e a nota mais longa ("Meta batida hoje 🎉 · 150%+")
+  const F = [
+    { uid: UID.caio, prof: { nm: 'Caio', mc: 'estrela', ins: ['concha', 'estrela'], pct: 150, met: true, st: 365, gl: 10000, wm: 127 } },
+    { uid: UID.bia, prof: { nm: 'Bia', mc: 'tartaruga', ins: ['concha', 'estrela', 'baiacu', 'tartaruga'], pct: 118, met: true, st: 99, gl: 2800, wm: 127 } },
+    { uid: UID.duda, prof: { nm: 'Duda', mc: 'cavalo', ins: ['concha'], pct: 100, met: true, st: 12, wm: 63 } },
+    { uid: UID.edu, prof: { nm: 'Edu', mc: 'concha', ins: ['concha'], pct: 60, st: 3, wm: 7 } },
+  ];
+  await stubFriendsCloud(page, { friends: F, reqIn: REQS, code: 'ABCD2345' });
+  await seed(page, { todayMl: 9000, social: Object.assign({}, SOCIAL_ON, { goal: true }), history: [30, 2800], insignias: { concha: 30, estrela: 25, baiacu: 20, tartaruga: 12, cavalo: 3 } });
+  await page.goto('/');
+  const over = async (n) => expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'rolagem lateral em ' + n).toBeLessThanOrEqual(0);
+  const shot = (n) => page.screenshot({ path: 'test-results/shots/' + info.project.name + ' - ' + n + '.png', fullPage: true });
+  // nada fica mais largo do que o espaço que tem (o número grande, a nota, a linha inteira)
+  const cut = (n) => page.$$eval('.pd-s, .pd-s b, .rk-v b, .rk-t, .fr-s, .rk-r, .fs-s', (els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.className + ':' + e.textContent.slice(0, 40)));
+  await tabF(page).click();
+  await page.waitForTimeout(700);
+  await over('Amigos com 150%+');
+  expect(await cut(), 'texto cortado no ranking de Hoje').toEqual([]);
+  await expect(rank(page).locator('li.pd .pd-s b').filter({ hasText: '150%+' })).toHaveCount(2); // Caio e eu
+  // o número grande cabe numa linha só
+  expect(await page.$$eval('.pd-s b, .rk-v b', (els) => els.filter((e) => e.getBoundingClientRect().height > 26).map((e) => e.textContent)), 'número grande quebrou em duas linhas').toEqual([]);
+  await shot('Amigos 150');
+  for (const v of ['week', 'streak', 'day']) {
+    await page.locator('#view [data-action="fr-rank"][data-v="' + v + '"]').click();
+    await page.waitForTimeout(400);
+    await over('ranking ' + v + ' com 150%+');
+    expect(await cut(), 'texto cortado no ranking ' + v).toEqual([]);
+    if (v !== 'day') await shot('Amigos 150 ' + v);
+  }
+  for (const [label, open2] of [['ficha do amigo no teto', () => openFriend(page, UID.caio)], ['ficha do amigo 118%', () => openFriend(page, UID.bia)],
+    ['meu perfil no teto', () => page.getByRole('button', { name: 'Meu perfil' }).click()]]) {
+    await open2();
+    await page.waitForTimeout(500);
+    await over(label);
+    expect(await cut(), 'texto cortado em ' + label).toEqual([]);
+    const st = await sheet(page).locator('.fs-s').boundingBox();
+    expect(st && st.height, 'a linha de situação ocupou mais de duas linhas em ' + label).toBeLessThan(64);
+    await shot(label);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#sheet')).toBeHidden();
+  }
 });

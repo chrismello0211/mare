@@ -13,7 +13,7 @@ import { notifStatus } from './platform.js';
 import { badge } from './art.js';
 import { btn, sbtn, sec, row, sw, seg, empty, att, shareIco, tip } from './kit.js';
 import { MAX_FRIENDS, NICK_MAX, WEEK, RANKS, rankId, rankBoard, podium, memberOf, myMember, weekOf, turma, turmaWeek, turmaStreak, fmtCode,
-  liveOf, statusText, waveFor, waveIn, WAVE_TEXT, myLive, ringOf, unseenWaves, firstNick, profilePayload, medalsShown, errText } from './social.js';
+  liveOf, statusText, waveFor, waveIn, WAVE_TEXT, myLive, ringOf, unseenWaves, firstNick, profilePayload, medalsShown, errText, pctText, pctSay } from './social.js';
 
 /* ---------- peças ---------- */
 // Avatar: o mascote num medalhão com um anel de progresso em volta. ring = ringOf(...) ou null (sem anel). size em px.
@@ -83,9 +83,9 @@ function tideCard(tm, by) {
 /* o ranking da turma */
 const MEDAL = ['🥇', '🥈', '🥉'];
 const REST = { day: 'Sem dados de hoje', week: 'Sem dados da semana', streak: 'Sem dados de sequência' };
-// O número grande de cada visão: % da meta de hoje, dias na meta na semana ou dias seguidos. Quem tem 0 mostra "–" na sequência.
+// O número grande de cada visão: % da meta de hoje (118%, e 150%+ no teto), dias na meta na semana ou dias seguidos. Quem tem 0 mostra "–" na sequência.
 function bigOf(it, by) {
-  if (by === 'day') return it.v + '%';
+  if (by === 'day') return pctText(it.v);
   if (by === 'week') return it.v + '/' + WEEK;
   return it.v > 0 ? '🔥 ' + it.v : '–';
 }
@@ -101,7 +101,7 @@ function noteOf(m, by) {
 }
 function ariaOf(it, by) {
   const m = it.m, nm = m.me ? 'Você' : m.nm;
-  return (it.v > 0 ? it.rank + 'º lugar: ' : '') + nm + ', ' + (by === 'day' ? it.v + '% da meta de hoje' : by === 'week' ? it.v + ' de ' + WEEK + ' dias na meta' :
+  return (it.v > 0 ? it.rank + 'º lugar: ' : '') + nm + ', ' + (by === 'day' ? pctSay(it.v) : by === 'week' ? it.v + ' de ' + WEEK + ' dias na meta' :
     plural(it.v, 'dia seguido', 'dias seguidos')) + (m.gl ? ', meta ' + vol(m.gl) : '');
 }
 // O botão de aceno de quem está na turma (pódio e linhas): "oi" para quem está no caminho, "parabéns" para quem bateu a meta; um por dia
@@ -236,7 +236,7 @@ function introView(ctx) {
     feat('🔒', 'Só entra quem aceita', 'Ninguém aparece para a turma sem aceitar um convite, e você sai quando quiser.') +
     feat('👋', 'Acenos e parabéns', 'Mande um incentivo para quem está se esforçando ou bateu a meta.') + '</ul>' +
     '<section class="card see"><div class="card-h"><h2>O que a turma vê</h2></div>' +
-    '<p class="see-k ok">Veem</p><p class="see-t">Seu apelido, seu mascote e suas insígnias (marcos, nunca o total de litros), a porcentagem da meta de hoje, sua sequência, quais dos últimos 7 dias você bateu a meta e as medalhas que você conquistou.</p>' +
+    '<p class="see-k ok">Veem</p><p class="see-t">Seu apelido, seu mascote e suas insígnias (marcos, nunca o total de litros), a porcentagem da meta de hoje (até 150%), sua sequência, quais dos últimos 7 dias você bateu a meta e as medalhas que você conquistou.</p>' +
     '<p class="see-k">Só se você deixar</p><p class="see-t">A sua meta do dia em ml. Com ela e a porcentagem dá para estimar quanto você bebeu, por isso o Maré pergunta antes.</p>' +
     '<p class="see-k no">Nunca veem</p><p class="see-t">Os registros de cada gole, os horários, seu peso, sua localização e seu nome completo.</p></section>' +
     '<section class="card"><label class="lbl" for="frNick">Seu apelido</label><input class="in wide" id="frNick" type="text" maxlength="' + NICK_MAX +
@@ -302,7 +302,7 @@ export function profileSheet() {
     '<div class="card-h out"><h2>Meu mascote</h2><small>toque para trocar</small></div>' +
     '<div class="reef mini">' + INSIGNIAS.map((x) => insTile(x, !!got[x.id], x.id === mas.id, true)).join('') + '</div>' +
     medalsBlock(medalsShown(pp)) + // com o progresso em pausa o perfil não leva medalhas (md nulo): o bloco some, como some para os amigos
-    '<p class="note center">Sua turma vê seu mascote, as insígnias que você conquistou' + (sc.share !== false ? ', as medalhas, a porcentagem da meta de hoje, a sequência e quais dos últimos 7 dias você bateu a meta' : '') +
+    '<p class="note center">Sua turma vê seu mascote, as insígnias que você conquistou' + (sc.share !== false ? ', as medalhas, a porcentagem da meta de hoje (até 150%), a sequência e quais dos últimos 7 dias você bateu a meta' : '') +
     (sc.goal === true && sc.share !== false ? ' e a sua meta em ml' : '') + '. Nunca os registros de cada gole.</p><div class="btns stk">' + btn('close-sheet', 'Fechar', 'ghost') + '</div></div>';
 }
 // "Inserir código": d = { raw, who, err }. who = { code, uid, nm, mc } depois que o código foi encontrado.
@@ -325,7 +325,7 @@ export function aboutSheet() {
   return sheetHead('Como funciona a privacidade') +
     '<p class="sheet-text">Os amigos do Maré formam uma turma só: quem entra vê todo mundo e todo mundo vê quem entra, com um ranking para animar. Você decide quando entrar e o que aparece de você.</p>' +
     '<p class="see-k ok">A turma vê</p><ul class="bul">' + li('seu apelido, seu mascote e suas insígnias (marcos, como ter passado de 100 litros, nunca o seu total)') +
-    li('a porcentagem da meta de hoje que você fez, sua sequência e quais dos últimos 7 dias você bateu a meta (se você deixar o progresso ligado)') +
+    li('a porcentagem da meta de hoje que você fez (até 150%), sua sequência e quais dos últimos 7 dias você bateu a meta (se você deixar o progresso ligado)') +
     li('as medalhas que você conquistou, como a Semana fluida (também só se você deixar o progresso ligado; nunca o dia nem a hora em que cada uma veio)') + '</ul>' +
     '<p class="see-k">Só se você deixar</p><ul class="bul">' + li('a sua meta do dia em ml. Com ela e a porcentagem dá para estimar quanto você bebeu; por isso fica desligada até você escolher, e dá para mudar em Ajustes a qualquer hora') + '</ul>' +
     '<p class="see-k no">Ninguém vê</p><ul class="bul">' + li('os registros de cada gole nem os horários') + li('seu peso e a unidade que você usa') +

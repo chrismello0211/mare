@@ -252,11 +252,49 @@ describe('o que vai para a nuvem (profilePayload)', () => {
     const json = JSON.stringify(SO.profilePayload(S, T));
     ['1234', '2345', '83', '05:41', '29', 'Christopher', 'weight', 'goal', 'ml'].forEach((s) => { expect(json).not.toContain(s); });
   });
-  it('pct passa de 100? Fica em 100. Arredonda para baixo. Sem registros: 0', () => {
-    expect(SO.profilePayload(state({ days: { [T]: dayWith(9999) } }), T).pct).toBe(100);
-    expect(SO.profilePayload(state({ days: { [T]: dayWith(1999) } }), T).pct).toBe(99); // 99,95% não vira 100
-    expect(SO.profilePayload(state({ days: { [T]: dayWith(1) } }), T).pct).toBe(0);
+  it('pct vai de 0 a 150 (1.8.0): abaixo da meta arredonda para baixo, da meta em diante arredonda como a tela Hoje, e o teto é 150', () => {
+    const at = (ml, goal) => SO.profilePayload(state({ days: { [T]: dayWith(ml, goal) } }), T).pct;
+    expect(SO.PCT_MAX).toBe(150);
+    expect(at(1)).toBe(0);
+    expect(at(1990)).toBe(99); // 99,5%: ainda falta, não vira 100
+    expect(at(1999)).toBe(99); // 99,95% também não
+    expect(at(2000)).toBe(100);
+    expect(at(2009)).toBe(100); // 100,45%
+    expect(at(2011)).toBe(101); // 100,55% sobe, como o Math.round da tela Hoje
+    expect(at(2369)).toBe(118); // 118,45%
+    expect(at(2371)).toBe(119); // 118,55%
+    expect(at(2989)).toBe(149); // 149,45%
+    expect(at(2991)).toBe(150); // 149,55% sobe para o teto
+    expect(at(3000)).toBe(150);
+    expect(at(9999)).toBe(150); // quem bebe muito além da meta não passa de 150
+    expect(at(1500, 3000)).toBe(50); // a meta é a do dia
     expect(SO.profilePayload(state({ days: {} }), T).pct).toBe(0);
+  });
+  it('o número do perfil é o da tela Hoje (Math.round) sempre que a meta foi batida, e nunca passa de 150', () => {
+    for (let ml = 2000; ml <= 3400; ml += 7) {
+      const p = SO.profilePayload(state({ days: { [T]: dayWith(ml) } }), T);
+      expect(p.met).toBe(true);
+      expect(p.pct).toBe(Math.min(150, Math.round((ml / 2000) * 100)));
+    }
+  });
+  it('pctOf, pctText e pctSay: "118%", "150%+" no teto, e a frase de quem ouve a tela', () => {
+    expect(SO.pctOf(2360, 2000)).toBe(118);
+    expect(SO.pctOf(999, 1000)).toBe(99);
+    expect(SO.pctOf(5000, 2000)).toBe(150);
+    expect(SO.pctOf(0, 2000)).toBe(0);
+    expect(SO.pctText(0)).toBe('0%');
+    expect(SO.pctText(99)).toBe('99%');
+    expect(SO.pctText(100)).toBe('100%');
+    expect(SO.pctText(149)).toBe('149%');
+    expect(SO.pctText(150)).toBe('150%+');
+    expect(SO.pctText(9999)).toBe('150%+');
+    expect(SO.pctSay(42)).toBe('42% da meta de hoje');
+    expect(SO.pctSay(149)).toBe('149% da meta de hoje');
+    expect(SO.pctSay(150)).toBe('150% ou mais da meta de hoje');
+  });
+  it('o teto da pct que o app aceita é o mesmo das regras do Firestore (150)', () => {
+    const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+    expect(rules).toContain('d.pct >= 0 && d.pct <= ' + SO.PCT_MAX);
   });
   it('a meta é a do dia (a mesma da tela); sem registro do dia, a das configurações', () => {
     expect(SO.profilePayload(state({ goal: 2000, days: { [T]: dayWith(1500, 3000) } }), T).pct).toBe(50); // dia com meta de 3 L
@@ -377,9 +415,26 @@ describe('o que chega da nuvem (cleanFriend, cleanRequest)', () => {
     expect(Array.from(f.nm).length).toBeLessThanOrEqual(SO.NICK_MAX);
     expect(f.mc).toBe('concha'); // mascote desconhecido: volta para a concha
     expect(f.ins).toEqual(['concha', 'polvo']); // só as conhecidas, sem repetir, na ordem do recife
-    expect(f.pct).toBe(100);
+    expect(f.pct).toBe(150); // o teto da % (1.8.0): um 9999 vindo da nuvem não passa de 150
     expect(f.st).toBe(9999);
     expect(f.day).toBe('');
+  });
+  it('pct de amigo: de 0 a 150 como vem, arredondado para baixo; acima de 150 vira 150; decimal e texto numérico entram, o resto vira 0', () => {
+    const at = (v) => SO.cleanFriend(BRU, prof({ pct: v }), pair(), ANA).pct;
+    expect(at(0)).toBe(0);
+    expect(at(99)).toBe(99);
+    expect(at(100)).toBe(100); // o que os apps até a 1.7.0 mandam para quem bateu a meta
+    expect(at(101)).toBe(101);
+    expect(at(118)).toBe(118);
+    expect(at(149)).toBe(149);
+    expect(at(150)).toBe(150);
+    expect(at(151)).toBe(150);
+    expect(at(1e9)).toBe(150);
+    expect(at(Infinity)).toBe(0); // não é número de verdade: vira 0, não o teto
+    expect(at(118.9)).toBe(118);
+    expect(at('118')).toBe(118);
+    expect(at('abc')).toBe(0);
+    expect(at(-5)).toBe(0);
   });
   it('nome vindo da nuvem passa pela mesma limpeza (invisíveis, controles, espaços)', () => {
     const f = SO.cleanFriend(BRU, prof({ nm: '\u202E  Bru\u200Bno\n\t ' }), pair(), ANA);
@@ -489,6 +544,25 @@ describe('estado de um amigo hoje (liveOf, statusText)', () => {
   it('em pausa não mostra nada do progresso', () => {
     expect(SO.liveOf(f({ sh: false, pct: null, met: true, st: 9 }), T)).toMatchObject({ kind: 'paused', pct: 0, st: 0 });
   });
+  it('quem bateu a meta traz a % do perfil, de 100 a 150 (1.8.0): o app até a 1.7.0 manda 100, e um perfil que diz "bateu" com menos também vale 100', () => {
+    const at = (o) => SO.liveOf(f(Object.assign({ met: true }, o)), T);
+    expect(at({ pct: 100 })).toMatchObject({ kind: 'met', pct: 100 });
+    expect(at({ pct: 101 })).toMatchObject({ kind: 'met', pct: 101 });
+    expect(at({ pct: 118 })).toMatchObject({ kind: 'met', pct: 118 });
+    expect(at({ pct: 149 })).toMatchObject({ kind: 'met', pct: 149 });
+    expect(at({ pct: 150 })).toMatchObject({ kind: 'met', pct: 150 });
+    expect(at({ pct: 9999 })).toMatchObject({ kind: 'met', pct: 150 }); // um perfil que não passou pela limpeza também não passa do teto
+    expect(at({ pct: 118.7 })).toMatchObject({ kind: 'met', pct: 118 });
+    expect(at({ pct: 30 })).toMatchObject({ kind: 'met', pct: 100 });
+    expect(at({ pct: 0 })).toMatchObject({ kind: 'met', pct: 100 });
+    expect(at({ pct: null })).toMatchObject({ kind: 'met', pct: 100 });
+    expect(at({ pct: undefined })).toMatchObject({ kind: 'met', pct: 100 });
+    expect(at({ pct: 'x' })).toMatchObject({ kind: 'met', pct: 100 });
+    expect(SO.liveOf(f({ pct: 99 }), T)).toMatchObject({ kind: 'going', pct: 99 }); // sem "bateu", a % é a do perfil
+  });
+  it('quem bateu a meta com a sequência de ontem e a % de hoje: tudo junto no mesmo estado', () => {
+    expect(SO.liveOf(f({ met: true, pct: 118, st: 7 }), T)).toEqual({ kind: 'met', pct: 118, st: 7, away: 0 });
+  });
   it('statusText: sempre uma frase gentil', () => {
     expect(SO.statusText(SO.liveOf(f({ met: true }), T))).toBe('Meta batida hoje\u00A0🎉');
     expect(SO.statusText(SO.liveOf(f({ pct: 42 }), T))).toBe('42% da meta de hoje');
@@ -499,6 +573,18 @@ describe('estado de um amigo hoje (liveOf, statusText)', () => {
     expect(SO.statusText(SO.liveOf(f({ day: '2026-01-01' }), T))).toBe('Sem novidades há mais de um mês');
     expect(SO.statusText({ kind: 'unknown' })).toBe('Ainda sem novidades');
     expect(SO.statusText({ kind: 'qualquer-outra-coisa' })).toBe('');
+  });
+  it('statusText de quem passou da meta diz quanto ("Meta batida hoje 🎉 · 118%") e usa "150%+" no teto; com 100 fica como antes', () => {
+    const say = (pct) => SO.statusText(SO.liveOf(f({ met: true, pct: pct }), T));
+    expect(say(100)).toBe('Meta batida hoje 🎉');
+    expect(say(101)).toBe('Meta batida hoje 🎉 · 101%');
+    expect(say(118)).toBe('Meta batida hoje 🎉 · 118%');
+    expect(say(149)).toBe('Meta batida hoje 🎉 · 149%');
+    expect(say(150)).toBe('Meta batida hoje 🎉 · 150%+');
+    expect(say(9999)).toBe('Meta batida hoje 🎉 · 150%+');
+    expect(say(30)).toBe('Meta batida hoje 🎉'); // "bateu" com menos que 100 vale 100: sem número extra
+    expect(SO.statusText(SO.liveOf(f({ pct: 99 }), T))).toBe('99% da meta de hoje');
+    expect(SO.statusText({ kind: 'going', pct: 150 })).toBe('150%+ da meta de hoje');
   });
   it('daysBetween: diferença em dias, nunca negativa, 99 para dados ruins', () => {
     expect(SO.daysBetween('2026-10-17', T)).toBe(1);
@@ -686,6 +772,22 @@ describe('turma única: a semana, o ranking e o pódio (1.2.0)', () => {
       expect(S.social.share).toBe(false); // não mexe no estado que recebeu
       expect(S.social.goal).toBeNull();
     });
+    it('myMember mostra a minha % real, de 100 a 150, mesmo com o progresso em pausa para os amigos', () => {
+      expect(SO.myMember(state({ days: { [T]: dayWith(2360, 2000) } }), T).live).toMatchObject({ kind: 'met', pct: 118 });
+      expect(SO.myMember(state({ days: { [T]: dayWith(2000, 2000) } }), T).live).toMatchObject({ kind: 'met', pct: 100 });
+      expect(SO.myMember(state({ days: { [T]: dayWith(9000, 2000) }, social: { share: false } }), T).live).toMatchObject({ kind: 'met', pct: 150 });
+      expect(SO.myLive(state({ days: { [T]: dayWith(2360, 2000) }, social: { share: false } }), T)).toMatchObject({ kind: 'met', pct: 118 });
+    });
+    it('ida e volta: o que o app manda é o que o amigo vê (118% fica 118%, o teto fica 150) e um perfil de app antigo (100) segue valendo 100', () => {
+      const via = (ml) => SO.liveOf(SO.cleanFriend(U('bruno'), SO.profilePayload(state({ days: { [T]: dayWith(ml) } }), T), null, ANA), T);
+      expect(via(2360)).toMatchObject({ kind: 'met', pct: 118 });
+      expect(via(2000)).toMatchObject({ kind: 'met', pct: 100 });
+      expect(via(1999)).toMatchObject({ kind: 'going', pct: 99 });
+      expect(via(8000)).toMatchObject({ kind: 'met', pct: 150 });
+      const old = SO.cleanFriend(U('bruno'), { v: 1, nm: 'Bruno', mc: 'polvo', ins: [], pct: 100, met: true, st: 2, day: T, sh: true }, null, ANA);
+      expect(SO.liveOf(old, T)).toMatchObject({ kind: 'met', pct: 100 });
+      expect(SO.statusText(SO.liveOf(old, T))).toBe('Meta batida hoje 🎉');
+    });
   });
 
   describe('rankBoard', () => {
@@ -697,6 +799,32 @@ describe('turma única: a semana, o ranking e o pódio (1.2.0)', () => {
       expect(r.ranked.map((x) => x.rank)).toEqual([1, 2, 2, 4]);
       expect(r.ranked.map((x) => x.v)).toEqual([100, 80, 80, 20]);
       expect(r.rest).toEqual([]);
+    });
+    it('Hoje: quem passou da meta vale a % real, de 100 a 150: 118% fica na frente de 105%, de 100% (um app até a 1.7.0) e de quem ainda está em 99%', () => {
+      const a = mk('Ana', { met: true, pct: 118 }), b = mk('Bia', { met: true, pct: 105 }), c = mk('Caio', { met: true, pct: 100 }), d = mk('Duda', { pct: 99 });
+      const e = mk('Edu', { met: true, pct: 150 }), g = mk('Gabi', { met: true, pct: 150 });
+      const r = board([c, d, a, b, e, g], 'day');
+      expect(names(r.ranked)).toEqual(['Edu', 'Gabi', 'Ana', 'Bia', 'Caio', 'Duda']);
+      expect(r.ranked.map((x) => x.v)).toEqual([150, 150, 118, 105, 100, 99]);
+      expect(r.ranked.map((x) => x.rank)).toEqual([1, 1, 3, 4, 5, 6]);
+    });
+    it('Hoje: 150 é o teto, então 150 e 1000 (que a limpeza leva a 150) empatam, e a sequência desempata', () => {
+      const a = mk('Ana', { met: true, pct: 1000, st: 1 }), b = mk('Bia', { met: true, pct: 150, st: 5 });
+      const r = board([a, b], 'day');
+      expect(r.ranked.map((x) => x.v)).toEqual([150, 150]);
+      expect(names(r.ranked)).toEqual(['Bia', 'Ana']);
+      expect(r.ranked.map((x) => x.rank)).toEqual([1, 1]);
+    });
+    it('Hoje: o amigo de um app até a 1.7.0 (bateu a meta, pct 100) e quem bateu com exatamente 100% empatam; o desempate é o de sempre', () => {
+      const a = mk('Ana', { met: true, pct: 100, st: 2 }), b = mk('Bia', { met: true, pct: 100, st: 9 });
+      const r = board([a, b], 'day');
+      expect(r.ranked.map((x) => x.v)).toEqual([100, 100]);
+      expect(names(r.ranked)).toEqual(['Bia', 'Ana']);
+    });
+    it('Semana e Sequência: o desempate pela % de hoje também usa a % real de quem passou da meta', () => {
+      const a = mk('Ana', { met: true, pct: 100, st: 4, wm: 0b0000111 }), b = mk('Bia', { met: true, pct: 130, st: 4, wm: 0b0000111 }), c = mk('Caio', { pct: 90, st: 4, wm: 0b0000111 });
+      expect(names(board([a, c, b], 'week').ranked)).toEqual(['Bia', 'Ana', 'Caio']);
+      expect(names(board([a, c, b], 'streak').ranked)).toEqual(['Bia', 'Ana', 'Caio']);
     });
     it('Hoje: empate no % desempata pela sequência, depois pela semana e por fim pelo nome; a posição continua dividida', () => {
       const a = mk('Ana', { pct: 50, st: 2, wm: 1 }), b = mk('Bia', { pct: 50, st: 5, wm: 1 }), c = mk('Caio', { pct: 50, st: 5, wm: 7 }), d = mk('Alice', { pct: 50, st: 5, wm: 7 });

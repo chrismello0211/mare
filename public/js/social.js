@@ -8,6 +8,7 @@ import { INSIGNIAS, insigniaById, addDays, keyToDate, goalToday, dayTotal, isMet
 
 export const MAX_FRIENDS = 30; // limite combinado no app (as regras do servidor não contam documentos); a turma inteira tem no máximo 31 pessoas
 export const GOAL_MAX = 10000; // teto da meta em ml que vai ao perfil (as regras aceitam até aqui)
+export const PCT_MAX = 150; // teto da % da meta de hoje que vai ao perfil (1.8.0; as regras aceitam até aqui). Até a 1.7.0 era 100. Acima de 150 a tela diz "150%+": beber muito além da meta não rende nada
 export const WEEK = 7; // dias da janela "Semana"
 export const MD_MAX = (1 << MEDAL_MAX) - 1; // maior máscara de medalhas que vai ao perfil (as regras aceitam até aqui)
 export const MD2_MAX = Math.pow(2, MEDAL_MAX2) - 1; // o mesmo para a segunda palavra das medalhas (md2, 1.7.0): 2147483647
@@ -83,7 +84,7 @@ export const pairId = (a, b) => {
 export const otherOf = (m, me) => (Array.isArray(m) ? m.filter((x) => x !== me)[0] || '' : '');
 
 /* ---------- o que vai para a nuvem ---------- */
-// Só isto sai do aparelho: nome escolhido, mascote, insígnias, % da meta de hoje (0–100), se bateu a meta, a sequência, quais dos últimos 7 dias
+// Só isto sai do aparelho: nome escolhido, mascote, insígnias, % da meta de hoje (0–150; até a 1.7.0, 0–100), se bateu a meta, a sequência, quais dos últimos 7 dias
 // bateram a meta (wm, uma máscara de 7 bits), quais medalhas a pessoa tem (md, uma máscara de bits na ordem de ACHIEVEMENTS; 1.5.0; md2, a segunda
 // palavra, com as de índice 24 em diante, só quando não é zero; 1.7.0) e, só se a pessoa deixar, a meta do dia em ml (gl). Sem peso, sem volumes bebidos, sem horários, sem localização. share = false esconde o progresso e as
 // medalhas (só nome e insígnias): medalha é hábito (sequência, madrugador…), então segue o mesmo interruptor. S.social.goal só vale true com uma
@@ -94,6 +95,15 @@ export function weekMask(S, k) {
   for (let i = 0; i < WEEK; i++) if (isMet(S.days[addDays(k, -i)])) m |= 1 << i;
   return m;
 }
+// A % da meta de hoje que vai ao perfil (e que o ranking usa), de 0 a PCT_MAX. Abaixo da meta arredonda para baixo (99,95% não vira 100: ainda falta);
+// da meta em diante arredonda como a tela Hoje (118,6% é 119% nas duas), para o mesmo dia não aparecer com números diferentes em cada aba.
+export function pctOf(total, goal) {
+  const r = (total / goal) * 100;
+  return Math.max(0, Math.min(PCT_MAX, r >= 100 ? Math.round(r) : Math.floor(r)));
+}
+// Como a % aparece na tela: "118%", e "150%+" no teto (150 ou mais). pctSay é a mesma frase para quem ouve a tela.
+export const pctText = (n) => (n >= PCT_MAX ? PCT_MAX + '%+' : n + '%');
+export const pctSay = (n) => (n >= PCT_MAX ? PCT_MAX + '% ou mais' : n + '%') + ' da meta de hoje';
 export function profilePayload(S, k) {
   // A meta é a do dia (a mesma da tela e de isMet); sem registro do dia, a de hoje pelas configurações
   const sc = S.social || {}, share = sc.share !== false, day = S.days[k], goal = (day && day.goal) || goalToday(S, k) || 2000, total = dayTotal(day);
@@ -102,7 +112,7 @@ export function profilePayload(S, k) {
     nm: cleanNick(sc.nick) || 'Amigo',
     mc: mascotOf(S).id,
     ins: unlockedInsignias(S).map((x) => x.id),
-    pct: share ? Math.max(0, Math.min(100, Math.floor((total / goal) * 100))) : null,
+    pct: share ? pctOf(total, goal) : null,
     met: share ? isMet(S.days[k]) : false,
     st: share ? Math.min(9999, streak(S.days, k)) : 0,
     day: k,
@@ -139,7 +149,7 @@ export function cleanFriend(uid, prof, pair, me) {
   const ins = Array.isArray(p.ins) ? INSIGNIAS.filter((x) => p.ins.indexOf(x.id) >= 0).map((x) => x.id) : [];
   return {
     uid: uid, nm: nm, mc: mascotId(p.mc || (fromReq ? q.mc : q.tc)), ins: ins,
-    pct: p.pct == null ? null : int(p.pct, 0, 100), met: p.met === true, st: int(p.st, 0, 9999), day: dayOk(p.day), sh: p.sh !== false,
+    pct: p.pct == null ? null : int(p.pct, 0, PCT_MAX), met: p.met === true, st: int(p.st, 0, 9999), day: dayOk(p.day), sh: p.sh !== false,
     gl: goalOf(p.gl), wm: p.wm == null ? null : int(p.wm, 0, 127), md: p.md == null ? null : int(p.md, 0, MD_MAX), md2: p.md2 == null ? 0 : int(p.md2, 0, MD2_MAX),
     since: ms(q.ok) || ms(q.at),
     mine: waveOf(w[String(me || '')]), theirs: waveOf(w[uid]), // mine: o aceno que eu mandei; theirs: o que ele mandou
@@ -181,13 +191,15 @@ export function liveOf(p, today) {
   const away = daysBetween(p.day, today), st = away <= 1 ? p.st || 0 : 0;
   if (p.sh === false) return { kind: 'paused', pct: 0, st: 0, away: away };
   if (away > 0) return { kind: 'away', pct: 0, st: st, away: away };
-  if (p.met) return { kind: 'met', pct: 100, st: st, away: 0 };
+  // Bateu a meta: a % é a do perfil, de 100 a PCT_MAX (app até a 1.7.0 manda sempre 100; um perfil que diz "bateu" com menos também vale 100)
+  if (p.met) return { kind: 'met', pct: Math.max(100, Math.min(PCT_MAX, Math.floor(+p.pct) || 0)), st: st, away: 0 };
   const pct = p.pct || 0;
   return { kind: pct > 0 ? 'going' : 'idle', pct: pct, st: st, away: 0 };
 }
 export function statusText(l) {
-  if (l.kind === 'met') return 'Meta batida hoje\u00A0🎉'; // espaço que não quebra: em telas estreitas o emoji não fica sozinho na linha
-  if (l.kind === 'going') return l.pct + '% da meta de hoje';
+  // O espaço que não quebra mantém o emoji junto da palavra em telas estreitas. Quem passou da meta diz também quanto: "Meta batida hoje 🎉 · 118%"
+  if (l.kind === 'met') return 'Meta batida hoje\u00A0🎉' + (l.pct > 100 ? ' · ' + pctText(l.pct) : '');
+  if (l.kind === 'going') return pctText(l.pct) + ' da meta de hoje';
   if (l.kind === 'idle') return 'Ainda sem registros hoje';
   if (l.kind === 'paused') return 'Progresso do dia em pausa';
   if (l.kind === 'away') return l.away === 1 ? 'Esteve por aqui ontem' : l.away <= 30 ? 'Sem novidades há ' + l.away + ' dias' : 'Sem novidades há mais de um mês';
@@ -242,7 +254,7 @@ export function myMember(S, today) {
 // As três visões do ranking. Hoje: % da meta de hoje · Semana: dias na meta nos últimos 7 · Sequência: dias seguidos na meta
 export const RANKS = [{ id: 'day', n: 'Hoje' }, { id: 'week', n: 'Semana' }, { id: 'streak', n: 'Sequência' }];
 export const rankId = (v) => (RANKS.some((r) => r.id === v) ? v : 'day');
-const todayPct = (m) => (m.live.kind === 'met' ? 100 : m.live.kind === 'going' ? m.live.pct : 0);
+const todayPct = (m) => (m.live.kind === 'met' || m.live.kind === 'going' ? m.live.pct : 0); // quem bateu a meta vale de 100 a PCT_MAX (liveOf), então a ordem do dia é a da % real
 const VALUE = { day: todayPct, week: (m) => m.week.n, streak: (m) => m.live.st };
 // Quem conta em cada visão. Hoje: quem já apareceu hoje (um amigo que não abriu o app hoje fica de fora, não "em último").
 // Semana: quem tem os 7 dias conhecidos. Sequência: quem mostra o progresso e tem perfil.

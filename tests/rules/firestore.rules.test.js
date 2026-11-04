@@ -2,13 +2,14 @@
 // Cada teste usa dois ou três "usuários" com login de verdade no emulador (ana, bruno e caio) e confere o que o servidor
 // aceita e o que recusa. O que importa aqui é a PRIVACIDADE: só amigos aprovados leem o perfil, ninguém aceita o próprio
 // pedido, ninguém mexe no que é do outro, e o servidor recusa dados fora do formato.
-import { describe, test, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, deleteField, writeBatch, collection, query, where, getDocs, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { pairId as pid } from '../../public/js/social.js'; // o MESMO cálculo que o app usa: se divergir das regras, os testes quebram
+import { pairId as pid, PCT_MAX } from '../../public/js/social.js'; // o MESMO cálculo que o app usa: se divergir das regras, os testes quebram
+import { rules17x } from '../helpers/old-rules.js';
 
 const hp = (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080').split(':');
 const RULES = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../firestore.rules'), 'utf8');
@@ -17,18 +18,22 @@ const ANA = U('ana'), BRU = U('bruno'), CAI = U('caio'); // em ordem alfabética
 const ok = assertSucceeds, no = assertFails;
 const without = (o, ...ks) => { const c = Object.assign({}, o); ks.forEach((k) => { delete c[k]; }); return c; };
 
-let env;
+let env, env17;
 // Cada as()/anon() abre um login de teste com conexões próprias, que a biblioteca só encerra no fim de toda a bateria: anota e encerra ao fim de cada teste
 const ctxs = [];
-beforeAll(async () => {
-  env = await initializeTestEnvironment({ projectId: 'demo-mare-rules', firestore: { host: hp[0], port: +hp[1], rules: RULES } });
+function track(e) {
   ['authenticatedContext', 'unauthenticatedContext'].forEach((k) => {
-    const orig = env[k].bind(env);
-    env[k] = function () { const c = orig.apply(null, arguments); ctxs.push(c); return c; };
+    const orig = e[k].bind(e);
+    e[k] = function () { const c = orig.apply(null, arguments); ctxs.push(c); return c; };
   });
+  return e;
+}
+beforeAll(async () => {
+  env = track(await initializeTestEnvironment({ projectId: 'demo-mare-rules', firestore: { host: hp[0], port: +hp[1], rules: RULES } }));
+  env17 = track(await initializeTestEnvironment({ projectId: 'demo-mare-rules-17x', firestore: { host: hp[0], port: +hp[1], rules: rules17x(RULES) } })); // as regras da 1.7.0 (pct só até 100)
 });
-afterAll(async () => { if (env) await env.cleanup(); });
-beforeEach(async () => { await env.clearFirestore(); });
+afterAll(async () => { if (env) await env.cleanup(); if (env17) await env17.cleanup(); });
+beforeEach(async () => { await env.clearFirestore(); await env17.clearFirestore(); });
 afterEach(() => { ctxs.splice(0).forEach((c) => { try { c.cleanup(); } catch (e) { /* já encerrado */ } }); });
 
 const as = (u) => env.authenticatedContext(u).firestore();
@@ -85,12 +90,24 @@ describe('profiles: o perfil que os amigos veem', () => {
     await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ pct: null, sh: false, st: 0 })));
     await ok(setDoc(doc(as(ANA), 'profiles', ANA), without(prof({ sh: false }), 'pct')));
   });
+  test('pct vai de 0 a 150 (1.8.0): quem passou da meta mostra a % real; acima do teto, número quebrado ou texto, o servidor recusa', async () => {
+    expect(PCT_MAX).toBe(150); // o teto do app e o das regras são o mesmo número
+    for (const n of [0, 1, 99, 100, 101, 118, 149, 150]) await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ pct: n, met: n >= 100 })), 'pct ' + n);
+    for (const n of [151, 152, 200, 1000, 100000, -1, 50.5, 118.5, '118', true, [118], { n: 118 }]) await no(setDoc(doc(as(ANA), 'profiles', ANA), prof({ pct: n })), 'pct ' + JSON.stringify(n));
+    await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ pct: 118, met: true, gl: 2000, wm: 127, md: 5, md2: 3 }))); // com todos os campos opcionais juntos
+  });
+  test('com as regras da 1.7.0 (as de antes da 1.8.0) a pct só vai até 100: 101 em diante é recusado, e é por isso que o app novo tem a segunda forma (pct 100)', async () => {
+    const as17 = (u) => env17.authenticatedContext(u).firestore();
+    for (const n of [0, 50, 99, 100]) await ok(setDoc(doc(as17(ANA), 'profiles', ANA), prof({ pct: n, met: n >= 100 })), 'pct ' + n);
+    for (const n of [101, 118, 150, 151]) await no(setDoc(doc(as17(ANA), 'profiles', ANA), prof({ pct: n, met: true })), 'pct ' + n);
+    await ok(setDoc(doc(as17(ANA), 'profiles', ANA), prof({ pct: 100, met: true, gl: 2000, wm: 127, md: 5, md2: 3 }))); // fora a pct, essas regras são as de agora (md2 inclusive)
+  });
   test('recusa documentos fora do formato', async () => {
     const bad = [
       ['campo a mais', prof({ peso: 70 })], ['sem nome', without(prof(), 'nm')], ['nome vazio', prof({ nm: '' })],
       ['nome com 81 letras', prof({ nm: 'a'.repeat(81) })], ['nome que não é texto', prof({ nm: 5 })], ['mascote vazio', prof({ mc: '' })],
       ['mascote enorme', prof({ mc: 'm'.repeat(17) })], ['ins não é lista', prof({ ins: 'concha' })],
-      ['ins com 25 itens', prof({ ins: Array.from({ length: 25 }, (_, i) => 'x' + i) })], ['pct 101', prof({ pct: 101 })],
+      ['ins com 25 itens', prof({ ins: Array.from({ length: 25 }, (_, i) => 'x' + i) })], ['pct 151', prof({ pct: 151 })],
       ['pct negativo', prof({ pct: -1 })], ['pct decimal', prof({ pct: 50.5 })], ['pct texto', prof({ pct: '50' })],
       ['met texto', prof({ met: 'sim' })], ['st negativo', prof({ st: -1 })], ['st gigante', prof({ st: 10000 })],
       ['st decimal', prof({ st: 1.5 })], ['dia inválido', prof({ day: 'hoje' })], ['sem sh', without(prof(), 'sh')],

@@ -7,9 +7,14 @@ function cut(rules, what, find, to) {
   if (!hit) throw new Error('old-rules.js: não achei ' + what + ' em firestore.rules');
   return rules.replace(find, to);
 }
-// Regras da 1.5.0 e da 1.6.0 (as que estavam no ar antes da 1.7.0): o perfil tem as medalhas (md, 24 bits), mas não a segunda palavra (md2)
+// Regras da 1.7.0 (as que estavam no ar antes da 1.8.0): o perfil já tem a segunda palavra das medalhas (md2), mas a pct só vai até 100
+export function rules17x(rules) {
+  return cut(rules, 'o teto da pct (1.7.0)', 'd.pct >= 0 && d.pct <= 150', 'd.pct >= 0 && d.pct <= 100');
+}
+// Regras da 1.5.0 e da 1.6.0 (as que estavam no ar antes da 1.7.0): o perfil tem as medalhas (md, 24 bits), mas não a segunda palavra (md2).
+// A pct também só vai até 100 (como em todas as regras de antes da 1.8.0)
 export function rules16x(rules) {
-  let s = cut(rules, 'a lista de campos do perfil (1.6.x)', "'wm', 'md', 'md2'])", "'wm', 'md'])");
+  let s = cut(rules17x(rules), 'a lista de campos do perfil (1.6.x)', "'wm', 'md', 'md2'])", "'wm', 'md'])");
   s = cut(s, 'a regra do campo md2', /\n\s*&& \(!\('md2' in d\)[^\n]*/, '');
   return s;
 }

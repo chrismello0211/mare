@@ -51,7 +51,8 @@ service cloud.firestore {
     }
 
     /* ---------- amigos (1.1.0) ----------
-       profiles/{uid}      perfil que os AMIGOS veem: nome escolhido, mascote, insígnias, % da meta de hoje, sequência, quais dos
+       profiles/{uid}      perfil que os AMIGOS veem: nome escolhido, mascote, insígnias, % da meta de hoje ("pct", de 0 a 150; até a
+                           1.7.0 era de 0 a 100), sequência, quais dos
                            últimos 7 dias bateram a meta ("wm", 7 bits), quais medalhas a pessoa tem ("md", uma máscara de até 24
                            bits, na ordem de ACHIEVEMENTS em public/js/core.js; 1.5.0; "md2", a segunda palavra, até 31 bits, com as de índice
                            24 em diante; 1.7.0) e, SÓ se a pessoa deixar, a meta do dia em ml ("gl").
@@ -107,7 +108,7 @@ service cloud.firestore {
         && d.keys().hasAll(['v', 'nm', 'mc', 'ins', 'met', 'st', 'day', 'sh'])
         && d.v == 1 && isName(d.nm) && isMascot(d.mc)
         && insOk(d.ins)
-        && (!('pct' in d) || d.pct == null || (d.pct is int && d.pct >= 0 && d.pct <= 100))
+        && (!('pct' in d) || d.pct == null || (d.pct is int && d.pct >= 0 && d.pct <= 150))
         && (!('gl' in d) || d.gl == null || (d.gl is int && d.gl >= 0 && d.gl <= 10000))
         && (!('wm' in d) || d.wm == null || (d.wm is int && d.wm >= 0 && d.wm <= 127))
         && (!('md' in d) || d.md == null || (d.md is int && d.md >= 0 && d.md <= 16777215))

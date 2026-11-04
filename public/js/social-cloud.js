@@ -209,15 +209,16 @@ export function createSocial(opt) {
     return keep.id;
   }
   // Grava o perfil. O site sai sozinho em cerca de 1 minuto e as regras do Firestore vão à parte: se o site novo chegar antes delas, o perfil com
-  // campos que elas ainda não conhecem é recusado. Então tenta de novo, do formato mais novo para o mais antigo: o completo (1.7.0, com "md2", a
-  // segunda palavra das medalhas), o da 1.5.x e 1.6.x (sem "md2"), o da 1.2.x (sem "md") e o da 1.1.x (sem "md", "gl" nem "wm"). Os amigos seguem
-  // funcionando (só sem o que as regras de lá ainda não aceitam: as medalhas novas, as medalhas, a meta em ml e os 7 dias) até as regras novas
+  // campos (ou números) que elas ainda não conhecem é recusado. Então tenta de novo, do formato mais novo para o mais antigo: o completo (1.8.0,
+  // com a "pct" de 101 a 150), o mesmo com a "pct" em 100 (as regras da 1.7.0 aceitam até 100), o da 1.7.0 sem "md2" (a segunda palavra das
+  // medalhas; o das regras da 1.5.x e 1.6.x), o da 1.2.x (sem "md") e o da 1.1.x (sem "md", "gl" nem "wm"). Os amigos seguem funcionando (só
+  // sem o que as regras de lá ainda não aceitam: a % acima de 100, as medalhas novas, as medalhas, a meta em ml e os 7 dias) até as regras novas
   // entrarem, e a próxima abertura do app já publica o perfil completo.
   async function putProfile(p) {
-    const forms = [p];
-    if ('md2' in p) { const a = Object.assign({}, p); delete a.md2; forms.push(a); }
-    if ('md' in p) { const b = Object.assign({}, p); delete b.md; delete b.md2; forms.push(b); }
-    if ('gl' in p || 'wm' in p) { const c = Object.assign({}, p); delete c.md; delete c.md2; delete c.gl; delete c.wm; forms.push(c); }
+    const q = p.pct > 100 ? Object.assign({}, p, { pct: 100 }) : p, forms = q === p ? [p] : [p, q];
+    if ('md2' in q) { const a = Object.assign({}, q); delete a.md2; forms.push(a); }
+    if ('md' in q) { const b = Object.assign({}, q); delete b.md; delete b.md2; forms.push(b); }
+    if ('gl' in q || 'wm' in q) { const c = Object.assign({}, q); delete c.md; delete c.md2; delete c.gl; delete c.wm; forms.push(c); }
     for (let i = 0; i < forms.length; i++) {
       try { await FS.setDoc(profRef(me), forms[i]); return; }
       catch (e) { if (!e || e.code !== 'permission-denied' || i === forms.length - 1) throw e; }
