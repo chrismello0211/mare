@@ -81,13 +81,12 @@ function tipsHTML() {
   // Conta (1.3.0): a dica mais importante vai primeiro. Só aparece a partir do segundo dia de uso (quem acabou de chegar ainda não tem o que perder)
   // e some para sempre se for dispensada: o cartão em Ajustes continua lá. Quem já tem conta, ou perdeu o login e vê o aviso em Ajustes, não vê a dica.
   if (!ACCT.on && !ACCT.ended && !ui.tip_account && Object.keys(S.days).length >= 2) return accountTip();
-  // Novidades (1.7.0): um cartão que aparece uma vez para quem já usava o Maré. Abrir o painel ou dispensar o cartão o apaga para sempre (tip_news17).
-  // Quem está começando agora, ou chega por uma conta, já nasce com ele dispensado. Os de antes (tip_news12, da 1.2, tip_news15, da 1.5, e tip_news16, da 1.6)
-  // não voltam mais: o painel de agora traz também as novidades das versões anteriores, para quem pulou direto para esta.
-  if (!ui.tip_news17) {
-    const crew = !!(S.social && S.social.on && S.social.share !== false);
-    return tip('news17', '📅', 'Novidades no Maré', ACHIEVEMENTS.length - MEDALS_1_6 + ' medalhas novas e, na Jornada, o seu mês contra o anterior, com um calendário colorido dos últimos 3 meses.' +
-      (crew ? ' As medalhas novas também aparecem para a turma.' : ''), ['news', 'Ver as novidades']);
+  // Novidades (1.9.0): um cartão discreto, uma vez só, para quem está na turma com o progresso ligado (é a única pessoa a quem a novidade diz respeito: a
+  // turma passou a ver a % de verdade, até 150%, e agora dá para mostrar só até 100%). Dispensar o cartão, abrir o painel, mexer na chave ou entrar na turma
+  // o apaga para sempre (tip_news18). Quem está começando agora, ou chega por uma conta, já nasce com ele dispensado. Os cartões de antes (tip_news12, da 1.2,
+  // tip_news15, da 1.5, tip_news16, da 1.6 e tip_news17, da 1.7) não voltam mais: o painel de agora traz também as novidades das versões anteriores.
+  if (!ui.tip_news18 && S.social && S.social.on && S.social.share !== false) {
+    return tip('news18', '📈', 'Novidade na turma', 'Seus amigos agora veem quanto você passou da meta, até 150%. Se preferir, dá para mostrar só até 100%.', ['news', 'Ver as novidades']);
   }
   if (!isStandalone() && !isNative() && !ui.tip_install && (canInstall() || ios || isAndroid())) {
     return tip('install', '📲', 'Instale o Maré', ios
@@ -423,23 +422,26 @@ export function unlockSheet(id) {
     (S.social && S.social.on && S.social.share !== false ? '<p class="note">Seus amigos vão ver essa insígnia no seu perfil.</p>' : '') +
     '<div class="btns">' + btn('close-sheet', 'Que legal!') + btn('reef', 'Ver meu recife', 'ghost') + '</div></div>';
 }
-// Novidades do Maré (o cartão da tela Hoje abre este painel). 1.7.0: o que há de novo vem primeiro; o que veio nas versões 1.1 a 1.6 fica na seção de baixo.
+// Novidades do Maré (o cartão da tela Hoje abre este painel). 1.9.0: o que há de novo na turma vem primeiro; o que veio nas versões 1.1 a 1.7 fica na seção de baixo.
+// O painel só abre pelo cartão, e o cartão só aparece para quem está na turma com o progresso ligado: por isso o texto fala da turma sem condição.
 export function newsSheet() {
   const have = unlockedInsignias(S).length, ni = (e, b, t) => '<div class="news-i"><span class="em" aria-hidden="true">' + e + '</span><div><b>' + b + '</b><p>' + t + '</p></div></div>';
-  const crew = !!(S.social && S.social.on && S.social.share !== false), got = S.achievements || {}; // com o progresso escondido, a turma não vê as medalhas
-  const fresh = ACHIEVEMENTS.slice(MEDALS_1_6).filter((a) => got[a.id]).length, added = ACHIEVEMENTS.length - MEDALS_1_6;
+  const got = S.achievements || {}, fresh = ACHIEVEMENTS.slice(MEDALS_1_6).filter((a) => got[a.id]).length, added = ACHIEVEMENTS.length - MEDALS_1_6;
   return sheetHead('Novidades do Maré') +
+    ni('📈', 'A porcentagem vai além de 100%', 'A turma vê quanto você fez da meta do dia de verdade: 118% aparece como 118%, até 150% (acima disso, “150%+”). O ranking de Hoje usa esse número.') +
+    ni('🙈', 'Mostrar só até 100%', 'Prefere que a turma não saiba quanto você passou da meta? Desligue “Mostrar quanto passei da meta” em Meu perfil ou em Ajustes → Amigos. ' +
+      'Seus amigos passam a ver só “Meta batida hoje”, e o seu lugar no ranking também para em 100%.') +
+    '<p class="news-h">Das versões anteriores</p>' +
     ni('🏅', added + ' medalhas novas', 'Agora são ' + ACHIEVEMENTS.length + ': um mês e cem dias de Maré, o verão em dia, fins de semana de ouro, o Dia dos Oceanos e a Turma completa, que só sai quando você e pelo menos dois amigos batem a meta no mesmo dia. ' +
-      (fresh ? 'Você já conquistou ' + fresh + ' das novas, com a data em que as merecia. ' : '') + (crew ? 'Elas também aparecem no seu perfil para a turma.' : 'Veja o que cada uma pede, na Jornada.')) +
+      (fresh ? 'Você já conquistou ' + fresh + ' das novas, com a data em que as merecia. ' : '') + 'Elas também aparecem no seu perfil para a turma.') +
     ni('📅', 'Seus meses', 'A Jornada ganhou o seu mês contra o anterior, com a média por dia e os dias na meta, e um calendário colorido dos últimos 3 meses: um quadradinho por dia.') +
     ni('☁️', 'Medalhas na conta', 'Quem tem conta passa a guardar também o dia em que cada medalha saiu, e ela volta do mesmo jeito em outro aparelho.') +
-    '<p class="news-h">Das versões anteriores</p>' +
     ni('🎯', 'Quanto falta e seus padrões', 'Cada medalha que ainda não saiu mostra quanto você já andou, e os seus padrões têm gráficos: a água de cada hora do dia e a média de cada dia da semana. Aparecem depois de 4 dias de registro.') +
     '<div class="news-i">' + badge('orca', { size: 48 }) + '<div><b>Mais cinco bichinhos no recife</b><p>Arraia-manta, orca, peixe-pescador, lula-gigante e a pérola entraram na coleção, que agora vai até 2.000 L de água. ' +
     (have > 1 ? 'Você já tem ' + have + ' de ' + INSIGNIAS.length + '.' : 'Você começa com a concha.') + '</p></div></div>' +
     ni('🏆', 'Uma turma, um ranking', 'Os amigos agora formam uma turma só: todo mundo vê todo mundo, com ranking do dia, da semana e da sequência. Cada um decide o que mostra, e a meta em ml só aparece se você deixar.') +
     ni('🔔', 'Avisos mais espertos', 'Os avisos respeitam seu horário de sono. Dá para escolher saber quando um amigo bate a meta e receber o resumo da semana da turma no domingo.') +
-    '<div class="btns stk">' + btn('news-go', 'Ver minhas medalhas') + btn('news-friends', 'Conhecer a turma', 'ghost') + btn('close-sheet', 'Depois', 'ghost') + '</div>';
+    '<div class="btns stk">' + btn('fr-profile', 'Escolher o que a turma vê') + btn('news-go', 'Ver minhas medalhas', 'ghost') + btn('close-sheet', 'Depois', 'ghost') + '</div>';
 }
 export function shareText() {
   const st = streak(S.days, today()), m = mascotOf(S);

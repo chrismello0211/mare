@@ -128,7 +128,7 @@ test.describe('Ajustes: Avisos dos amigos', () => {
   test('fica entre "Mostrar minha meta em ml" e "Novo código de convite", com os dois avisos opcionais logo depois, dentro do grupo Amigos', async ({ page }) => {
     await ajustes(page, { perm: 'granted' });
     const labels = await page.locator('h2.sec-t', { hasText: 'Amigos' }).locator('xpath=following-sibling::div[1]').locator('.row-l > span').allTextContents();
-    expect(labels).toEqual(['Meu perfil público', 'Mostrar meu progresso do dia', 'Mostrar minha meta em ml', 'Avisos dos amigos',
+    expect(labels).toEqual(['Meu perfil público', 'Mostrar meu progresso do dia', 'Mostrar quanto passei da meta', 'Mostrar minha meta em ml', 'Avisos dos amigos',
       'Avisar quando um amigo bater a meta', 'Resumo da semana da turma', 'Novo código de convite', 'Sair da turma']);
   });
 

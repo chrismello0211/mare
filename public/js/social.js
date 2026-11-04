@@ -88,7 +88,7 @@ export const otherOf = (m, me) => (Array.isArray(m) ? m.filter((x) => x !== me)[
 // bateram a meta (wm, uma máscara de 7 bits), quais medalhas a pessoa tem (md, uma máscara de bits na ordem de ACHIEVEMENTS; 1.5.0; md2, a segunda
 // palavra, com as de índice 24 em diante, só quando não é zero; 1.7.0) e, só se a pessoa deixar, a meta do dia em ml (gl). Sem peso, sem volumes bebidos, sem horários, sem localização. share = false esconde o progresso e as
 // medalhas (só nome e insígnias): medalha é hábito (sequência, madrugador…), então segue o mesmo interruptor. S.social.goal só vale true com uma
-// escolha explícita (null = a pessoa ainda não decidiu, e então a meta não sai).
+// escolha explícita (null = a pessoa ainda não decidiu, e então a meta não sai). S.social.over === false (1.9.0) segura a % em 100: o perfil sai como o da 1.7.0.
 // wm: o bit i (0 a 6) diz se o dia (k − i) bateu a meta; o bit 0 é o dia do perfil (day). Quem olha desloca a janela pelos dias que passaram.
 export function weekMask(S, k) {
   let m = 0;
@@ -104,6 +104,9 @@ export function pctOf(total, goal) {
 // Como a % aparece na tela: "118%", e "150%+" no teto (150 ou mais). pctSay é a mesma frase para quem ouve a tela.
 export const pctText = (n) => (n >= PCT_MAX ? PCT_MAX + '%+' : n + '%');
 export const pctSay = (n) => (n >= PCT_MAX ? PCT_MAX + '% ou mais' : n + '%') + ' da meta de hoje';
+// Quanto da % a turma pode ver (1.9.0): com "Mostrar quanto passei da meta" desligado (S.social.over === false), a % para em 100, como na 1.7.0:
+// quem passou da meta aparece só como "Meta batida hoje", sem o quanto passou. Vale para todo mundo que olha, inclusive para o meu próprio ranking.
+export const pctCap = (sc, n) => (sc && sc.over === false ? Math.min(100, n) : n);
 export function profilePayload(S, k) {
   // A meta é a do dia (a mesma da tela e de isMet); sem registro do dia, a de hoje pelas configurações
   const sc = S.social || {}, share = sc.share !== false, day = S.days[k], goal = (day && day.goal) || goalToday(S, k) || 2000, total = dayTotal(day);
@@ -112,7 +115,7 @@ export function profilePayload(S, k) {
     nm: cleanNick(sc.nick) || 'Amigo',
     mc: mascotOf(S).id,
     ins: unlockedInsignias(S).map((x) => x.id),
-    pct: share ? pctOf(total, goal) : null,
+    pct: share ? pctCap(sc, pctOf(total, goal)) : null,
     met: share ? isMet(S.days[k]) : false,
     st: share ? Math.min(9999, streak(S.days, k)) : 0,
     day: k,

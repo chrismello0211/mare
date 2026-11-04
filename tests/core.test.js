@@ -313,15 +313,19 @@ describe('insígnias (bichinhos do mar)', () => {
     const old = C.migrate({ profile: { name: 'Ana' } });
     expect(old.insignias).toEqual({});
     expect(old.profile.mascot).toBe('');
-    expect(old.social).toEqual({ on: false, nick: '', share: true, code: '', push: true, goal: null, hit: false, week: true });
+    expect(old.social).toEqual({ on: false, nick: '', share: true, over: true, code: '', push: true, goal: null, hit: false, week: true });
+    // 1.9.0: "Mostrar quanto passei da meta" só desliga com um false de verdade (como o progresso do dia); qualquer outra coisa é o padrão, ligado
+    expect(C.migrate({ social: { over: false } }).social.over).toBe(false);
+    [true, undefined, null, 0, 1, '', 'false', 'no', [], {}].forEach((v) => expect(C.migrate({ social: { over: v } }).social.over, String(v)).toBe(true));
+    expect(C.defaults().social.over).toBe(true);
     expect(C.migrate({ profile: { mascot: 'cavalo' } }).profile.mascot).toBe('cavalo');
     expect(C.migrate({ profile: { mascot: 'dragao' } }).profile.mascot).toBe('');
     expect(C.migrate({ insignias: [1, 2] }).insignias).toEqual({});
     expect(C.migrate({ insignias: 'x' }).insignias).toEqual({});
     expect(C.migrate({ insignias: { concha: 5 } }).insignias).toEqual({ concha: 5 });
     const so = C.migrate({ social: { on: 'sim', nick: 'N'.repeat(40), share: 0, code: 'abc' } }).social;
-    expect(so).toEqual({ on: false, nick: 'N'.repeat(20), share: true, code: '', push: true, goal: null, hit: false, week: true }); // só "true" liga; código inválido some
-    expect(C.migrate({ social: { on: true, nick: 'Bia', share: false, code: 'ABCD2345' } }).social).toEqual({ on: true, nick: 'Bia', share: false, code: 'ABCD2345', push: true,
+    expect(so).toEqual({ on: false, nick: 'N'.repeat(20), share: true, over: true, code: '', push: true, goal: null, hit: false, week: true }); // só "true" liga; código inválido some
+    expect(C.migrate({ social: { on: true, nick: 'Bia', share: false, over: false, code: 'ABCD2345' } }).social).toEqual({ on: true, nick: 'Bia', share: false, over: false, code: 'ABCD2345', push: true,
       goal: null, hit: false, week: true });
     expect(C.migrate({ social: { nick: 42 } }).social.nick).toBe('');
   });

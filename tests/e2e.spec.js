@@ -197,9 +197,9 @@ test('desbloquear: o fundo do painel e o "voltar" também contam como "visto"', 
 });
 
 test('quem já usava o Maré ganha as insígnias de uma vez e só a mais alta é comemorada', async ({ page }) => {
-  await seed(page, { history: [26, 2500], ui: { tip_news17: 0 }, medals: true }); // 65 L e nenhuma insígnia guardada (estado da versão 1.0.x)
+  await seed(page, { history: [26, 2500], ui: { tip_news17: 0, tip_news18: 0 }, medals: true }); // 65 L e nenhuma insígnia guardada (estado da versão 1.0.x), fora da turma
   await page.goto('/');
-  await expect(page.locator('#tTips')).toContainText('Novidades no Maré');
+  await expect(page.locator('#tTips')).not.toContainText('Novidade'); // o cartão de novidades (1.9.0) é da turma: quem não a usa não o vê (e o da 1.7.0 não volta)
   await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Nova insígnia!', { timeout: 9000 });
   await expect(sheetOf(page)).toContainText('Tartaruga-marinha');
   await sheetOf(page).getByRole('button', { name: 'Que legal!' }).click();
@@ -208,18 +208,7 @@ test('quem já usava o Maré ganha as insígnias de uma vez e só a mais alta é
   expect(Object.keys(st.insignias).sort()).toEqual(['baiacu', 'concha', 'estrela', 'tartaruga']);
   Object.keys(st.insignias).forEach((id) => { expect(st.insignias[id], id).toBeLessThanOrEqual(Date.now()); });
   expect(st.ui.unseenIns).toEqual([]);
-  // a dica de novidades abre o painel e some em seguida
-  await page.locator('#tTips').getByRole('button', { name: 'Ver as novidades' }).click();
-  await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Novidades do Maré');
-  await expect(sheetOf(page)).toContainText('Mais cinco bichinhos no recife');
-  await expect(sheetOf(page)).toContainText('Você já tem 4 de 15');
-  await sheetOf(page).getByRole('button', { name: 'Depois' }).click();
-  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
-  const after = (await stored(page)).ui;
-  expect(after.tip_news17).toBe(1); // abrir o painel dispensou o cartão para sempre (e os das versões antigas também)
-  expect(after.tip_news16).toBe(1);
-  expect(after.tip_news15).toBe(1);
-  expect(after.tip_news12).toBe(1);
+  await expect(page.locator('#tTips')).not.toContainText('Novidade'); // e continua sem cartão depois da festa
 });
 
 test('quem está começando agora ganha a concha de presente, sem festa nem dica de novidades', async ({ page }) => {
@@ -229,7 +218,9 @@ test('quem está começando agora ganha a concha de presente, sem festa nem dica
   await page.getByRole('button', { name: 'Perfeito, continuar' }).click();
   await page.getByRole('button', { name: /Agora não|Começar a usar/ }).click();
   await expect(page.locator('#tabbar')).toBeVisible();
-  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
+  await expect(page.locator('#tTips')).not.toContainText('Novidade');
+  const ui0 = (await stored(page)).ui;
+  expect([ui0.tip_news12, ui0.tip_news15, ui0.tip_news16, ui0.tip_news17, ui0.tip_news18]).toEqual([1, 1, 1, 1, 1]); // quem começa agora já nasce com todos os cartões de novidades dispensados
   await page.waitForTimeout(2500);
   await expect(page.locator('#sheet')).toBeHidden();
   await cup(page, '250 ml').click();
@@ -263,7 +254,7 @@ test('backup antigo (sem insígnias): restaura, concede em silêncio e não deix
   const st = await stored(page);
   expect(Object.keys(st.insignias).sort()).toEqual(['baiacu', 'concha', 'estrela', 'tartaruga']); // 65 L; ids inventados e valores ruins caíram
   expect(st.profile.mascot).toBe('');
-  expect(st.social).toEqual({ on: false, nick: '', share: true, code: '', push: true, goal: null, hit: false, week: true }); // amigos são deste aparelho (avisos de amigos e resumo nascem ligados, o aviso de meta e a meta em ml, não)
+  expect(st.social).toEqual({ on: false, nick: '', share: true, over: true, code: '', push: true, goal: null, hit: false, week: true }); // amigos são deste aparelho (avisos de amigos e resumo nascem ligados, o aviso de meta e a meta em ml, não; a % de verdade acima de 100 também nasce ligada, 1.9.0)
 });
 
 test('insígnias: a arte cabe no medalhão e a silhueta da bloqueada funciona', async ({ page }) => {

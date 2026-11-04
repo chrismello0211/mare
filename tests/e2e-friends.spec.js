@@ -54,7 +54,7 @@ test.describe('entrada', () => {
     await expect(page.locator('.see')).toContainText('Só se você deixar'); // a meta em ml: a turma só vê com um "sim"
     await expect(page.locator('.see')).toContainText('A sua meta do dia em ml');
     await expect(page.locator('.see')).toContainText('as medalhas que você conquistou'); // 1.5.0: as medalhas fazem parte do que a turma vê
-    await expect(page.locator('.see')).toContainText('a porcentagem da meta de hoje (até 150%)'); // 1.8.0: a % vai até 150, e a tela de entrada avisa
+    await expect(page.locator('.see')).toContainText('a porcentagem da meta de hoje (até 150%, ou só até 100% se você preferir)'); // 1.8.0: a % vai até 150; 1.9.0: a pessoa pode limitar a 100, e a tela de entrada avisa
     await expect(page.getByText('os últimos 7 dias e as medalhas. Desligado, seus amigos veem só o apelido e as insígnias.')).toBeVisible(); // e a chave do progresso diz isso
     await expect(page.locator('#frNick')).toHaveValue('Ana'); // o primeiro nome vira o apelido de partida
     await expect(page.getByRole('switch', { name: /Mostrar meu progresso/ })).toHaveAttribute('aria-checked', 'true');
@@ -1085,7 +1085,7 @@ test.describe('painéis', () => {
     await expect(sheet(page)).toContainText('sua localização');
     await expect(sheet(page)).toContainText('a sua meta do dia em ml'); // só se a pessoa deixar
     await expect(sheet(page)).toContainText('as medalhas que você conquistou'); // 1.5.0: com o progresso ligado
-    await expect(sheet(page)).toContainText('a porcentagem da meta de hoje que você fez (até 150%)'); // 1.8.0
+    await expect(sheet(page)).toContainText('a porcentagem da meta de hoje que você fez (até 150%, ou só até 100% se você escolher)'); // 1.8.0; 1.9.0: com a chave
     await expect(sheet(page)).toContainText('nunca o dia nem a hora em que cada uma veio');
     await expect(sheet(page)).toContainText('as turmas dos dois se juntam'); // como a turma cresce
     await expect(sheet(page)).toContainText('Sair da turma');
@@ -1457,80 +1457,142 @@ test.describe('apagar tudo', () => {
 });
 
 /* ---------- novidades e backup ---------- */
-test('a janela de novidades conta as medalhas novas e ainda apresenta os amigos e leva até eles', async ({ page }) => {
-  await stubFriendsCloud(page);
-  await seed(page, { social: { on: false }, ui: { tip_news17: 0 } }); // 0 = a dica ainda não foi dispensada
-  await page.goto('/');
-  await page.getByRole('button', { name: /Ver as novidades/ }).click();
-  await expect(sheet(page)).toContainText('6 medalhas novas');
-  await expect(sheet(page)).toContainText('Seus meses');
-  await expect(sheet(page)).toContainText('Medalhas na conta');
-  await expect(sheet(page)).toContainText('Quanto falta');
-  await expect(sheet(page)).toContainText('Uma turma, um ranking');
-  await expect(sheet(page)).toContainText('Avisos mais espertos');
-  await sheet(page).getByRole('button', { name: 'Conhecer a turma' }).click();
-  await expect(tabF(page)).toHaveAttribute('aria-current', 'page');
-});
-
-test('o cartão de novidades (1.7.0) só fala da turma para quem está nela com o progresso ligado; o painel traz o texto certo para cada caso', async ({ page }) => {
+// O cartão de novidades da 1.9.0 (tip_news18): discreto, uma vez só, e só para quem está na turma com o progresso ligado, que é a quem a novidade interessa
+// (a turma passou a ver a % de verdade, até 150%, e agora dá para mostrar só até 100%). Quem não está nela não vê cartão algum, nem o da 1.7.0.
+test('o cartão de novidades da turma (1.9.0) é curto, abre o painel, e o painel leva a "Meu perfil", onde está a chave', async ({ page }) => {
   await stubFriendsCloud(page, { friends: CREW, code: 'ABCD2345' });
-  await seed(page, { todayMl: 1400, social: SOCIAL_ON, ui: { tip_news17: 0 } });
+  await seed(page, { todayMl: 1400, social: SOCIAL_ON, ui: { tip_news18: 0 } }); // 0 = a dica ainda não foi dispensada
   await page.goto('/');
   const card = page.locator('#tTips .tip');
-  await expect(card).toContainText('6 medalhas novas e, na Jornada, o seu mês contra o anterior, com um calendário colorido dos últimos 3 meses.');
-  await expect(card).toContainText('As medalhas novas também aparecem para a turma.');
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText('Novidade na turma');
+  await expect(card).toContainText('Seus amigos agora veem quanto você passou da meta, até 150%. Se preferir, dá para mostrar só até 100%.');
   await card.getByRole('button', { name: 'Ver as novidades' }).click();
   await expect(sheet(page).locator('#sheetTitle')).toHaveText('Novidades do Maré');
-  await expect(sheet(page)).toContainText('6 medalhas novas');
-  await expect(sheet(page)).toContainText('Elas também aparecem no seu perfil para a turma.');
-  await expect(sheet(page)).toContainText('Das versões anteriores');
-  await expect(sheet(page)).toContainText('Mais cinco bichinhos no recife'); // o que a 1.5.0 trouxe, para quem pulou direto para esta versão
-  await expect(sheet(page)).toContainText('Arraia-manta, orca, peixe-pescador, lula-gigante e a pérola');
-  await sheet(page).getByRole('button', { name: 'Depois' }).click();
-  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
-  const ui = (await stored(page)).ui;
-  expect(ui.tip_news17).toBe(1);
-  expect(ui.tip_news16).toBe(1);
-  expect(ui.tip_news15).toBe(1);
-  expect(ui.tip_news12).toBe(1);
+  await expect(sheet(page)).toContainText('A porcentagem vai além de 100%');
+  await expect(sheet(page)).toContainText('118% aparece como 118%, até 150% (acima disso, “150%+”)');
+  await expect(sheet(page)).toContainText('Mostrar só até 100%');
+  await expect(sheet(page)).toContainText('Desligue “Mostrar quanto passei da meta” em Meu perfil ou em Ajustes → Amigos');
+  await expect(sheet(page)).toContainText('Seus amigos passam a ver só “Meta batida hoje”');
+  await sheet(page).getByRole('button', { name: 'Escolher o que a turma vê' }).click();
+  await expect(sheet(page).locator('#sheetTitle')).toHaveText('Meu perfil');
+  await expect(page.getByRole('switch', { name: 'Mostrar aos amigos quanto passei da meta' })).toHaveAttribute('aria-checked', 'true'); // o padrão: como na 1.8.0
+  await expect(sheet(page)).toContainText('Mostrar quanto passei da meta');
+  await expect(page.locator('#tTips')).not.toContainText('Novidade na turma'); // abrir o painel já tinha apagado o cartão
 });
 
-test('com o progresso em pausa, ou sem a turma, o cartão de novidades não fala da turma; o painel só manda ver a Jornada', async ({ page }) => {
+test('o painel de novidades traz o que a turma ganhou em cima e, embaixo, as versões anteriores; "Depois" dispensa o cartão para sempre, também os antigos', async ({ page }) => {
   await stubFriendsCloud(page, { friends: CREW, code: 'ABCD2345' });
-  await seed(page, { todayMl: 1400, social: Object.assign({}, SOCIAL_ON, { share: false }), ui: { tip_news17: 0 } });
+  await seed(page, { todayMl: 1400, social: SOCIAL_ON, ui: { tip_news18: 0, tip_news17: 0, tip_news16: 0, tip_news15: 0, tip_news12: 0 }, insignias: { concha: 30, estrela: 25, baiacu: 20, tartaruga: 12 } });
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('6 medalhas novas');
-  await expect(page.locator('#tTips .tip')).not.toContainText('turma');
+  await page.locator('#tTips .tip').getByRole('button', { name: 'Ver as novidades' }).click();
+  await expect(sheet(page).locator('#sheetTitle')).toHaveText('Novidades do Maré');
+  const itens = await sheet(page).locator('.news-i b, .news-h').allTextContents();
+  expect(itens.slice(0, 3)).toEqual(['A porcentagem vai além de 100%', 'Mostrar só até 100%', 'Das versões anteriores']); // o novo vem primeiro; o resto fica embaixo
+  expect(itens).toContain('6 medalhas novas');
+  await expect(sheet(page)).toContainText('Elas também aparecem no seu perfil para a turma.');
+  await expect(sheet(page)).toContainText('Seus meses');
+  await expect(sheet(page)).toContainText('Medalhas na conta');
+  await expect(sheet(page)).toContainText('Quanto falta e seus padrões');
+  await expect(sheet(page)).toContainText('Uma turma, um ranking');
+  await expect(sheet(page)).toContainText('Avisos mais espertos');
+  await expect(sheet(page)).toContainText('Mais cinco bichinhos no recife'); // o que a 1.5.0 trouxe, para quem pulou direto para esta versão
+  await expect(sheet(page)).toContainText('Arraia-manta, orca, peixe-pescador, lula-gigante e a pérola');
+  await expect(sheet(page)).toContainText('Você já tem 4 de 15');
+  await expect(sheet(page).getByRole('button', { name: 'Conhecer a turma' })).toHaveCount(0); // quem chega aqui já está na turma
+  await sheet(page).getByRole('button', { name: 'Depois' }).click();
+  await expect(page.locator('#sheet')).toBeHidden();
+  await expect(page.locator('#tTips .tip')).toHaveCount(0);
+  const ui = (await stored(page)).ui;
+  expect([ui.tip_news18, ui.tip_news17, ui.tip_news16, ui.tip_news15, ui.tip_news12]).toEqual([1, 1, 1, 1, 1]);
+  await page.reload();
+  await expect(page.locator('#view')).toBeVisible();
+  await expect(page.locator('#tTips .tip')).toHaveCount(0);
+});
+
+test('o cartão de novidades só aparece para quem está na turma com o progresso ligado: fora dela, ou com o progresso em pausa, ninguém o vê', async ({ page }) => {
+  const ui = { tip_news18: 0, tip_news17: 0, tip_news16: 0, tip_news15: 0, tip_news12: 0 }; // quem nunca dispensou nenhum
+  await stubFriendsCloud(page);
+  await seed(page, { social: { on: false }, ui: ui });
+  await page.goto('/');
+  await expect(page.locator('#view')).toBeVisible();
+  await expect(page.locator('#tTips .tip')).toHaveCount(0); // sem a turma: nenhum cartão de novidades (nem o da 1.7.0)
   const p2 = await page.context().newPage();
   p2.on('pageerror', (e) => { errors.push(e.message); });
-  await stubFriendsCloud(p2);
-  await seed(p2, { social: { on: false }, ui: { tip_news17: 0 } });
+  await stubFriendsCloud(p2, { friends: CREW, code: 'ABCD2345' });
+  await seed(p2, { todayMl: 1400, social: Object.assign({}, SOCIAL_ON, { share: false }), ui: ui });
   await p2.goto('/');
-  await expect(p2.locator('#tTips .tip')).not.toContainText('turma'); // quem não usa os amigos não precisa saber
-  await p2.locator('#tTips .tip').getByRole('button', { name: 'Ver as novidades' }).click();
-  await expect(p2.locator('#sheetBody')).toContainText('Veja o que cada uma pede, na Jornada.');
-  await expect(p2.locator('#sheetBody')).not.toContainText('no seu perfil para a turma');
+  await expect(p2.locator('#view')).toBeVisible();
+  await expect(p2.locator('#tTips .tip')).toHaveCount(0); // na turma, mas sem mostrar nada do dia: a novidade não é com ela
+  await p2.close();
+  const p3 = await page.context().newPage();
+  p3.on('pageerror', (e) => { errors.push(e.message); });
+  await stubFriendsCloud(p3, { friends: CREW, code: 'ABCD2345' });
+  await seed(p3, { todayMl: 1400, social: SOCIAL_ON, ui: ui });
+  await p3.goto('/');
+  await expect(p3.locator('#tTips .tip')).toContainText('Novidade na turma'); // na turma, mostrando o progresso: aparece
+  await tab(p3, 'Ajustes').click();
+  await p3.getByRole('switch', { name: 'Mostrar meu progresso do dia aos amigos' }).click(); // esconde o progresso: o cartão sai da tela Hoje
+  await tab(p3, 'Hoje').click();
+  await expect(p3.locator('#tTips .tip')).toHaveCount(0);
+  await tab(p3, 'Ajustes').click();
+  await p3.getByRole('switch', { name: 'Mostrar meu progresso do dia aos amigos' }).click(); // e volta a mostrar: o cartão (ainda não dispensado) volta com ele
+  await tab(p3, 'Hoje').click();
+  await expect(p3.locator('#tTips .tip')).toContainText('Novidade na turma');
+  await p3.close();
+});
+
+test('dispensar o cartão de novidades (o X) não abre o painel, apaga o cartão e ele não volta; os cartões antigos (1.2, 1.5, 1.6 e 1.7) nunca mais aparecem', async ({ page }) => {
+  await stubFriendsCloud(page, { friends: CREW, code: 'ABCD2345' });
+  await seed(page, { todayMl: 1400, social: SOCIAL_ON, ui: { tip_news18: 0, tip_news17: 0, tip_news16: 0, tip_news15: 0, tip_news12: 0 } });
+  await page.goto('/');
+  await expect(page.locator('#tTips .tip')).toContainText('Novidade na turma');
+  await page.getByRole('button', { name: 'Dispensar dica' }).click();
+  await expect(page.locator('#tTips .tip')).toHaveCount(0);
+  await expect(page.locator('#sheet')).toBeHidden();
+  expect((await stored(page)).ui.tip_news18).toBe(1);
+  await page.reload();
+  await expect(page.locator('#view')).toBeVisible();
+  await expect(page.locator('#tTips .tip')).toHaveCount(0);
+  // quem já viu o de agora mas nunca dispensou os antigos: nenhum deles ressurge
+  const p2 = await page.context().newPage();
+  p2.on('pageerror', (e) => { errors.push(e.message); });
+  await stubFriendsCloud(p2, { friends: CREW, code: 'ABCD2345' });
+  await seed(p2, { todayMl: 1400, social: SOCIAL_ON, ui: { tip_news18: 1, tip_news17: 0, tip_news16: 0, tip_news15: 0, tip_news12: 0 } });
+  await p2.goto('/');
+  await expect(p2.locator('#view')).toBeVisible();
+  await expect(p2.locator('#tTips .tip')).toHaveCount(0);
   await p2.close();
 });
 
-test('dispensar o cartão de novidades (o X) não abre o painel, apaga o cartão e ele não volta; os cartões antigos (1.2, 1.5 e 1.6) nunca mais aparecem', async ({ page }) => {
-  await stubFriendsCloud(page);
-  await seed(page, { social: { on: false }, ui: { tip_news17: 0, tip_news16: 0, tip_news15: 0, tip_news12: 0 } }); // quem nunca dispensou nenhum dos quatro
+test('mexer na chave "Mostrar quanto passei da meta" já dispensa o cartão (quem a achou não precisa dele), e entrar na turma também', async ({ page }) => {
+  await stubFriendsCloud(page, { friends: CREW, code: 'ABCD2345' });
+  await seed(page, { todayMl: 1400, social: SOCIAL_ON, ui: { tip_news18: 0 } });
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('Novidades no Maré');
-  await page.getByRole('button', { name: 'Dispensar dica' }).click();
-  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
-  await expect(page.locator('#sheet')).toBeHidden();
-  const ui = (await stored(page)).ui;
-  expect(ui.tip_news17).toBe(1);
-  await page.reload();
-  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré'); // o de 1.2, o de 1.5 e o de 1.6 não ressurgem só porque ficaram em aberto
+  await expect(page.locator('#tTips .tip')).toContainText('Novidade na turma');
+  await tab(page, 'Ajustes').click();
+  await page.getByRole('switch', { name: 'Mostrar aos amigos quanto passei da meta' }).click();
+  expect((await stored(page)).ui.tip_news18).toBe(1);
+  await tab(page, 'Hoje').click();
+  await expect(page.locator('#tTips .tip')).toHaveCount(0);
+  // quem acabou de entrar na turma leu "O que a turma vê" e já nasce com o cartão dispensado
+  const p2 = await page.context().newPage();
+  p2.on('pageerror', (e) => { errors.push(e.message); });
+  await stubFriendsCloud(p2);
+  await seed(p2, { social: { on: false }, ui: { tip_news18: 0 } });
+  await p2.goto('/');
+  await tabF(p2).click();
+  await p2.getByRole('button', { name: 'Ativar amigos' }).click();
+  await expect(p2.locator('#toast')).toContainText('Amigos ativados');
+  expect((await stored(p2)).social.on).toBe(true);
+  expect((await stored(p2)).ui.tip_news18).toBe(1);
+  await p2.close();
 });
 
 test('layout: o painel de novidades e as medalhas do perfil cabem em qualquer tela', async ({ page }, info) => {
   const all = CREW.map((f) => (f.uid === UID.bia ? { uid: f.uid, prof: Object.assign({}, f.prof, { md: 16777215, md2: 63 }) } : f));
   await stubFriendsCloud(page, { friends: all, code: 'ABCD2345' });
-  await seed(page, { todayMl: 1400, social: SOCIAL_ON, medals: true, history: [30, 2800], ui: { tip_news17: 0 }, insignias: { concha: 30, estrela: 25, baiacu: 20, tartaruga: 12, cavalo: 3 } });
+  await seed(page, { todayMl: 1400, social: SOCIAL_ON, medals: true, history: [30, 2800], ui: { tip_news18: 0 }, insignias: { concha: 30, estrela: 25, baiacu: 20, tartaruga: 12, cavalo: 3 } });
   await page.goto('/');
   const over = async (n) => expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 'rolagem lateral em ' + n).toBeLessThanOrEqual(0);
   const shot = (n) => page.screenshot({ path: 'test-results/shots/' + info.project.name + ' - ' + n + '.png', fullPage: true });
@@ -1544,7 +1606,14 @@ test('layout: o painel de novidades e as medalhas do perfil cabem em qualquer te
   expect(wide, 'item de novidade mais largo que o painel').toBe(0);
   expect(sb && sb.width, 'painel mais largo que a tela').toBeLessThanOrEqual(page.viewportSize().width + 1);
   await shot('painel de novidades');
-  await sheet(page).getByRole('button', { name: 'Conhecer a turma' }).click();
+  await sheet(page).getByRole('button', { name: 'Escolher o que a turma vê' }).click(); // o painel leva a "Meu perfil", onde está a chave nova
+  await page.waitForTimeout(500);
+  await over('meu perfil aberto pelo painel de novidades');
+  await expect(sheet(page).locator('#sheetTitle')).toHaveText('Meu perfil');
+  await shot('meu perfil pelo painel de novidades');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#sheet')).toBeHidden();
+  await tabF(page).click();
   await page.waitForTimeout(500);
   await openFriend(page, UID.bia);
   await page.waitForTimeout(500);
@@ -1686,6 +1755,166 @@ test.describe('a % acima da meta (1.8.0)', () => {
     await page.locator('#view [data-action="fr-rank"][data-v="day"]').click();
     await expect(rank(page).locator('li.pd .pd-n')).toHaveText(['Bia', 'Caio', 'Você']);
     await expect(rows.locator('.fr-s').first()).toHaveText('Meta batida hoje 🎉'); // no ranking de Hoje o número já é o grande: a nota não repete
+  });
+});
+
+/* ---------- "Mostrar quanto passei da meta" (1.9.0) ---------- */
+// Quem não quer que a turma saiba quanto passou da meta (até a 1.8.0 só dava para esconder o progresso inteiro) desliga a chave: o perfil sai com a % em 100 e a turma vê só
+// "Meta batida hoje 🎉", como na 1.7.0. Ligada (o padrão) é a 1.8.0: a % de verdade, até 150%. A tela Hoje é só da pessoa e segue com o número real.
+// A chave não cria campo novo no perfil: é só um teto de 100 no número que já saía. Por isso não precisa de regra nova no Firebase (tests/rules/ cobre isso).
+test.describe('"Mostrar quanto passei da meta" (1.9.0)', () => {
+  const OVR = [ // a mesma turma da 1.8.0: Caio 150%, Bia 118%, Edu 102%, Duda 100% (app antigo) e Fê 60%
+    { uid: UID.caio, prof: { nm: 'Caio', mc: 'estrela', ins: ['concha', 'estrela'], pct: 150, met: true, st: 5 } },
+    { uid: UID.bia, prof: { nm: 'Bia', mc: 'tartaruga', ins: ['concha', 'estrela', 'baiacu', 'tartaruga'], pct: 118, met: true, st: 12 } },
+    { uid: UID.edu, prof: { nm: 'Edu', mc: 'concha', ins: ['concha'], pct: 102, met: true, st: 2 } },
+    { uid: UID.duda, prof: { nm: 'Duda', mc: 'cavalo', ins: ['concha'], pct: 100, met: true, st: 1 } },
+    { uid: UID.fe, prof: { nm: 'Fê', mc: 'baiacu', ins: ['concha'], pct: 60, st: 0 } },
+  ];
+  const KEYS = ['day', 'gl', 'ins', 'mc', 'md', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']; // os campos de sempre: a chave nunca vira campo do perfil
+  const SW = 'Mostrar aos amigos quanto passei da meta';
+  const SHARE = 'Mostrar meu progresso do dia aos amigos';
+  const mine = (page) => rank(page).locator('li.rk-r.me .rk-v b, li.pd.me .pd-s b').first(); // o número grande da minha linha (ou do meu lugar no pódio)
+  const heard = (page) => page.evaluate(() => window.__fake.touches); // quantas vezes o app avisou a nuvem de que o perfil mudou
+  // 2.800 ml é a meta do dia nos testes: 3.304 ml = 118%, 1.400 ml = 50%
+
+  test('Ajustes → Amigos: a chave vem ligada e explica os dois lados; desligar publica a % em 100 (met segue verdadeiro), sem campo novo, e a escolha fica guardada', async ({ page }) => {
+    await open(page, { friends: OVR }, { todayMl: 3304 });
+    expect(await payload(page)).toMatchObject({ pct: 118, met: true, sh: true });
+    await tab(page, 'Ajustes').click();
+    const sw = page.getByRole('switch', { name: SW });
+    await expect(page.getByText('Mostrar quanto passei da meta', { exact: true })).toBeVisible();
+    await expect(page.getByText('Ligado, seus amigos veem a porcentagem de verdade, até 150%. Desligado, veem só “Meta batida hoje”, sem saber quanto você passou.')).toBeVisible();
+    await expect(sw).toHaveAttribute('aria-checked', 'true'); // o padrão é a 1.8.0: a turma vê o número de verdade
+    const t0 = await heard(page);
+    await sw.click();
+    await expect(sw).toHaveAttribute('aria-checked', 'false');
+    expect((await stored(page)).social.over).toBe(false);
+    await expect.poll(() => heard(page), 'o perfil que a turma vê é enviado de novo').toBeGreaterThan(t0);
+    const p = await payload(page);
+    expect(p).toMatchObject({ pct: 100, met: true, sh: true });
+    expect(Object.keys(p).sort()).toEqual(KEYS);
+    expect(JSON.stringify(p)).not.toMatch(/over|3304|2800/);
+    await tab(page, 'Hoje').click();
+    await expect(page.locator('#view')).toContainText('118%'); // a tela Hoje é só da pessoa: o número real continua lá
+    await page.reload();
+    await expect(page.locator('#view')).toBeVisible();
+    await tab(page, 'Ajustes').click();
+    await expect(page.getByRole('switch', { name: SW })).toHaveAttribute('aria-checked', 'false'); // sobrevive a fechar e abrir o app
+    expect(await payload(page)).toMatchObject({ pct: 100, met: true });
+    await page.getByRole('switch', { name: SW }).click(); // e ligar de novo traz o número de volta
+    await expect(page.getByRole('switch', { name: SW })).toHaveAttribute('aria-checked', 'true');
+    expect(await payload(page)).toMatchObject({ pct: 118, met: true });
+    expect((await stored(page)).social.over).toBe(true);
+  });
+
+  test('Meu perfil: a mesma chave, com a nota certa para cada lado; o texto sob o avatar e a frase final mudam na hora, e o meu lugar no ranking acompanha', async ({ page }) => {
+    await open(page, { friends: OVR }, { todayMl: 3304 });
+    await expect(mine(page)).toHaveText('118%'); // o número grande do meu lugar no pódio (empatado em 2º com a Bia, que também tem 118%)
+    await page.getByRole('button', { name: 'Meu perfil' }).click();
+    const sw = () => sheet(page).getByRole('switch', { name: SW });
+    await expect(sheet(page).getByText('Mostrar quanto passei da meta', { exact: true })).toBeVisible();
+    await expect(sw()).toHaveAttribute('aria-checked', 'true');
+    await expect(sheet(page)).toContainText('Seus amigos veem a porcentagem de verdade, até 150%.');
+    await expect(sheet(page).locator('.fs-s')).toHaveText('Meta batida hoje\u00A0🎉 · 118%');
+    await expect(sheet(page)).toContainText('a porcentagem da meta de hoje (até 150%)');
+    await sw().click();
+    await expect(sw()).toHaveAttribute('aria-checked', 'false');
+    await expect(sheet(page).locator('.fs-s')).toHaveText('Meta batida hoje\u00A0🎉'); // sem o número: é o que a turma passa a ver
+    await expect(sheet(page)).toContainText('Desligado: seus amigos veem só “Meta batida hoje”, sem saber quanto você passou.');
+    await expect(sheet(page)).toContainText('a porcentagem da meta de hoje (só até 100%)');
+    expect(await payload(page)).toMatchObject({ pct: 100, met: true });
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#sheet')).toBeHidden();
+    await expect(mine(page)).toHaveText('100%'); // o meu lugar no ranking usa o mesmo número que os amigos veem
+    await page.getByRole('button', { name: 'Meu perfil' }).click();
+    await sw().click(); // ligar de novo
+    await expect(sheet(page).locator('.fs-s')).toHaveText('Meta batida hoje\u00A0🎉 · 118%');
+    await page.keyboard.press('Escape');
+    await expect(mine(page)).toHaveText('118%');
+  });
+
+  test('o ranking de Hoje: desligada a chave, eu valho 100 (os amigos me veem assim) e quem passou de 100 fica na minha frente; ligada, volto para o meu lugar', async ({ page }) => {
+    await open(page, { friends: OVR }, { todayMl: 3304 });
+    const rk = rank(page);
+    await expect(rk.locator('li.pd .pd-n')).toHaveText(['Caio', 'Bia', 'Você']); // Caio 150%+ em 1º; Bia e eu empatamos em 118% e dividimos o 2º lugar (no empate o pódio segue a ordem da lista: a sequência maior da Bia vem antes)
+    await tab(page, 'Ajustes').click();
+    await page.getByRole('switch', { name: SW }).click();
+    await tabF(page).click();
+    await expect(rk.locator('li.pd .pd-n')).toHaveText(['Bia', 'Caio', 'Edu']); // eu caí para 100: Edu (102%) passa na minha frente e, sem empate no pódio, ele volta à ordem 2º, 1º, 3º
+    const rows = rk.locator('ul.rk-l').first().locator('li.rk-r');
+    await expect(rows.locator('.rk-t b')).toHaveText([/^Ana/, 'Duda', 'Fê']); // eu e Duda empatamos em 100: a semana decide (eu bati a meta hoje; a Duda ainda não manda a semana)
+    await expect(rows.locator('.rk-v b')).toHaveText(['100%', '100%', '60%']);
+    await expect(rk.locator('li.pd.r2 .pd-s b')).toHaveText('118%'); // os amigos seguem como são: o corte é só no que EU publico
+    await expect(rk.locator('li.pd.r1 .pd-s b')).toHaveText('150%+');
+    await tab(page, 'Ajustes').click();
+    await page.getByRole('switch', { name: SW }).click();
+    await tabF(page).click();
+    await expect(rk.locator('li.pd .pd-n')).toHaveText(['Caio', 'Bia', 'Você']); // ligada de novo: de volta ao empate em 118%
+  });
+
+  test('quem está abaixo da meta não muda nada com a chave: o perfil sai idêntico', async ({ page }) => {
+    await open(page, { friends: OVR }, { todayMl: 1400 }); // 50%: ainda no caminho
+    const antes = await payload(page);
+    expect(antes).toMatchObject({ pct: 50, met: false });
+    await tab(page, 'Ajustes').click();
+    const sw = page.getByRole('switch', { name: SW });
+    await sw.click();
+    await expect(sw).toHaveAttribute('aria-checked', 'false');
+    expect(await payload(page)).toEqual(antes);
+  });
+
+  test('quem está exatamente na meta já saía com 100: a chave não muda o perfil', async ({ page }) => {
+    await open(page, { friends: OVR }, { todayMl: 2800 }); // 100% exatos, nem um gole a mais
+    const antes = await payload(page);
+    expect(antes).toMatchObject({ pct: 100, met: true });
+    await tab(page, 'Ajustes').click();
+    const sw = page.getByRole('switch', { name: SW });
+    await sw.click();
+    await expect(sw).toHaveAttribute('aria-checked', 'false');
+    expect(await payload(page)).toEqual(antes);
+  });
+
+  test('com o progresso em pausa a chave espera: nada de % sai, a nota avisa, a escolha fica guardada e, quando o progresso volta, já volta com o teto de 100', async ({ page }) => {
+    await open(page, { friends: OVR }, { todayMl: 3304, social: Object.assign({}, SOCIAL_ON, { share: false }) });
+    expect(await payload(page)).toMatchObject({ sh: false, pct: null, met: false });
+    await page.getByRole('button', { name: 'Meu perfil' }).click();
+    await expect(sheet(page)).toContainText('Vale quando o progresso do dia estiver ligado.');
+    await sheet(page).getByRole('switch', { name: SW }).click();
+    await expect(sheet(page).getByRole('switch', { name: SW })).toHaveAttribute('aria-checked', 'false');
+    await expect(sheet(page)).toContainText('Vale quando o progresso do dia estiver ligado.'); // com o progresso em pausa a nota segue sendo essa
+    expect(await payload(page)).toMatchObject({ sh: false, pct: null, met: false });
+    expect((await stored(page)).social.over).toBe(false);
+    await sheet(page).getByRole('switch', { name: SHARE }).click(); // o progresso volta
+    expect(await payload(page)).toMatchObject({ sh: true, pct: 100, met: true }); // e já sai com o teto de 100
+    await expect(sheet(page)).toContainText('Desligado: seus amigos veem só “Meta batida hoje”, sem saber quanto você passou.');
+  });
+
+  test('a chave de Ajustes e a de Meu perfil andam juntas', async ({ page }) => {
+    await open(page, { friends: OVR }, { todayMl: 3304 });
+    await page.getByRole('button', { name: 'Meu perfil' }).click();
+    await sheet(page).getByRole('switch', { name: SW }).click();
+    await page.keyboard.press('Escape');
+    await tab(page, 'Ajustes').click();
+    await expect(page.getByRole('switch', { name: SW })).toHaveAttribute('aria-checked', 'false'); // o que se fez no perfil aparece em Ajustes
+    await page.getByRole('switch', { name: SW }).click();
+    await tabF(page).click();
+    await page.getByRole('button', { name: 'Meu perfil' }).click();
+    await expect(sheet(page).getByRole('switch', { name: SW })).toHaveAttribute('aria-checked', 'true'); // e o contrário
+  });
+
+  test('sair da turma não religa o que a pessoa desligou: a escolha de privacidade é dela, e numa turma nova o perfil já sai com o teto de 100', async ({ page }) => {
+    await open(page, { friends: OVR }, { todayMl: 3304 });
+    await tab(page, 'Ajustes').click();
+    await page.getByRole('switch', { name: SW }).click();
+    await page.getByRole('button', { name: 'Sair', exact: true }).click();
+    await sheet(page).getByRole('button', { name: 'Sair', exact: true }).click();
+    await expect(toast(page)).toContainText('Você saiu da turma');
+    expect((await stored(page)).social).toMatchObject({ on: false, code: '', goal: null, over: false });
+    await tabF(page).click(); // entra de novo, numa turma que ainda não existe
+    await page.getByRole('button', { name: 'Ativar amigos' }).click();
+    await expect(toast(page)).toContainText('Amigos ativados');
+    expect(await lastPayload(page)).toMatchObject({ pct: 100, met: true });
+    expect((await stored(page)).social.over).toBe(false);
   });
 });
 

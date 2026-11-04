@@ -348,12 +348,13 @@ test('seus meses: tocar num quadradinho do calendário abre o dia, como no Hist�
   await expect(sheetOf(page).getByRole('button', { name: 'Adicionar registro' })).toBeVisible(); // o mesmo painel do Histórico: dá para acrescentar um registro
 });
 
-test('quem já usava o Maré ganha as medalhas novas de uma vez, sem chuva de cartões, com a data em que as merecia; o cartão de novidades conta', async ({ page }) => {
+test('quem já usava o Maré ganha as medalhas novas de uma vez, sem chuva de cartões, com a data em que as merecia; o painel de novidades conta', async ({ page }) => {
   // o estado da 1.6.x: 40 dias seguidos na meta, às 10h, e só as 24 medalhas daquela versão que estavam guardadas (as de 1.6.0 que o histórico cumpre ainda não foram dadas)
-  await seed(page, { history: [40, 2800], insignias: REEF5, medals: ['first', 'goal', 's3', 's7', 's14', 's30', 'sunset', 'd10', 'weekend'], ui: { tip_news17: 0 } });
+  // (o cartão de novidades da 1.9.0 é para quem está na turma: é por ele que se chega ao painel, que guarda também o que a 1.7.0 trouxe)
+  await stubFriendsCloud(page, { code: 'ABCD2345' });
+  await seed(page, { history: [40, 2800], insignias: REEF5, medals: ['first', 'goal', 's3', 's7', 's14', 's30', 'sunset', 'd10', 'weekend'], social: SOCIAL_ON, ui: { tip_news18: 0 } });
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('6 medalhas novas');
-  await expect(page.locator('#tTips .tip')).toContainText('o seu mês contra o anterior');
+  await expect(page.locator('#tTips .tip')).toContainText('Novidade na turma');
   await page.waitForTimeout(2500); // se houvesse cartão de medalha por causa da atualização, ele já estaria na tela
   await expect(page.locator('.medal-pop')).toHaveCount(0);
   await expect(page.locator('#sheet')).toBeHidden();
@@ -372,6 +373,7 @@ test('quem já usava o Maré ganha as medalhas novas de uma vez, sem chuva de ca
   await expect(sheetOf(page)).toContainText(/Você já conquistou [1-3] das novas, com a data em que as merecia\./); // o mês de Maré e, conforme o dia do teste, o Dia dos Oceanos ou o verão
   await expect(sheetOf(page)).toContainText('Seus meses');
   await expect(sheetOf(page)).toContainText('Medalhas na conta');
+  await expect(sheetOf(page)).toContainText('Elas também aparecem no seu perfil para a turma.');
   await sheetOf(page).getByRole('button', { name: 'Ver minhas medalhas' }).click();
   await expect(tab(page, 'Jornada')).toHaveAttribute('aria-current', 'page');
   await expect(medal(page, 'Trinta na meta')).not.toHaveClass(/off/);
@@ -390,73 +392,49 @@ test('quem já usava o Maré ganha as medalhas novas de uma vez, sem chuva de ca
   expect(again).toEqual(got);
   // e registrar água depois disso não faz chover cartão de medalha antiga
   await tab(page, 'Hoje').click();
-  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré'); // abrir o painel apagou o cartão (também depois de recarregar)
+  await expect(page.locator('#tTips')).not.toContainText('Novidade na turma'); // abrir o painel apagou o cartão (também depois de recarregar)
   const ui = (await stored(page)).ui;
-  expect([ui.tip_news17, ui.tip_news16, ui.tip_news15, ui.tip_news12]).toEqual([1, 1, 1, 1]);
+  expect([ui.tip_news18, ui.tip_news17, ui.tip_news16, ui.tip_news15, ui.tip_news12]).toEqual([1, 1, 1, 1, 1]);
   await cup(page, '250 ml').click();
   await page.waitForTimeout(1500);
   await expect(page.locator('.medal-pop')).toHaveCount(0);
   await page.reload();
   await expect(page.locator('#view')).toBeVisible();
-  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
+  await expect(page.locator('#tTips')).not.toContainText('Novidade na turma');
 });
 
-test('o cartão de novidades só fala da turma para quem mostra o progresso a ela, e dispensá-lo o apaga para sempre', async ({ page }) => {
-  // sem a turma ligada: nada sobre a turma, nem no cartão nem no painel
-  await seed(page, { history: [6, 2800], insignias: OCEAN, ui: { tip_news17: 0 } });
+test('o cartão de novidades (1.9.0) é da turma: quem não a usa, ou esconde o progresso dela, não o vê, e as medalhas ainda aparecem na Jornada sem ele', async ({ page }) => {
+  // sem a turma ligada: nada de cartão (o painel só abre por ele)
+  await seed(page, { history: [6, 2800], insignias: OCEAN, ui: { tip_news18: 0, tip_news17: 0 } }); // nem o cartão antigo (1.7.0) volta
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('6 medalhas novas');
-  await expect(page.locator('#tTips .tip')).not.toContainText('turma');
-  await page.locator('#tTips').getByRole('button', { name: 'Ver as novidades' }).click();
-  await expect(sheetOf(page)).toContainText('Veja o que cada uma pede, na Jornada.');
-  await expect(sheetOf(page)).not.toContainText('para a turma');
-  await expect(sheetOf(page).getByRole('button', { name: 'Ver minhas medalhas' })).toBeVisible();
-  await expect(sheetOf(page).getByRole('button', { name: 'Conhecer a turma' })).toBeVisible();
-  await expect(sheetOf(page).getByRole('button', { name: 'Depois' })).toBeVisible();
-  await expect(sheetOf(page)).toContainText('Das versões anteriores');
-  await expect(sheetOf(page)).toContainText('Quanto falta e seus padrões');
-  await expect(sheetOf(page)).toContainText('Mais cinco bichinhos no recife');
-  await sheetOf(page).getByRole('button', { name: 'Conhecer a turma' }).click();
-  await expect(page.locator('#tabbar').getByRole('button', { name: /^Amigos/ })).toHaveAttribute('aria-current', 'page');
-});
-
-test('o cartão de novidades: com a turma ligada e o progresso compartilhado ele avisa que as medalhas novas aparecem para a turma', async ({ page }) => {
-  await stubFriendsCloud(page, { code: 'ABCD2345' });
-  await seed(page, { history: [6, 2800], insignias: OCEAN, social: SOCIAL_ON, ui: { tip_news17: 0 } });
-  await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('As medalhas novas também aparecem para a turma.');
-  await page.locator('#tTips').getByRole('button', { name: 'Ver as novidades' }).click();
-  await expect(sheetOf(page)).toContainText('Elas também aparecem no seu perfil para a turma.');
-});
-
-test('o cartão de novidades: quem está na turma mas não compartilha o progresso não ouve falar de medalhas na turma', async ({ page }) => {
-  await stubFriendsCloud(page, { code: 'ABCD2345' });
-  await seed(page, { history: [6, 2800], insignias: OCEAN, social: Object.assign({}, SOCIAL_ON, { share: false }), ui: { tip_news17: 0 } });
-  await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('6 medalhas novas');
-  await expect(page.locator('#tTips .tip')).not.toContainText('turma');
-  // o painel também não promete a turma: com o progresso escondido, os amigos não veem as medalhas
-  await page.locator('#tTips').getByRole('button', { name: 'Ver as novidades' }).click();
-  await expect(sheetOf(page)).toContainText('Veja o que cada uma pede, na Jornada.');
-  await expect(sheetOf(page)).not.toContainText('para a turma');
-  await sheetOf(page).getByRole('button', { name: 'Depois' }).click();
-  await expect(page.locator('#sheet')).toBeHidden();
-  await page.reload();
   await expect(page.locator('#view')).toBeVisible();
-  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré'); // abrir o painel já tinha apagado o cartão
+  await expect(page.locator('#tTips')).not.toContainText('Novidade');
+  await expect(page.locator('#tTips .tip')).toHaveCount(0);
+  await tab(page, 'Jornada').click();
+  await expect(medal(page, 'Um mês de Maré')).toBeVisible(); // as medalhas novas seguem na Jornada
+  // na turma, mas com o progresso escondido: a novidade (a % de verdade, até 150%) não diz respeito a quem não mostra nada
+  const p2 = await page.context().newPage();
+  p2.on('pageerror', (e) => { errors.push(e.message); });
+  await stubFriendsCloud(p2, { code: 'ABCD2345' });
+  await seed(p2, { history: [6, 2800], insignias: OCEAN, social: Object.assign({}, SOCIAL_ON, { share: false }), ui: { tip_news18: 0 } });
+  await p2.goto('/');
+  await expect(p2.locator('#view')).toBeVisible();
+  await expect(p2.locator('#tTips .tip')).toHaveCount(0);
+  await p2.close();
 });
 
 test('o cartão de novidades: dispensar no "x" o apaga para sempre, sem abrir o painel', async ({ page }) => {
-  await seed(page, { history: [6, 2800], insignias: OCEAN, ui: { tip_news17: 0 } });
+  await stubFriendsCloud(page, { code: 'ABCD2345' });
+  await seed(page, { history: [6, 2800], insignias: OCEAN, social: SOCIAL_ON, ui: { tip_news18: 0 } });
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('Novidades no Maré');
+  await expect(page.locator('#tTips .tip')).toContainText('Novidade na turma');
   await page.locator('#tTips .tip').getByRole('button', { name: 'Dispensar dica' }).click();
-  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
+  await expect(page.locator('#tTips')).not.toContainText('Novidade na turma');
   await expect(page.locator('#sheet')).toBeHidden();
-  expect((await stored(page)).ui.tip_news17).toBe(1);
+  expect((await stored(page)).ui.tip_news18).toBe(1);
   await page.reload();
   await expect(page.locator('#view')).toBeVisible();
-  await expect(page.locator('#tTips')).not.toContainText('Novidades no Maré');
+  await expect(page.locator('#tTips')).not.toContainText('Novidade na turma');
 });
 
 test('importar um backup da 1.5 (só as medalhas antigas) já traz as medalhas novas que o histórico cumpre, em silêncio e com a data certa', async ({ page }) => {

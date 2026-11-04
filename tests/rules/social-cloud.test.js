@@ -1769,3 +1769,82 @@ describe('a % real de quem passou da meta (1.8.0): vai até 150 para os amigos e
     await swap.clearFirestore();
   });
 });
+
+/* ============================== "Mostrar quanto passei da meta" (1.9.0) ============================== */
+// Quem desliga a chave publica o perfil com a pct em 100 (e met verdadeiro): é o perfil da 1.7.0, que TODAS as regras já aceitam. Então a chave
+// não precisa de regras novas, nem de tentativa extra: com as regras de agora, com as da 1.7.0 e até com as da 1.1.x vai de primeira.
+describe('"Mostrar quanto passei da meta" desligado (1.9.0): a turma vê só "Meta batida hoje", sem regras novas e sem tentativa a mais', () => {
+  const profNew = async (uid) => (await seed((d) => getDoc(doc(d, 'profiles', uid)))).data();
+  const profOld17 = async (uid) => (await seedOld17((d) => getDoc(doc(d, 'profiles', uid)))).data();
+  const profOld = async (uid) => (await seedOld((d) => getDoc(doc(d, 'profiles', uid)))).data();
+  const friendOf = (p, uid) => p.sc.state().friends.filter((f) => f.uid === uid)[0];
+  const say = (p, uid) => statusText(liveOf(friendOf(p, uid), TODAY));
+  const spyFS = (log) => Object.assign({}, FS, { setDoc: function (ref) { if (String(ref.path).indexOf('profiles/') === 0) log.push(ref.path); return FS.setDoc.apply(FS, arguments); } });
+  test('com as regras de agora: 118% sai como 100 e o amigo vê só "Meta batida hoje"; ligar a chave de novo faz o 118% voltar para o amigo, e desligar o recolhe', async () => {
+    const ana = person('Ana', ANA), bru = person('Bruno', BRU);
+    ana.S.social.over = false; drink(ana, 2360); drink(bru, 1500);
+    await befriend(ana, bru);
+    expect(await profNew(ANA)).toMatchObject({ pct: 100, met: true });
+    expect(liveOf(friendOf(bru, ANA), TODAY)).toMatchObject({ kind: 'met', pct: 100 });
+    expect(say(bru, ANA)).toBe('Meta batida hoje\u00A0🎉');
+    ana.S.social.over = true; await ana.sc.publish(ana.payload()); // a pessoa liga a chave: a turma passa a ver o número de verdade
+    await until(() => friendOf(bru, ANA).pct === 118, 'o 118% chegou ao amigo');
+    expect(say(bru, ANA)).toBe('Meta batida hoje\u00A0🎉 · 118%');
+    ana.S.social.over = false; await ana.sc.publish(ana.payload()); // e desliga de novo: o número some para quem olha
+    await until(() => friendOf(bru, ANA).pct === 100, 'o número foi recolhido');
+    expect(say(bru, ANA)).toBe('Meta batida hoje\u00A0🎉');
+    expect(await profNew(ANA)).toMatchObject({ pct: 100, met: true });
+    expect(ana.sc.state().err).toBeFalsy(); expect(bru.sc.state().err).toBeFalsy();
+  });
+  test('o perfil que sai tem exatamente os campos de sempre (nenhum campo novo, nem a chave) e o resto fica igual ao de quem deixou a chave ligada', async () => {
+    const ana = person('Ana', ANA); ana.S.achievements = { first: 1, m1: 2 }; ana.S.social.goal = true; drink(ana, 2360);
+    ana.S.social.over = true; await join(ana);
+    const ligado = await profNew(ANA);
+    ana.S.social.over = false; await ana.sc.publish(ana.payload());
+    const desligado = await profNew(ANA);
+    expect(Object.keys(desligado).sort()).toEqual(Object.keys(ligado).sort());
+    expect(Object.keys(desligado).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'md', 'md2', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']);
+    expect(ligado).toMatchObject({ pct: 118, met: true, gl: 2000, wm: 1, md: 1, md2: 1 });
+    expect(desligado).toMatchObject({ pct: 100, met: true, gl: 2000, wm: 1, md: 1, md2: 1 }); // só a pct muda
+    expect(JSON.stringify(desligado)).not.toContain('over');
+  });
+  test('com as regras da 1.7.0 e com as da 1.1.x: vai de primeira (uma gravação só, sem a tentativa de reserva), e continuar bebendo além da meta não grava mais nada', async () => {
+    const v17 = [], v11 = [];
+    const g = person('Gil', ANA, { env: old17, FS: spyFS(v17) }); g.S.social.over = false; g.S.achievements = { first: 1, m1: 2 }; g.S.social.goal = true; drink(g, 9000);
+    await join(g);
+    expect(v17).toHaveLength(1); // sem a "reserva": o perfil já é o que as regras da 1.7.0 aceitam
+    expect(await profOld17(ANA)).toMatchObject({ pct: 100, met: true, gl: 2000, wm: 1, md: 1, md2: 1 }); // e inteiro: medalhas, semana e meta em ml
+    drink(g, 2011); await g.sc.publish(g.payload()); // 101% na conta, mas a turma já vê 100: nada mudou, nada a gravar (com a chave ligada seriam duas tentativas)
+    expect(g.payload()).toMatchObject({ pct: 100, met: true });
+    expect(v17).toHaveLength(1);
+    drink(g, 2100); await g.sc.publish(g.payload(), true); // forçando a gravação (o app faz isso ao abrir): uma tentativa só
+    expect(v17).toHaveLength(2);
+    expect(await profOld17(ANA)).toMatchObject({ pct: 100, met: true, md2: 1 });
+    expect(g.sc.state().err).toBeFalsy();
+    const b = person('Bia', BRU, { env: old, FS: spyFS(v11) }); b.S.social.over = false; drink(b, 2360); b.S.achievements = { first: 1 };
+    await b.sc.publish(b.payload(), true); // as da 1.1.x: sem gl, wm e md; ainda assim, o perfil de sempre
+    expect(await profOld(BRU)).toMatchObject({ pct: 100, met: true });
+    expect(v11.length).toBeGreaterThanOrEqual(1);
+  });
+  test('quem deixa a chave ligada continua como na 1.8.0 (a tentativa de reserva das regras da 1.7.0 segue valendo), e abaixo da meta ligar ou desligar não muda o perfil', async () => {
+    const v17 = [];
+    const g = person('Gil', ANA, { env: old17, FS: spyFS(v17) }); drink(g, 2360); // chave ligada (o padrão)
+    await join(g);
+    expect(v17).toHaveLength(2); // a completa (recusada pelas regras antigas) e a de reserva, com a pct em 100
+    const a = person('Ana', BRU); drink(a, 1500);
+    const ligado = a.payload(); a.S.social.over = false;
+    expect(a.payload()).toEqual(ligado); // abaixo da meta, ligada ou desligada, o perfil é o mesmo
+  });
+  test('quem desliga a chave e quem usa um app da 1.7.0 aparecem do mesmo jeito para o outro lado: "Meta batida hoje", sem número, sem erro', async () => {
+    const ana = person('Ana', ANA), bru = person('Bruno', BRU);
+    ana.S.social.over = false; drink(ana, 2360); // 118% escondido: publica 100
+    await befriend(ana, bru);
+    await seed(async (d) => { await setDoc(doc(d, 'profiles', BRU), { v: 1, nm: 'Bruno', mc: 'concha', ins: ['concha'], pct: 100, met: true, st: 1, day: TODAY, sh: true }); }); // o que um app da 1.7.0 grava
+    await until(() => friendOf(ana, BRU).met === true, 'o perfil do app antigo chegou');
+    expect(say(ana, BRU)).toBe('Meta batida hoje\u00A0🎉');
+    expect(say(bru, ANA)).toBe('Meta batida hoje\u00A0🎉');
+    expect(liveOf(friendOf(ana, BRU), TODAY)).toMatchObject({ kind: 'met', pct: 100 });
+    expect(liveOf(friendOf(bru, ANA), TODAY)).toMatchObject({ kind: 'met', pct: 100 });
+    expect(ana.sc.state().err).toBeFalsy(); expect(bru.sc.state().err).toBeFalsy();
+  });
+});

@@ -3,7 +3,7 @@
 // O firebase.js de verdade, as regras e o servidor são cobertos por tests/rules/ (npm run test:rules). Qualquer erro de JavaScript na página reprova.
 import { test, expect } from '@playwright/test';
 import { seed } from './helpers/seed.js';
-import { stubFriendsCloud } from './helpers/friends.js';
+import { stubFriendsCloud, SOCIAL_ON } from './helpers/friends.js';
 
 let errors = [];
 test.beforeEach(async ({ page }) => {
@@ -17,6 +17,10 @@ const sheet = (page) => page.locator('#sheetBody');
 const toast = (page) => page.locator('#toast');
 const stored = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('mare:v1')));
 const hint = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('mare:acct') || 'null'));
+// window.__acct só nasce quando o app liga a conta de mentira, um instante depois de abrir: quem mexe nela (ou lê o que ela guardou) logo depois de abrir espera
+// por ela (window.__fake nasce junto, na mesma chamada). Sem isso, um teste que age depressa demais cai com "Cannot read properties of undefined".
+// acct() devolve null quando ela ainda não existe (há testes que contam com isso, como os que esperam a nuvem subir): só quem vai usar o resultado espera antes.
+const acctUp = (page) => page.waitForFunction(() => !!window.__acct);
 const acct = (page) => page.evaluate(() => {
   const a = window.__acct;
   return a ? { user: a.user, calls: a.calls.slice(), sent: a.sent.slice(), resets: a.resets.slice(), users: Object.keys(a.users), linked: a.linked, detached: a.detached,
@@ -113,21 +117,21 @@ test.describe('sem conta', () => {
     await expect(page.getByRole('button', { name: 'Apagar', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Excluir', exact: true })).toHaveCount(0);
     await expect(page.locator('.about')).toContainText('a cópia na nuvem só volta com uma conta'); // sem conta, a cópia na nuvem não ajuda quem perde o aparelho
-    await expect(page.locator('.about')).toContainText('v1.8.0');
+    await expect(page.locator('.about')).toContainText('v1.9.0');
   });
 
   test('a dica da conta vem primeiro, só a partir do segundo dia; dispensar não tira o cartão de Ajustes', async ({ page }) => {
     // um dia só: ainda não há o que perder
     await stubFriendsCloud(page);
-    await seed(page, { todayMl: 500, ui: { tip_account: 0, tip_news17: 0 } });
+    await seed(page, { todayMl: 500, social: SOCIAL_ON, ui: { tip_account: 0, tip_news18: 0 } }); // o cartão de novidades da 1.9.0 é para quem está na turma
     await page.goto('/');
-    await expect(page.locator('.tip')).toContainText('Novidades no Maré');
+    await expect(page.locator('.tip')).toContainText('Novidade na turma');
     await page.evaluate(() => sessionStorage.clear());
     // dois dias ou mais: a dica da conta passa na frente das outras
     const p2 = await page.context().newPage();
     p2.on('pageerror', (e) => { errors.push(e.message); });
     await stubFriendsCloud(p2);
-    await seed(p2, { history: [2, 1500], todayMl: 500, ui: { tip_account: 0, tip_news17: 0 } });
+    await seed(p2, { history: [2, 1500], todayMl: 500, social: SOCIAL_ON, ui: { tip_account: 0, tip_news18: 0 } });
     await p2.goto('/');
     await expect(p2.locator('.tip')).toHaveCount(1);
     await expect(p2.locator('.tip')).toContainText('Proteja seus dados');
@@ -135,7 +139,7 @@ test.describe('sem conta', () => {
     await expect(sheet(p2).getByRole('heading', { name: 'Criar conta' })).toBeVisible();
     await p2.keyboard.press('Escape');
     await p2.getByRole('button', { name: 'Dispensar dica' }).click();
-    await expect(p2.locator('.tip')).toContainText('Novidades no Maré'); // a próxima da fila
+    await expect(p2.locator('.tip')).toContainText('Novidade na turma'); // a próxima da fila
     expect((await stored(p2)).ui.tip_account).toBe(1);
     await tabS(p2).click();
     await expect(p2.locator('.group', { hasText: 'Proteja seus dados' })).toBeVisible();
@@ -153,6 +157,7 @@ test.describe('sem conta', () => {
     await tabS(page).click();
     await staleTap(page);
     await expect(page.locator('#sheet')).toBeHidden();
+    await acctUp(page);
     expect((await acct(page)).calls).not.toContain('signIn');
   });
   test('um toque atrasado em "Já tenho conta" não abre a troca de conta quando a conta saiu do aparelho', async ({ page }) => {
@@ -278,6 +283,7 @@ test.describe('criar conta', () => {
     await page.locator('.group').getByRole('button', { name: 'Criar conta' }).click();
     await fill(page, EMAIL, PW);
     // a criação aconteceu no servidor, mas a chamada devolveu erro de rede: o login do aparelho já está na conta
+    await acctUp(page);
     await page.evaluate(() => {
       const A = window.__acct;
       const orig = A.chk;
@@ -312,6 +318,7 @@ test.describe('criar conta', () => {
     await openSettings(page);
     await page.locator('.group').getByRole('button', { name: 'Criar conta' }).click();
     await fill(page, EMAIL, PW);
+    await acctUp(page);
     await page.evaluate(() => { window.__acct.lat = 700; window.__acct.fail.create = 'auth/email-already-in-use'; });
     await primary(page).click();
     await page.keyboard.press('Escape'); // o painel fecha enquanto o botão ainda diz "Criando…"
@@ -346,7 +353,8 @@ test.describe('entrar', () => {
     expect(s.ui.tip_news12).toBe(1);
     expect(s.ui.tip_news15).toBe(1);
     expect(s.ui.tip_news16).toBe(1);
-    expect(s.ui.tip_news17).toBe(1); // quem chega pela conta não vê o cartão de novidades
+    expect(s.ui.tip_news17).toBe(1);
+    expect(s.ui.tip_news18).toBe(1); // quem chega pela conta não vê o cartão de novidades
     expect(await hint(page)).toEqual({ uid: MARI_UID, email: MARI, verified: true });
     expect((await acct(page)).user).toMatchObject({ uid: MARI_UID, email: MARI });
     await tabS(page).click();
@@ -543,6 +551,7 @@ test.describe('entrar', () => {
     await page.locator('.group').getByRole('button', { name: 'Já tenho conta' }).click();
     await fill(page, MARI, MARI_PW);
     // 1) a conferência da senha não chegou ao servidor
+    await acctUp(page);
     await page.evaluate(() => { window.__acct.fail.check = 'auth/network-request-failed'; });
     await primary(page).click();
     await expect(err(page)).toHaveText('Sem conexão com a internet. Confira a rede e tente de novo.');
@@ -663,6 +672,7 @@ test.describe('entrar', () => {
   test('"Apagar tudo" e logo "Entrar na conta", com a limpeza da nuvem ainda em andamento: o login só troca depois de a limpeza terminar', async ({ page }) => {
     const users = {}; users[MARI] = account();
     await openSettings(page, { acct: { users: users } }, {});
+    await acctUp(page);
     await page.evaluate(() => { window.__fake.wipeLat = 900; }); // a limpeza da nuvem (do login anônimo de agora) demora a terminar
     await page.getByRole('button', { name: 'Apagar', exact: true }).click();
     await sheet(page).getByRole('button', { name: 'Apagar tudo' }).click();
@@ -760,7 +770,7 @@ test.describe('com conta', () => {
     await withAccount(page, null, { verified: false });
     await page.goto('/');
     await tabS(page).click();
-    const asked = async () => (await acct(page)).calls.filter((c) => c === 'refresh').length;
+    const asked = async () => { const a = await acct(page); return a ? a.calls.filter((c) => c === 'refresh').length : 0; }; // 0 enquanto a conta de mentira não nasceu
     await expect.poll(asked).toBe(1); // ao abrir o app, uma conferência
     for (let i = 0; i < 3; i++) {
       await page.evaluate(() => { document.dispatchEvent(new Event('visibilitychange')); }); // o app volta ao primeiro plano
@@ -796,6 +806,7 @@ test.describe('com conta', () => {
     await withAccount(page, null, { verified: true });
     await page.goto('/');
     await tabS(page).click();
+    await acctUp(page);
     await page.evaluate(() => { window.__acct.fail.detach = 'mare/pending'; });
     await page.locator('.group', { has: page.locator('.acct-email') }).getByRole('button', { name: 'Sair' }).click();
     await sheet(page).getByRole('button', { name: 'Sair', exact: true }).click();
@@ -865,6 +876,7 @@ test.describe('com conta', () => {
       await page.locator('.group', { has: page.locator('.acct-email') }).getByRole('button', { name: 'Sair' }).click();
       await sheet(page).getByRole('button', { name: 'Sair', exact: true }).click();
     };
+    await acctUp(page);
     await page.evaluate(() => { window.__acct.fail.signOut = 'auth/network-request-failed'; });
     await sair();
     await expect(toast(page)).toContainText('Sem conexão com a internet');
@@ -882,6 +894,7 @@ test.describe('com conta', () => {
     await withAccount(page, null, { verified: true });
     await page.goto('/');
     await tabS(page).click();
+    await acctUp(page);
     await page.evaluate(() => { window.__acct.lat = 600; }); // cada passo do servidor demora: a saída leva mais de 1 s
     await page.locator('.group', { has: page.locator('.acct-email') }).getByRole('button', { name: 'Sair' }).click();
     await sheet(page).getByRole('button', { name: 'Sair', exact: true }).click();
@@ -974,6 +987,7 @@ test.describe('com conta', () => {
     await tabS(page).click();
     await page.getByRole('button', { name: 'Excluir', exact: true }).click();
     await fill(page, null, PW);
+    await acctUp(page);
     await page.evaluate(() => { window.__fake.fail.leave = 'unavailable'; });
     await primary(page).click();
     await expect(err(page)).toHaveText('Não consegui sair da turma agora, então nada mudou. Confira a internet e tente de novo.');
@@ -996,6 +1010,7 @@ test.describe('com conta', () => {
     await page.goto('/');
     await tabS(page).click();
     await page.getByRole('button', { name: 'Excluir', exact: true }).click();
+    await acctUp(page);
     await page.evaluate(() => { window.__acct.fail.wipe = 'unavailable'; });
     await fill(page, null, PW);
     await primary(page).click();
@@ -1016,6 +1031,7 @@ test.describe('com conta', () => {
     await tabS(page).click();
     await page.getByRole('button', { name: 'Excluir', exact: true }).click();
     await fill(page, null, PW);
+    await acctUp(page);
     await page.evaluate(() => { window.__acct.fail.deleteUser = 'auth/network-request-failed'; });
     await primary(page).click();
     await expect(err(page)).toContainText('A sua turma já tinha saído da nuvem');
@@ -1163,6 +1179,7 @@ test.describe('com conta', () => {
     days[dkey(12)] = metDay(dkey(12), 'bk12', 5); // um dia novo, para o aviso contar (as datas das medalhas não mexem no aviso)
     const data = { v: 1, onboarded: true, profile: { name: 'Outra Pessoa', weight: 99, theme: 'dark' }, days: days, achievements: { first: olderFirst, goal: laterGoal, crew: crewAt, nope: crewAt } };
     const file = { name: 'mare-backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ app: 'mare', v: 1, data: data })) };
+    await acctUp(page);
     const synced = (await acct(page)).prefsSynced;
     const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'Importar' }).click()]);
     await chooser.setFiles(file);

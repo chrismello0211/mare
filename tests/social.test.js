@@ -270,6 +270,50 @@ describe('o que vai para a nuvem (profilePayload)', () => {
     expect(at(1500, 3000)).toBe(50); // a meta é a do dia
     expect(SO.profilePayload(state({ days: {} }), T).pct).toBe(0);
   });
+  it('"Mostrar quanto passei da meta" desligado (1.9.0): a % para em 100 e o resto do perfil não muda (met continua verdadeiro)', () => {
+    const at = (ml, over, goal) => SO.profilePayload(state({ days: { [T]: dayWith(ml, goal) }, social: { over: over } }), T);
+    // varre o dia inteiro, de 0 a 4 L, e as bordas da meta: ligado é a 1.8.0; desligado é o mesmo perfil com a % cortada em 100
+    const mls = [0, 1, 999, 1990, 1999, 2000, 2009, 2011, 2369, 2371, 2989, 2991, 3000, 3001, 9999];
+    for (let ml = 0; ml <= 4000; ml += 7) mls.push(ml);
+    mls.forEach((ml) => {
+      const full = at(ml, true), cut = at(ml, false);
+      expect(cut, ml + ' ml').toEqual(Object.assign({}, full, { pct: Math.min(100, full.pct) }));
+      expect(cut.pct).toBeLessThanOrEqual(100);
+      expect(cut.met).toBe(full.met); // quem bateu a meta continua batendo: aparece "Meta batida hoje", só não diz quanto passou
+    });
+    expect(at(2360, false)).toMatchObject({ pct: 100, met: true });
+    expect(at(8000, false)).toMatchObject({ pct: 100, met: true });
+    expect(at(1999, false)).toMatchObject({ pct: 99, met: false }); // abaixo da meta, nada muda
+    expect(at(2360, false, 3000).pct).toBe(78); // a meta é a do dia
+  });
+  it('a chave nova nunca vira campo do perfil: o que sai tem as mesmas chaves, ligada ou desligada (as regras do servidor têm lista fechada)', () => {
+    const days = { [T]: dayWith(2360) };
+    const on = SO.profilePayload(state({ days: days, social: { over: true } }), T), off = SO.profilePayload(state({ days: days, social: { over: false } }), T);
+    expect(Object.keys(off).sort()).toEqual(Object.keys(on).sort());
+    expect(JSON.stringify(off)).not.toContain('over');
+    expect(off.pct).toBe(100); expect(on.pct).toBe(118);
+  });
+  it('só o false de verdade corta: ausente, null, 0 ou texto valem como ligado (como o progresso do dia)', () => {
+    const at = (over) => SO.profilePayload(state({ days: { [T]: dayWith(2360) }, social: { over: over } }), T).pct;
+    [undefined, null, true, 0, 1, '', 'false', 'no'].forEach((v) => expect(at(v), String(v)).toBe(118));
+    expect(at(false)).toBe(100);
+    const S = state({ days: { [T]: dayWith(2360) } }); delete S.social.over; expect(SO.profilePayload(S, T).pct).toBe(118);
+    const T0 = state({ days: { [T]: dayWith(2360) } }); delete T0.social; expect(SO.profilePayload(T0, T).pct).toBe(118); // sem objeto social (backup antigo)
+  });
+  it('em pausa (progresso desligado) a % continua sendo nula, com a chave ligada ou desligada', () => {
+    [true, false].forEach((over) => expect(SO.profilePayload(state({ days: { [T]: dayWith(2360) }, social: { share: false, over: over } }), T)).toMatchObject({ pct: null, met: false, sh: false }));
+  });
+  it('pctCap: só corta em 100 quando a chave está desligada, e nunca aumenta nada', () => {
+    expect(SO.pctCap({ over: false }, 118)).toBe(100);
+    expect(SO.pctCap({ over: false }, 150)).toBe(100);
+    expect(SO.pctCap({ over: false }, 100)).toBe(100);
+    expect(SO.pctCap({ over: false }, 99)).toBe(99);
+    expect(SO.pctCap({ over: false }, 0)).toBe(0);
+    expect(SO.pctCap({ over: true }, 118)).toBe(118);
+    expect(SO.pctCap({}, 150)).toBe(150);
+    expect(SO.pctCap(undefined, 150)).toBe(150);
+    expect(SO.pctCap(null, 120)).toBe(120);
+  });
   it('o número do perfil é o da tela Hoje (Math.round) sempre que a meta foi batida, e nunca passa de 150', () => {
     for (let ml = 2000; ml <= 3400; ml += 7) {
       const p = SO.profilePayload(state({ days: { [T]: dayWith(ml) } }), T);
@@ -332,6 +376,13 @@ describe('o que vai para a nuvem (profilePayload)', () => {
   it('não usa "state.social" sozinho: sem objeto social, ainda funciona (backup antigo)', () => {
     const S = state(); delete S.social;
     expect(SO.profilePayload(S, T)).toMatchObject({ nm: 'Amigo', sh: true });
+  });
+  it('mexer na chave "quanto passei da meta" republica o perfil só quando muda o que a turma vê', () => {
+    const p = (ml, over) => SO.profilePayload(state({ days: { [T]: dayWith(ml) }, social: { over: over } }), T);
+    expect(SO.samePayload(p(2360, true), p(2360, false))).toBe(false); // 118 → 100: precisa publicar
+    expect(SO.samePayload(p(2360, false), p(2360, true))).toBe(false); // e de volta
+    expect(SO.samePayload(p(2000, true), p(2000, false))).toBe(true); // na meta exata já era 100: nada a publicar
+    expect(SO.samePayload(p(1000, true), p(1000, false))).toBe(true); // abaixo da meta, idem
   });
   it('samePayload compara só o que importa', () => {
     const a = SO.profilePayload(state({ days: { [T]: dayWith(500) } }), T);
@@ -778,6 +829,31 @@ describe('turma única: a semana, o ranking e o pódio (1.2.0)', () => {
       expect(SO.myMember(state({ days: { [T]: dayWith(9000, 2000) }, social: { share: false } }), T).live).toMatchObject({ kind: 'met', pct: 150 });
       expect(SO.myLive(state({ days: { [T]: dayWith(2360, 2000) }, social: { share: false } }), T)).toMatchObject({ kind: 'met', pct: 118 });
     });
+    it('com a chave desligada o amigo vê "Meta batida hoje" sem número, igual ao de um app da 1.7.0, e quem está abaixo da meta segue como era', () => {
+      const via = (ml, over) => SO.liveOf(SO.cleanFriend(U('bruno'), SO.profilePayload(state({ days: { [T]: dayWith(ml) }, social: { over: over } }), T), null, ANA), T);
+      [2000, 2360, 3000, 8000].forEach((ml) => {
+        expect(via(ml, false), ml + ' ml').toMatchObject({ kind: 'met', pct: 100 });
+        expect(SO.statusText(via(ml, false)), ml + ' ml').toBe('Meta batida hoje\u00A0🎉'); // sem " · 118%"
+      });
+      expect(SO.statusText(via(2360, true))).toBe('Meta batida hoje\u00A0🎉 · 118%'); // ligada: a 1.8.0
+      expect(via(1500, false)).toMatchObject({ kind: 'going', pct: 75 });
+      expect(via(0, false)).toMatchObject({ kind: 'idle', pct: 0 });
+      const v17 = SO.cleanFriend(U('bruno'), { v: 1, nm: 'Bruno', mc: 'polvo', ins: [], pct: 100, met: true, st: 1, day: T, sh: true }, null, ANA); // o que um app da 1.7.0 publica
+      expect(SO.liveOf(v17, T)).toEqual(via(2360, false));
+    });
+    it('meu próprio lugar segue o que os amigos veem: com a chave desligada eu valho 100 no ranking de Hoje, na ficha do meu perfil e no anel', () => {
+      const me = (over, share) => SO.myMember(state({ days: { [T]: dayWith(2360) }, social: { over: over, share: share } }), T);
+      expect(me(true).live).toMatchObject({ kind: 'met', pct: 118 });
+      expect(me(false).live).toMatchObject({ kind: 'met', pct: 100 });
+      expect(me(false, false).live).toMatchObject({ kind: 'met', pct: 100 }); // mesmo em pausa, eu me vejo como a turma me veria
+      expect(SO.myLive(state({ days: { [T]: dayWith(2360) }, social: { over: false } }), T)).toMatchObject({ kind: 'met', pct: 100 });
+      expect(SO.statusText(SO.myLive(state({ days: { [T]: dayWith(2360) }, social: { over: false } }), T))).toBe('Meta batida hoje\u00A0🎉');
+      expect(SO.ringOf(me(false).live)).toEqual({ pct: 100, cls: 'met' });
+      // a tela Hoje não é do ranking: lá a % real continua (ela é só minha). Aqui o que muda é o que o perfil publica
+      const S = state({ days: { [T]: dayWith(2360) }, social: { over: false } });
+      expect(Math.round((2360 / 2000) * 100)).toBe(118); expect(SO.profilePayload(S, T).pct).toBe(100);
+      expect(S.social.over).toBe(false); // e nada disso mexe no estado
+    });
     it('ida e volta: o que o app manda é o que o amigo vê (118% fica 118%, o teto fica 150) e um perfil de app antigo (100) segue valendo 100', () => {
       const via = (ml) => SO.liveOf(SO.cleanFriend(U('bruno'), SO.profilePayload(state({ days: { [T]: dayWith(ml) } }), T), null, ANA), T);
       expect(via(2360)).toMatchObject({ kind: 'met', pct: 118 });
@@ -807,6 +883,15 @@ describe('turma única: a semana, o ranking e o pódio (1.2.0)', () => {
       expect(names(r.ranked)).toEqual(['Edu', 'Gabi', 'Ana', 'Bia', 'Caio', 'Duda']);
       expect(r.ranked.map((x) => x.v)).toEqual([150, 150, 118, 105, 100, 99]);
       expect(r.ranked.map((x) => x.rank)).toEqual([1, 1, 3, 4, 5, 6]);
+    });
+    it('Hoje, com a chave desligada: eu valho 100 (como os amigos me veem), então quem passou de 100 fica na minha frente e o resto da ordem é o de sempre', () => {
+      const me = (over) => SO.myMember(state({ days: { [T]: dayWith(2360) }, social: { over: over, nick: 'Chris' } }), T);
+      const bia = mk('Bia', { met: true, pct: 105 }), caio = mk('Caio', { met: true, pct: 100 }), duda = mk('Duda', { pct: 99 });
+      expect(names(board([me(true), bia, caio, duda], 'day').ranked)).toEqual(['Chris', 'Bia', 'Caio', 'Duda']); // 118 vence
+      expect(names(board([me(false), bia, caio, duda], 'day').ranked)).toEqual(['Bia', 'Chris', 'Caio', 'Duda']); // 100 empata com o Caio, depois do 105 da Bia
+      const r = board([me(false), bia, caio, duda], 'day');
+      expect(r.ranked.map((x) => x.v)).toEqual([105, 100, 100, 99]);
+      expect(r.ranked.map((x) => x.rank)).toEqual([1, 2, 2, 4]);
     });
     it('Hoje: 150 é o teto, então 150 e 1000 (que a limpeza leva a 150) empatam, e a sequência desempata', () => {
       const a = mk('Ana', { met: true, pct: 1000, st: 1 }), b = mk('Bia', { met: true, pct: 150, st: 5 });

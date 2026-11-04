@@ -19,7 +19,12 @@ import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inv
 import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs, achAhead } from './account.js';
 import { createSheet, signinSheet, resetSheet, resetDoneSheet, deleteSheet } from './account-view.js';
 
-export const APP_VERSION = '1.8.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.9.0'; // aumente a cada deploy, junto com VERSION no sw.js
+
+// Os cartões de novidades: só o mais novo (tip_news18, da 1.9.0) aparece; os de antes (1.2, 1.5, 1.6 e 1.7) já não voltam, mas ficam marcados como vistos
+// sempre que a pessoa vê o de agora, abre o painel, começa do zero ou chega por uma conta.
+const NEWS_TIPS = ['tip_news12', 'tip_news15', 'tip_news16', 'tip_news17', 'tip_news18'];
+function seeNews() { NEWS_TIPS.forEach((k) => { S.ui[k] = 1; }); }
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'friends', 'settings'];
 const HHMM = /^\d{2}:\d{2}$/, DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -181,7 +186,7 @@ function finishOb() {
   S.onboarded = true;
   ob = null;
   if (n) hBack(n); // remove as entradas do onboarding: "voltar" na tela Hoje sai do app
-  S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; S.ui.tip_news16 = 1; S.ui.tip_news17 = 1; // quem está começando agora já nasce com tudo: a dica de novidades é só para quem já usava
+  seeNews(); // quem está começando agora já nasce com tudo: a dica de novidades é só para quem já usava
   grantInsignias(false); // a concha (0 L) vem de presente, sem festa
   syncTodayGoal(); save();
   tab = 'today';
@@ -980,7 +985,7 @@ async function joinFriends(el) {
   try {
     const s = await connectSoc(20000); // se a nuvem estava fora, tenta subi-la de novo uma vez
     const code = await guard(s.join({ payload: profilePayload(S, today()), code: S.social.code }), 25000);
-    S.social.on = true; S.social.code = code; save();
+    S.social.on = true; S.social.code = code; S.ui.tip_news18 = 1; save(); // quem entra agora leu "O que a turma vê" e achou a chave: o cartão de novidades da turma não é para ele
     ensurePush(); // com a permissão já dada, o aparelho passa a receber os avisos dos amigos
     SOC.st = s.state(); SOC.mode = 'ready'; frSig = '';
     s.start({ payload: socPayload });
@@ -1009,6 +1014,20 @@ function toggleShare() {
   if (!S.social.on) return;
   socTouch();
   if (sheetIsOpen() && $('#frNm', sheetBody)) openSheet(profileSheet()); // o texto sob o avatar muda junto
+}
+// "Mostrar quanto passei da meta" (1.9.0): desligado, o perfil sai com a % travada em 100 e a turma vê só "Meta batida hoje" (as regras e os aparelhos
+// antigos já aceitam isso). Quem achou a chave não precisa mais do cartão de novidades que a apresenta.
+function toggleOver() {
+  S.social.over = S.social.over === false;
+  S.ui.tip_news18 = 1;
+  save(); haptic('light');
+  const on = S.social.over !== false;
+  $$('[data-action="fr-over"]').forEach((x) => { x.setAttribute('aria-checked', on ? 'true' : 'false'); });
+  refreshPart('tTips');
+  if (!S.social.on) return;
+  socTouch(); // o perfil sai de novo, com a % de verdade ou travada em 100
+  if (sheetIsOpen() && $('#frNm', sheetBody)) openSheet(profileSheet()); // o texto sob o avatar e a nota da chave mudam junto
+  if (tab === 'friends') render(true); // o meu lugar no ranking usa a mesma % que os amigos veem
 }
 // A meta em ml só vai para a turma com um "sim" explícito (S.social.goal === true). null = ainda não escolheu (o cartão da aba Amigos pergunta)
 function setGoalShare(on) {
@@ -1366,7 +1385,7 @@ function applyAccount(u, data) {
   grantMedals(); // conquistas antigas que só o histórico mostra: sem festa, datadas pelo dia em que o histórico as cumpriu
   grantInsignias(false); // as insígnias dos registros (delas sai o mascote automático)
   const done = applyPlan(S, plan);
-  S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; S.ui.tip_news16 = 1; S.ui.tip_news17 = 1; // quem chega pela conta não precisa da dica de novidades
+  seeNews(); // quem chega pela conta não precisa da dica de novidades
   applyMix();
   setAcct(u);
   if (done) {
@@ -1583,13 +1602,13 @@ const A = {
   ins: (el, d) => { openSheet(insigniaSheet(d.id)); animBars(sheetBody); },
   mascot: (el, d) => setMascot(d.id),
   reef: () => { closeSheet(); go('journey'); },
-  news: () => { S.ui.tip_news12 = 1; S.ui.tip_news15 = 1; S.ui.tip_news16 = 1; S.ui.tip_news17 = 1; save(); refreshPart('tTips'); openSheet(newsSheet()); }, // abrir o painel dispensa o cartão (o de agora e os antigos)
+  news: () => { seeNews(); save(); refreshPart('tTips'); openSheet(newsSheet()); }, // abrir o painel dispensa o cartão (o de agora e os antigos)
   'news-go': () => { closeSheet(); go('journey'); },
-  'news-friends': () => { closeSheet(); go('friends'); },
   // amigos
   'fr-intro': () => go('friends'),
   'fr-join': (el) => joinFriends(el),
   'fr-share': () => toggleShare(),
+  'fr-over': () => toggleOver(),
   'fr-skip': () => { delete S.ui.invite; frInv = null; save(); paintInvite(); },
   'fr-invite': () => inviteShare(),
   'fr-copy': () => inviteCopy(),

@@ -36,7 +36,7 @@ export async function seed(page, o) {
       goal: { mode: 'manual', manual: 2800, climate: false, bonus: 0, temp: null, day: '' },
       cups: [150, 250, 350, 500], last: opt.last || 'water', reminders: Object.assign({ enabled: false, interval: 90, smart: true, nextAt: 0 }, opt.reminders || {}),
       days: days, achievements: ach, missions: mis, insignias: ins, social: Object.assign({ on: false, nick: '', share: true, code: '' }, opt.social || {}),
-      ui: Object.assign({ tip_install: 1, tip_climate: 1, tip_news12: 1, tip_news15: 1, tip_news16: 1, tip_news17: 1, tip_account: 1 }, opt.ui || {}), // tip_account: 1 = a dica da conta (1.3.0) já foi dispensada; tip_news17: 1 = o cartão de novidades (1.7.0) também (os testes do cartão passam tip_news17: 0)
+      ui: Object.assign({ tip_install: 1, tip_climate: 1, tip_news12: 1, tip_news15: 1, tip_news16: 1, tip_news17: 1, tip_news18: 1, tip_account: 1 }, opt.ui || {}), // tip_account: 1 = a dica da conta (1.3.0) já foi dispensada; tip_news18: 1 = o cartão de novidades da turma (1.9.0) também (os testes do cartão passam tip_news18: 0; os de antes, 12 a 17, já não aparecem)
     }));
   }, o || {});
 }

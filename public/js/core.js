@@ -640,6 +640,7 @@ export const uid = () => Date.now().toString(36) + Math.random().toString(36).sl
 // on = ativou os amigos; nick = nome que os amigos veem; share = mostra o progresso do dia; code = código de convite atual;
 // push = "Avisos dos amigos" (pedido, aceite e aceno chegam como notificação; começa ligado, mas só vale com a permissão de notificação);
 // goal = mostra a meta do dia em ml para a turma (null = ainda não decidiu, e então não mostra; true/false = a escolha da pessoa);
+// over = mostra quanto passou da meta (1.9.0): ligado (o padrão, como na 1.8.0), a turma vê a % de verdade, até 150%; desligado, a % para em 100 ("Meta batida");
 // hit = avisa quando alguém da turma bate a meta (começa desligado: é escolha de quem quer); week = resumo da turma no domingo à noite
 // (começa ligado, mas, como todo aviso, só chega com push ligado e a permissão de notificação).
 export function defaults(createdAt) {
@@ -649,7 +650,7 @@ export function defaults(createdAt) {
     goal: { mode: 'auto', manual: 2500, climate: false, bonus: 0, temp: null, day: '' },
     cups: [150, 250, 350, 500], last: 'water', lastO: 'coffee',
     reminders: { enabled: false, interval: 90, smart: true, nextAt: 0 },
-    days: {}, achievements: {}, missions: {}, insignias: {}, social: { on: false, nick: '', share: true, code: '', push: true, goal: null, hit: false, week: true }, ui: {},
+    days: {}, achievements: {}, missions: {}, insignias: {}, social: { on: false, nick: '', share: true, over: true, code: '', push: true, goal: null, hit: false, week: true }, ui: {},
   };
 }
 export function migrate(s) {
@@ -665,6 +666,7 @@ export function migrate(s) {
   sc.on = sc.on === true;
   sc.nick = typeof sc.nick === 'string' ? sc.nick.slice(0, 20) : '';
   sc.share = sc.share !== false;
+  sc.over = sc.over !== false;
   sc.push = sc.push !== false;
   sc.goal = sc.goal === true ? true : sc.goal === false ? false : null;
   sc.hit = sc.hit === true;

@@ -152,7 +152,7 @@ export function prefsSnapshot(S) {
     cups: S.cups.slice(0, 4),
     last: S.last, lastO: S.lastO,
     reminders: { interval: r.interval, smart: r.smart !== false },
-    social: { on: c.on === true, nick: c.nick || '', share: c.share !== false, goal: c.goal === true ? true : c.goal === false ? false : null,
+    social: { on: c.on === true, nick: c.nick || '', share: c.share !== false, over: c.over !== false, goal: c.goal === true ? true : c.goal === false ? false : null,
       push: c.push !== false, hit: c.hit === true, week: c.week !== false },
     ach: ach,
     ui: ui,
@@ -193,8 +193,10 @@ export function cleanPrefs(o) {
   const l = drink(src.last), lo = drink(src.lastO);
   const iv = +sr.interval;
   const reminders = { interval: [45, 60, 90, 120].indexOf(iv) >= 0 ? iv : D.reminders.interval, smart: sr.smart !== false };
-  const social = { on: ss.on === true, nick: cleanNick(ss.nick), share: ss.share !== false, goal: ss.goal === true ? true : ss.goal === false ? false : null,
-    push: ss.push !== false, hit: ss.hit === true, week: ss.week !== false };
+  // over (1.9.0) é a única escolha de privacidade que pode faltar: o backup de um aparelho na 1.8.0 ou antes não a traz. Faltando, fica null ("a nuvem não diz")
+  // e applyPrefs mantém a escolha que este aparelho já tem, em vez de ligar de volta algo que a pessoa desligou.
+  const social = { on: ss.on === true, nick: cleanNick(ss.nick), share: ss.share !== false, over: ss.over === true ? true : ss.over === false ? false : null,
+    goal: ss.goal === true ? true : ss.goal === false ? false : null, push: ss.push !== false, hit: ss.hit === true, week: ss.week !== false };
   if (src.ui && typeof src.ui === 'object') {
     Object.keys(src.ui).slice(0, 60).forEach((k) => { if (/^tip_[A-Za-z0-9_]{1,24}$/.test(k) && src.ui[k]) ui[k] = 1; });
     if (src.ui.frRank) ui.frRank = rankId(src.ui.frRank);
@@ -237,7 +239,7 @@ export function applyPrefs(S, p, mode) {
   S.last = p.last; S.lastO = p.lastO;
   S.reminders.interval = p.reminders.interval; S.reminders.smart = p.reminders.smart;
   const keepOn = mode === 'sync';
-  Object.keys(p.social).forEach((k) => { if (!(keepOn && k === 'on')) S.social[k] = p.social[k]; });
+  Object.keys(p.social).forEach((k) => { if (!(keepOn && k === 'on') && !(k === 'over' && p.social[k] == null)) S.social[k] = p.social[k]; });
   Object.keys(p.ui).forEach((k) => { S.ui[k] = p.ui[k]; });
   if (p.createdAt && (!S.createdAt || p.createdAt < S.createdAt)) S.createdAt = p.createdAt;
   mergeAch(S.achievements, p.ach); // as medalhas da conta entram com a data em que saíram de verdade; as que só aqui existem ficam (de cada uma vale a data mais antiga)

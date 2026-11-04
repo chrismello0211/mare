@@ -2,7 +2,7 @@
 // Quem muda o estado e conversa com a nuvem é o app.js. Contrato de cliques (data-action): fr-join, fr-share, fr-invite, fr-copy, fr-code,
 // fr-find, fr-send, fr-back, fr-accept, fr-decline, fr-decline-all, fr-cancel, fr-open, fr-wave, fr-profile, fr-mascot, fr-about,
 // fr-newcode, fr-leave, fr-retry, fr-intro, fr-alerts (avisos por notificação, 1.1.1), fr-rank (visão do ranking: data-v = day, week ou streak),
-// fr-goal, fr-goal-on, fr-goal-off (a meta em ml aparece para a turma), fr-hit e fr-week (avisos opcionais, 1.2.0).
+// fr-goal, fr-goal-on, fr-goal-off (a meta em ml aparece para a turma), fr-over (mostrar quanto passou da meta, 1.9.0), fr-hit e fr-week (avisos opcionais, 1.2.0).
 // Campos: #frNick (entrada), #frNickIn (data-field="nick", no perfil), #frCode (código de convite).
 // Princípios (guardados por tests/social.test.js): a turma é uma só e tem ranking (decisão do dono na 1.2.0); a meta em ml só aparece se a pessoa
 // deixar; nunca os litros bebidos nem os horários; textos sempre positivos (ninguém é "o último": quem não entra na conta fica numa lista à parte).
@@ -236,7 +236,7 @@ function introView(ctx) {
     feat('🔒', 'Só entra quem aceita', 'Ninguém aparece para a turma sem aceitar um convite, e você sai quando quiser.') +
     feat('👋', 'Acenos e parabéns', 'Mande um incentivo para quem está se esforçando ou bateu a meta.') + '</ul>' +
     '<section class="card see"><div class="card-h"><h2>O que a turma vê</h2></div>' +
-    '<p class="see-k ok">Veem</p><p class="see-t">Seu apelido, seu mascote e suas insígnias (marcos, nunca o total de litros), a porcentagem da meta de hoje (até 150%), sua sequência, quais dos últimos 7 dias você bateu a meta e as medalhas que você conquistou.</p>' +
+    '<p class="see-k ok">Veem</p><p class="see-t">Seu apelido, seu mascote e suas insígnias (marcos, nunca o total de litros), a porcentagem da meta de hoje (até 150%, ou só até 100% se você preferir), sua sequência, quais dos últimos 7 dias você bateu a meta e as medalhas que você conquistou.</p>' +
     '<p class="see-k">Só se você deixar</p><p class="see-t">A sua meta do dia em ml. Com ela e a porcentagem dá para estimar quanto você bebeu, por isso o Maré pergunta antes.</p>' +
     '<p class="see-k no">Nunca veem</p><p class="see-t">Os registros de cada gole, os horários, seu peso, sua localização e seu nome completo.</p></section>' +
     '<section class="card"><label class="lbl" for="frNick">Seu apelido</label><input class="in wide" id="frNick" type="text" maxlength="' + NICK_MAX +
@@ -286,6 +286,10 @@ export function friendSheet(uid) {
     '<div class="btns stk"><button class="btn' + (wv.done ? ' ghost' : '') + '" type="button" data-action="fr-wave" data-id="' + f.uid + '"' + (wv.done ? ' disabled' : '') + '>' + wLabel + '</button>' +
     btn('close-sheet', 'Fechar', 'ghost') + '</div></div>';
 }
+// "Mostrar quanto passei da meta" (1.9.0). Ligado (o padrão), a turma vê a % de verdade, até 150%; desligado, só "Meta batida hoje": a % para em 100.
+// Sem o progresso do dia ligado a turma não vê % nenhuma, então a nota só avisa que a chave espera por ele (a escolha fica guardada).
+const overNote = (sc) => (sc.share === false ? 'Vale quando o progresso do dia estiver ligado.'
+  : sc.over === false ? 'Desligado: seus amigos veem só “Meta batida hoje”, sem saber quanto você passou.' : 'Seus amigos veem a porcentagem de verdade, até 150%.');
 // "Meu perfil": como os amigos me veem. Troca de mascote, apelido e as chaves de privacidade ficam aqui.
 export function profileSheet() {
   const sc = mine(), t = today(), pp = profilePayload(S, t), l = liveOf(pp, t), mas = mascotOf(S), got = S.insignias || {}, me = myMember(S, t);
@@ -297,12 +301,14 @@ export function profileSheet() {
     '" autocomplete="off" autocapitalize="words" enterkeyhint="done" value="' + esc(sc.nick) + '" aria-label="Apelido que seus amigos veem">' +
     '<div class="row nb lft"><div class="row-l"><span>Mostrar meu progresso do dia</span><small>Porcentagem da meta, sequência, os últimos 7 dias e as medalhas.</small></div><div class="row-c">' +
     sw('fr-share', sc.share !== false, 'Mostrar meu progresso do dia aos amigos') + '</div></div>' +
+    '<div class="row nb lft"><div class="row-l"><span>Mostrar quanto passei da meta</span><small>' + overNote(sc) + '</small></div><div class="row-c">' +
+    sw('fr-over', sc.over !== false, 'Mostrar aos amigos quanto passei da meta') + '</div></div>' +
     '<div class="row nb lft"><div class="row-l"><span>Mostrar minha meta em ml</span><small>' + goalNote + '</small></div><div class="row-c">' +
     sw('fr-goal', sc.goal === true, 'Mostrar minha meta em ml aos amigos') + '</div></div>' +
     '<div class="card-h out"><h2>Meu mascote</h2><small>toque para trocar</small></div>' +
     '<div class="reef mini">' + INSIGNIAS.map((x) => insTile(x, !!got[x.id], x.id === mas.id, true)).join('') + '</div>' +
     medalsBlock(medalsShown(pp)) + // com o progresso em pausa o perfil não leva medalhas (md nulo): o bloco some, como some para os amigos
-    '<p class="note center">Sua turma vê seu mascote, as insígnias que você conquistou' + (sc.share !== false ? ', as medalhas, a porcentagem da meta de hoje (até 150%), a sequência e quais dos últimos 7 dias você bateu a meta' : '') +
+    '<p class="note center">Sua turma vê seu mascote, as insígnias que você conquistou' + (sc.share !== false ? ', as medalhas, a porcentagem da meta de hoje (' + (sc.over === false ? 'só até 100%' : 'até 150%') + '), a sequência e quais dos últimos 7 dias você bateu a meta' : '') +
     (sc.goal === true && sc.share !== false ? ' e a sua meta em ml' : '') + '. Nunca os registros de cada gole.</p><div class="btns stk">' + btn('close-sheet', 'Fechar', 'ghost') + '</div></div>';
 }
 // "Inserir código": d = { raw, who, err }. who = { code, uid, nm, mc } depois que o código foi encontrado.
@@ -325,7 +331,7 @@ export function aboutSheet() {
   return sheetHead('Como funciona a privacidade') +
     '<p class="sheet-text">Os amigos do Maré formam uma turma só: quem entra vê todo mundo e todo mundo vê quem entra, com um ranking para animar. Você decide quando entrar e o que aparece de você.</p>' +
     '<p class="see-k ok">A turma vê</p><ul class="bul">' + li('seu apelido, seu mascote e suas insígnias (marcos, como ter passado de 100 litros, nunca o seu total)') +
-    li('a porcentagem da meta de hoje que você fez (até 150%), sua sequência e quais dos últimos 7 dias você bateu a meta (se você deixar o progresso ligado)') +
+    li('a porcentagem da meta de hoje que você fez (até 150%, ou só até 100% se você escolher), sua sequência e quais dos últimos 7 dias você bateu a meta (se você deixar o progresso ligado)') +
     li('as medalhas que você conquistou, como a Semana fluida (também só se você deixar o progresso ligado; nunca o dia nem a hora em que cada uma veio)') + '</ul>' +
     '<p class="see-k">Só se você deixar</p><ul class="bul">' + li('a sua meta do dia em ml. Com ela e a porcentagem dá para estimar quanto você bebeu; por isso fica desligada até você escolher, e dá para mudar em Ajustes a qualquer hora') + '</ul>' +
     '<p class="see-k no">Ninguém vê</p><ul class="bul">' + li('os registros de cada gole nem os horários') + li('seu peso e a unidade que você usa') +
@@ -388,6 +394,8 @@ export function settingsFriendsHTML() {
     row('Meu perfil público', esc(sc.nick || 'Amigo') + ' · o que seus amigos veem', sbtn('fr-profile', 'Abrir')) +
     row('Mostrar meu progresso do dia', 'Porcentagem da meta, sequência, os últimos 7 dias e as medalhas. Desligado, seus amigos veem só o apelido e as insígnias.',
       sw('fr-share', sc.share !== false, 'Mostrar meu progresso do dia aos amigos')) +
+    row('Mostrar quanto passei da meta', 'Ligado, seus amigos veem a porcentagem de verdade, até 150%. Desligado, veem só “Meta batida hoje”, sem saber quanto você passou.',
+      sw('fr-over', sc.over !== false, 'Mostrar aos amigos quanto passei da meta')) +
     row('Mostrar minha meta em ml', 'Seus amigos veem a meta do dia ao lado da porcentagem. Dá para estimar quanto você bebeu.',
       sw('fr-goal', sc.goal === true, 'Mostrar minha meta em ml aos amigos')) +
     alertsRow() +

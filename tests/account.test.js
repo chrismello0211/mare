@@ -20,7 +20,7 @@ function used() {
   Object.assign(S.reminders, { enabled: true, interval: 60, smart: false, nextAt: 1790000000000 });
   S.days = { '2026-10-20': { goal: 2300, u: 5, entries: [{ id: 'a', t: 1, ml: 250, d: 'water' }] } };
   S.insignias = { concha: 1, estrela: 2 };
-  Object.assign(S.social, { on: true, nick: 'Mari', share: false, code: 'ABCD2345', push: false, goal: true, hit: true, week: false });
+  Object.assign(S.social, { on: true, nick: 'Mari', share: false, over: false, code: 'ABCD2345', push: false, goal: true, hit: true, week: false });
   S.ui = { tip_news12: 1, tip_news15: 1, tip_install: 1, invite: 'ZZZZ2222', crewAt: '2026-10-20', unseenIns: ['estrela'], wv: { x: 1 }, frRank: 'week' };
   return S;
 }
@@ -181,8 +181,16 @@ describe('backup dos ajustes: o que sai do aparelho', () => {
     expect(snap.goal).toEqual({ mode: 'manual', manual: 2300, climate: true });
     expect(snap.cups).toEqual([120, 200, 300, 450]);
     expect(snap.last).toBe('sparkling'); expect(snap.lastO).toBe('tea');
-    expect(snap.social).toEqual({ on: true, nick: 'Mari', share: false, goal: true, push: false, hit: true, week: false });
+    expect(snap.social).toEqual({ on: true, nick: 'Mari', share: false, over: false, goal: true, push: false, hit: true, week: false });
     expect(snap.createdAt).toBe(1700000000000);
+  });
+  it('"Mostrar quanto passei da meta" (1.9.0) vai no backup: ligado é o padrão e só o "false" de verdade desliga', () => {
+    const S = C.defaults(); S.onboarded = true;
+    expect(A.prefsSnapshot(S).social.over).toBe(true);
+    S.social.over = false; expect(A.prefsSnapshot(S).social.over).toBe(false);
+    delete S.social.over; expect(A.prefsSnapshot(S).social.over).toBe(true); // estado sem a chave (aparelho que ainda não passou pelo migrate)
+    [0, null, '', 'false', undefined, 1, 'no'].forEach((v) => { S.social.over = v; expect(A.prefsSnapshot(S).social.over, String(v)).toBe(true); });
+    expect(JSON.parse(A.prefsPack(used(), 5).j).social.over).toBe(false);
   });
   it('NÃO leva registros, lembretes ligados, horário do próximo, clima de hoje, convite pendente nem o código de convite', () => {
     const j = JSON.stringify(A.prefsSnapshot(used()));
@@ -299,9 +307,16 @@ describe('backup dos ajustes: o que volta é sempre limpo', () => {
       expect(p.cups).toEqual(D.cups);
       expect(p.last).toBe('water'); expect(p.lastO).toBe('coffee');
       expect(p.reminders).toEqual({ interval: 90, smart: true });
-      expect(p.social).toEqual({ on: false, nick: '', share: true, goal: null, push: true, hit: false, week: true });
+      expect(p.social).toEqual({ on: false, nick: '', share: true, over: null, goal: null, push: true, hit: false, week: true }); // over: null = "a nuvem não diz" (1.9.0)
       expect(p.ui).toEqual({}); expect(p.createdAt).toBe(0);
     });
+  });
+  it('"over" (1.9.0): só true ou false de verdade valem; faltando ou estranho vira null ("a nuvem não diz"), nunca um palpite', () => {
+    const social = (over) => A.cleanPrefs({ social: { on: true, nick: 'A', over: over } }).social.over;
+    expect(social(true)).toBe(true); expect(social(false)).toBe(false);
+    [undefined, null, 0, 1, '', 'false', 'true', 'no', [], {}, NaN].forEach((v) => expect(social(v), String(v)).toBeNull());
+    expect(A.cleanPrefs({ social: { on: true, nick: 'A' } }).social.over).toBeNull(); // o backup de um aparelho na 1.8.0 ou antes não tem a chave
+    expect(A.prefsParse({ v: 1, u: 4, j: JSON.stringify({ social: { over: false } }) }).prefs.social.over).toBe(false);
   });
   it('valores fora do limite são cortados ou trocados pelo padrão', () => {
     const p = A.cleanPrefs({ profile: { name: ' <b>Ana</b>\u0007 ' + 'x'.repeat(50), weight: 999, activity: 'maluca', wake: '25:00', sleep: '7pm', unit: 'litros', theme: 'rosa', others: 'sim', mix: 1, mascot: 'dragao' },
@@ -386,7 +401,7 @@ describe('aplicar ajustes ao app', () => {
     expect(S.goal).toMatchObject({ mode: 'manual', manual: 2300, climate: true, bonus: 0, temp: null });
     expect(S.cups).toEqual([120, 200, 300, 450]); expect(S.last).toBe('sparkling'); expect(S.lastO).toBe('tea');
     expect(S.reminders).toMatchObject({ interval: 60, smart: false, enabled: true, nextAt: 999 });
-    expect(S.social).toMatchObject({ on: true, nick: 'Mari', share: false, goal: true, push: false, hit: true, week: false, code: 'KEEP2345' });
+    expect(S.social).toMatchObject({ on: true, nick: 'Mari', share: false, over: false, goal: true, push: false, hit: true, week: false, code: 'KEEP2345' });
     expect(S.ui).toMatchObject({ tip_install: 1, tip_news12: 1, tip_news15: 1, frRank: 'week' });
     expect(S.createdAt).toBe(1700000000000); // a mais antiga
   });
@@ -398,6 +413,22 @@ describe('aplicar ajustes ao app', () => {
     const p = prefs(); p.social.on = false;
     A.applyPrefs(T, p, 'sync');
     expect(T.social.on).toBe(true); expect(T.social.nick).toBe('Mari');
+  });
+  it('"over" (1.9.0): quando a nuvem diz, vale (true ou false); quando não diz (backup de um aparelho antigo), fica o que este aparelho já tem', () => {
+    const com = (over) => { const p = prefs(); p.social.over = over; return p; };
+    ['restore', 'sync'].forEach((mode) => {
+      const a = fresh(); a.social.over = true; A.applyPrefs(a, com(false), mode); expect(a.social.over, mode + ' desliga').toBe(false);
+      const b = fresh(); b.social.over = false; A.applyPrefs(b, com(true), mode); expect(b.social.over, mode + ' liga').toBe(true);
+      // o backup antigo (sem a chave) NÃO pode religar o que a pessoa desligou neste aparelho: a turma voltaria a ver a % que ela quis esconder
+      const c = fresh(); c.social.over = false; A.applyPrefs(c, com(null), mode); expect(c.social.over, mode + ' mantém desligado').toBe(false);
+      const d = fresh(); d.social.over = true; A.applyPrefs(d, com(null), mode); expect(d.social.over, mode + ' mantém ligado').toBe(true);
+      expect(c.social.nick, 'o resto do backup entra normalmente').toBe('Mari');
+    });
+    const velho = JSON.parse(JSON.stringify(A.prefsSnapshot(used()))); delete velho.social.over; // o texto de verdade que um aparelho na 1.8.0 grava
+    const p = A.prefsParse({ v: 1, u: 9, j: JSON.stringify(velho) });
+    const S = fresh(); S.social.over = false; A.applyPrefs(S, p.prefs, 'sync');
+    expect(S.social.over).toBe(false);
+    const N = fresh(); A.applyPrefs(N, p.prefs, 'restore'); expect(N.social.over).toBe(true); // aparelho novo + backup antigo: o padrão (como na 1.8.0)
   });
   it('os recados dispensados só se somam (um aparelho não "reabre" o recado que o outro fechou)', () => {
     const S = fresh(); S.ui.tip_climate = 1;
@@ -506,6 +537,12 @@ describe('entrar num aparelho novo: o plano de restauração', () => {
     expect(S.onboarded).toBe(true);
     expect(S.profile.name).toBe('Marianne'); expect(S.profile.wake).toBe('06:30'); // o backup manda sobre o users
     expect(S.social.on).toBe(true);
+    expect(S.social.over).toBe(false); // 1.9.0: o perfil na nuvem manda em on, apelido, progresso, meta e avisos; a chave "quanto passei da meta" vem do backup
+  });
+  it('sem backup, "Mostrar quanto passei da meta" fica no padrão (ligado, como na 1.8.0) e o perfil da nuvem não o muda', () => {
+    const plan = A.restorePlan({ prefs: null, profile: profile({ pct: 100, met: true }), days: days });
+    const S = C.defaults(); A.applyPlan(S, plan);
+    expect(S.social.on).toBe(true); expect(S.social.over).toBe(true);
   });
   it('sem backup (conta criada pelo administrador): aproveita horários, unidade e apelido; o onboarding continua, pré-preenchido', () => {
     const plan = A.restorePlan({ prefs: null, user: { wake: '05:30', sleep: '21:30', unit: 'oz', goal: 2300, tz: 'America/Fortaleza' }, profile: profile({ nm: 'Marianne' }), days: days });

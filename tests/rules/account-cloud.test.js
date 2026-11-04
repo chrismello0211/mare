@@ -453,6 +453,47 @@ describe('initCloud: os ajustes da conta', () => {
     await until(async () => { const x = await readDoc(env, PREFS); return x && ACC.prefsParse(x).prefs.profile.weight === 65; }, 'o peso novo na nuvem');
     expect(nPrefs()).toBe(2);
   });
+  test('"Mostrar quanto passei da meta" (1.9.0) vai no backup da conta (o mesmo documento v, u e j, aceito pelas regras de agora) e regrava quando a pessoa muda a chave', async () => {
+    const a = await boot({ user: ACCT, profile: { name: 'Ana' }, social: { over: false } });
+    a.cloud.syncPrefs(); hidden();
+    const d = await until(() => readDoc(env, PREFS), 'os ajustes na nuvem');
+    expect(Object.keys(d).sort()).toEqual(['j', 'u', 'v']); // nenhum campo novo no documento: a chave viaja dentro do texto j
+    expect(d.j.length).toBeLessThanOrEqual(4000);
+    expect(ACC.prefsParse(d).prefs.social.over).toBe(false);
+    expect(nPrefs()).toBe(1);
+    a.cloud.syncPrefs(); hidden(); await sleep(300);
+    expect(nPrefs()).toBe(1); // nada mudou: não regrava
+    a.S.social.over = true; a.cloud.syncPrefs(); hidden();
+    await until(async () => { const x = await readDoc(env, PREFS); return x && ACC.prefsParse(x).prefs.social.over === true; }, 'a chave ligada na nuvem');
+    expect(nPrefs()).toBe(2);
+    a.cloud.dispose();
+  });
+  test('"Mostrar quanto passei da meta" (1.9.0) desligada volta no aparelho novo (a turma não passa a ver a % que a pessoa escondeu); com o backup de um aparelho antigo, nada é religado', async () => {
+    H.accounts.set(MAIL, { uid: ANA, pw: PW, verified: true });
+    const A = await boot({ user: { uid: ANA, email: MAIL, verified: true }, profile: { name: 'Ana', weight: 64 }, social: { over: false } });
+    A.cloud.syncMeta(); A.cloud.syncPrefs(); hidden();
+    await until(() => readDoc(env, PREFS), 'tudo na nuvem');
+    A.cloud.dispose();
+    store.clear(); H.calls.length = 0;
+    login({ uid: ANA, email: MAIL, verified: true }); H.user = null;
+    const mod = await getMod(), kit = await mod.accountKit();
+    await kit.signIn(MAIL, PW);
+    const plan = ACC.restorePlan(await kit.fetchData());
+    expect(plan.prefs.social.over).toBe(false);
+    const S2 = C.defaults(Date.now());
+    expect(ACC.applyPlan(S2, plan)).toBe(true);
+    expect(S2.social.over).toBe(false);
+    // um aparelho na 1.8.0 grava o backup sem a chave: quem a desligou aqui continua com ela desligada
+    const velho = JSON.parse(JSON.stringify(ACC.prefsSnapshot(S2))); delete velho.social.over;
+    await seed(env, async (db) => { await FS.setDoc(FS.doc(db, 'users', ANA, 'backup', 'prefs'), { v: 1, u: 9990000, j: JSON.stringify(velho) }); });
+    const kit2 = await mod.accountKit(), p2 = ACC.restorePlan(await kit2.fetchData());
+    expect(p2.prefs.social.over).toBeNull();
+    const S3 = C.defaults(Date.now()); S3.social.over = false;
+    ACC.applyPrefs(S3, p2.prefs, 'sync');
+    expect(S3.social.over).toBe(false);
+    const S4 = C.defaults(Date.now()); ACC.applyPlan(S4, p2);
+    expect(S4.social.over).toBe(true); // aparelho novo + backup antigo: o padrão, como na 1.8.0
+  });
   test('as datas das medalhas vão no backup (o mesmo documento de sempre: v, u e j), voltam como minutos cheios e uma medalha nova regrava', async () => {
     const t1 = Date.now() - 5 * 864e5 - 12345;
     const a = await boot({ user: ACCT, profile: { name: 'Ana' }, ach: { first: t1 } });
