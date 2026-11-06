@@ -1403,7 +1403,7 @@ describe('as medalhas da 1.5.0 com as regras de verdade: a máscara md vai ao pe
     ana.S.social.share = true; await ana.sc.publish(ana.payload());
     expect((await profOf(ANA)).md).toBe(16777215); // as 24 medalhas (24 bits cheios) passam pelas regras de verdade
   });
-  test('md2 leva as medalhas novas (a partir da 25ª): as 30 passam pelas regras de verdade, a pausa tira os dois campos de vez e voltar a mostrar traz de volta', async () => {
+  test('md2 leva as medalhas novas (a partir da 25ª): as 37 passam pelas regras de verdade (13 bits na segunda palavra), a pausa tira os dois campos de vez e voltar a mostrar traz de volta', async () => {
     const ana = person('Ana', ANA); drink(ana, 500);
     await join(ana);
     ana.S.achievements = { first: 11, m1: 22 }; // m1 é a 25ª (o primeiro bit da segunda palavra)
@@ -1413,14 +1413,14 @@ describe('as medalhas da 1.5.0 com as regras de verdade: a máscara md vai ao pe
     await ana.sc.publish(ana.payload());
     const tudo = await profOf(ANA);
     expect(tudo).toMatchObject({ md: 16777215, md2: (1 << (C.ACHIEVEMENTS.length - C.MEDALS_1_6)) - 1 });
-    expect(tudo.md2).toBe(63);
+    expect(tudo.md2).toBe(8191);
     expect(Object.keys(tudo).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'md', 'md2', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']); // só um campo a mais, e só o número da máscara
     ana.S.social.share = false; await ana.sc.publish(ana.payload()); // pausou o progresso: o perfil é regravado inteiro, sem sobrar o md2 de antes
     const pausa = await profOf(ANA);
     expect(pausa).toMatchObject({ sh: false, pct: null, wm: null, md: null });
     expect('md2' in pausa).toBe(false);
     ana.S.social.share = true; await ana.sc.publish(ana.payload());
-    expect(await profOf(ANA)).toMatchObject({ md: 16777215, md2: 63 });
+    expect(await profOf(ANA)).toMatchObject({ md: 16777215, md2: 8191 });
     ana.S.achievements = { first: 1 }; await ana.sc.publish(ana.payload()); // (um estado sem as medalhas novas) o campo md2 também volta a sumir
     const so = await profOf(ANA);
     expect(so.md).toBe(1); expect('md2' in so).toBe(false);

@@ -1,4 +1,5 @@
-// Maré — testes de interface da Jornada (1.6.0 e 1.7.0): as 30 medalhas (por grupo, com quanto falta), "Mais perto de conquistar", "Seus padrões" em gráficos e "Seus meses".
+// Maré — testes de interface da Jornada (1.6.0 a 1.10.0): as 37 medalhas (por grupo, com quanto falta), "Mais perto de conquistar", "Seus padrões" em gráficos e "Seus meses".
+// (as missões extras, os desafios da semana e do mês e a seção "Desafios" da Jornada têm o seu próprio arquivo: e2e-challenges.spec.js)
 // Cada teste roda em todos os aparelhos do playwright.config.js. Qualquer erro de JavaScript na página reprova.
 // Os históricos são montados com tests/helpers/seed.js (history = um registro às 10h por dia; rows = dias com horários à escolha). Como a data do teste
 // muda, nada aqui depende do dia da semana em que ele roda: o que depende (fim de semana, 22 de março) fica de fora das contas exatas.
@@ -23,21 +24,22 @@ const NOON = (page, ago) => page.evaluate((n) => { const d = new Date(); d.setDa
 const OCEAN = { concha: 6 }; // com a concha guardada, quem tem uma estrela-do-mar (10 L) a ganha em silêncio, sem o painel "Nova insígnia!"
 const REEF5 = { concha: 40, estrela: 38, baiacu: 30, tartaruga: 20, cavalo: 10 };
 
-test('jornada: as 30 medalhas vêm em 6 grupos, e as que faltam mostram quanto já foi', async ({ page }) => {
+test('jornada: as 37 medalhas vêm em 7 grupos, e as que faltam mostram quanto já foi', async ({ page }) => {
   await seed(page, { history: [5, 2800], insignias: OCEAN }); // 5 dias seguidos na meta, às 10h
   await page.goto('/');
   await tab(page, 'Jornada').click();
-  await expect(page.locator('.mg-h h3')).toHaveText(['Começos e missões', 'Sequências', 'Metas batidas', 'Rotina do dia', 'Fins de semana e datas', 'Com a turma']);
-  await expect(page.locator('.medals .medal')).toHaveCount(30);
+  await expect(page.locator('.mg-h h3')).toHaveText(['Começos e missões', 'Sequências', 'Metas batidas', 'Rotina do dia', 'Fins de semana e datas', 'Desafios', 'Com a turma']);
+  await expect(page.locator('.medals .medal')).toHaveCount(37);
   const won = await page.locator('.medals .medal:not(.off)').count(); // o número do título é o das medalhas conquistadas que estão na tela
   expect(won).toBeGreaterThanOrEqual(5);
-  await expect(page.locator('.card-h.out', { has: page.locator('h2', { hasText: /^Medalhas$/ }) }).locator('small')).toHaveText(won + ' de 30');
+  await expect(page.locator('.card-h.out', { has: page.locator('h2', { hasText: /^Medalhas$/ }) }).locator('small')).toHaveText(won + ' de 37');
   // a contagem de cada grupo (os grupos que não dependem do dia da semana em que o teste roda)
   await expect(page.locator('.mg-h').nth(0)).toContainText('2 de 7'); // Primeira gota e Na mosca
   await expect(page.locator('.mg-h').nth(1)).toContainText('1 de 6'); // Pegando o ritmo
   await expect(page.locator('.mg-h').nth(2)).toContainText('0 de 5');
   await expect(page.locator('.mg-h').nth(3)).toContainText('2 de 5'); // Antes do pôr do sol e Relógio da maré
-  await expect(page.locator('.mg-h').nth(5)).toContainText('0 de 1'); // Turma completa
+  await expect(page.locator('.mg-h').nth(5)).toContainText('0 de 7'); // Desafios: nenhum trio de missões nem desafio vencido ainda
+  await expect(page.locator('.mg-h').nth(6)).toContainText('0 de 1'); // Turma completa
   // conquistada: sem barra e com a data
   await expect(medal(page, 'Pegando o ritmo')).not.toHaveClass(/off/);
   await expect(medal(page, 'Pegando o ritmo').locator('em')).toBeVisible();
@@ -93,7 +95,7 @@ test('"Mais perto de conquistar" aponta a medalha mais adiantada, no desenho da 
   await seed(p2, {});
   await p2.goto('/');
   await p2.locator('#tabbar').getByRole('button', { name: 'Jornada', exact: true }).click();
-  await expect(p2.locator('.medals .medal')).toHaveCount(30);
+  await expect(p2.locator('.medals .medal')).toHaveCount(37);
   await expect(p2.locator('.mission.near')).toHaveCount(0);
   await expect(p2.locator('.card-h.out + .mg-h')).toHaveCount(1);
   await p2.close();
@@ -154,7 +156,7 @@ test('seus padrões: o resumo, o ritmo do dia (com a faixa mais seca e a de mais
   const pat = page.locator('.card-h.out', { has: page.locator('h2', { hasText: /^Seus padrões$/ }) });
   await expect(pat).toBeVisible();
   // resumo
-  const cards = page.locator('section.card').filter({ has: page.locator('.ins-list') }).filter({ hasNot: page.locator('.hm, .mo-b') }); // os cartões de "Seus meses" têm as suas frases também
+  const cards = page.locator('section.card:not(.chl-j)').filter({ has: page.locator('.ins-list') }).filter({ hasNot: page.locator('.hm, .mo-b') }); // os cartões de "Seus meses" têm as suas frases também; o dos desafios (1.10.0) é outro assunto
   await expect(cards).toHaveCount(3);
   await expect(cards.nth(0)).toContainText('Você bateu a meta em 10 dos últimos 10 dias (100%). Constância de respeito!');
   await expect(cards.nth(0)).toContainText('+133% de hidratação nos últimos 7 dias em relação aos 7 anteriores.');
@@ -350,11 +352,11 @@ test('seus meses: tocar num quadradinho do calendário abre o dia, como no Hist�
 
 test('quem já usava o Maré ganha as medalhas novas de uma vez, sem chuva de cartões, com a data em que as merecia; o painel de novidades conta', async ({ page }) => {
   // o estado da 1.6.x: 40 dias seguidos na meta, às 10h, e só as 24 medalhas daquela versão que estavam guardadas (as de 1.6.0 que o histórico cumpre ainda não foram dadas)
-  // (o cartão de novidades da 1.9.0 é para quem está na turma: é por ele que se chega ao painel, que guarda também o que a 1.7.0 trouxe)
-  await stubFriendsCloud(page, { code: 'ABCD2345' });
-  await seed(page, { history: [40, 2800], insignias: REEF5, medals: ['first', 'goal', 's3', 's7', 's14', 's30', 'sunset', 'd10', 'weekend'], social: SOCIAL_ON, ui: { tip_news18: 0 } });
+  // (o cartão de novidades da 1.10.0 é para todo mundo que já usava o Maré: é por ele que se chega ao painel, que guarda também o que a 1.7.0 trouxe)
+  // as missões extras e os desafios de hoje já estão guardados: assim nenhum registro deste teste fecha uma missão ou um desafio e faz sair um cartão que depende da hora e do dia em que ele roda
+  await seed(page, { history: [40, 2800], insignias: REEF5, medals: ['first', 'goal', 's3', 's7', 's14', 's30', 'sunset', 'd10', 'weekend'], ui: { tip_news19: 0 }, extras: [[0, 'e'], [0, 'h']], challenges: [['w', 0], ['m', 0]] });
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('Novidade na turma');
+  await expect(page.locator('#tTips .tip')).toContainText('Mais desafios no Maré');
   await page.waitForTimeout(2500); // se houvesse cartão de medalha por causa da atualização, ele já estaria na tela
   await expect(page.locator('.medal-pop')).toHaveCount(0);
   await expect(page.locator('#sheet')).toBeHidden();
@@ -392,49 +394,50 @@ test('quem já usava o Maré ganha as medalhas novas de uma vez, sem chuva de ca
   expect(again).toEqual(got);
   // e registrar água depois disso não faz chover cartão de medalha antiga
   await tab(page, 'Hoje').click();
-  await expect(page.locator('#tTips')).not.toContainText('Novidade na turma'); // abrir o painel apagou o cartão (também depois de recarregar)
+  await expect(page.locator('#tTips')).not.toContainText('Mais desafios no Maré'); // abrir o painel apagou o cartão (também depois de recarregar)
   const ui = (await stored(page)).ui;
-  expect([ui.tip_news18, ui.tip_news17, ui.tip_news16, ui.tip_news15, ui.tip_news12]).toEqual([1, 1, 1, 1, 1]);
+  expect([ui.tip_news19, ui.tip_news18, ui.tip_news17, ui.tip_news16, ui.tip_news15, ui.tip_news12]).toEqual([1, 1, 1, 1, 1, 1]);
   await cup(page, '250 ml').click();
   await page.waitForTimeout(1500);
   await expect(page.locator('.medal-pop')).toHaveCount(0);
   await page.reload();
   await expect(page.locator('#view')).toBeVisible();
-  await expect(page.locator('#tTips')).not.toContainText('Novidade na turma');
+  await expect(page.locator('#tTips')).not.toContainText('Mais desafios no Maré');
 });
 
-test('o cartão de novidades (1.9.0) é da turma: quem não a usa, ou esconde o progresso dela, não o vê, e as medalhas ainda aparecem na Jornada sem ele', async ({ page }) => {
-  // sem a turma ligada: nada de cartão (o painel só abre por ele)
-  await seed(page, { history: [6, 2800], insignias: OCEAN, ui: { tip_news18: 0, tip_news17: 0 } }); // nem o cartão antigo (1.7.0) volta
+test('o cartão de novidades (1.10.0) é de todos que já usavam o Maré, na turma ou fora dela, e os cartões de antes não voltam', async ({ page }) => {
+  // sem a turma ligada: o cartão aparece, e só ele (nem o da 1.7.0 nem o da 1.9.0 voltam)
+  await seed(page, { history: [6, 2800], insignias: OCEAN, ui: { tip_news19: 0, tip_news18: 0, tip_news17: 0 } });
   await page.goto('/');
   await expect(page.locator('#view')).toBeVisible();
-  await expect(page.locator('#tTips')).not.toContainText('Novidade');
-  await expect(page.locator('#tTips .tip')).toHaveCount(0);
+  await expect(page.locator('#tTips .tip')).toHaveCount(1);
+  await expect(page.locator('#tTips .tip')).toContainText('Mais desafios no Maré');
+  await expect(page.locator('#tTips')).not.toContainText('Novidade na turma');
   await tab(page, 'Jornada').click();
-  await expect(medal(page, 'Um mês de Maré')).toBeVisible(); // as medalhas novas seguem na Jornada
-  // na turma, mas com o progresso escondido: a novidade (a % de verdade, até 150%) não diz respeito a quem não mostra nada
+  await expect(medal(page, 'Um mês de Maré')).toBeVisible(); // as medalhas das versões anteriores seguem na Jornada
+  // na turma, mesmo com o progresso escondido: o cartão é o mesmo (esta novidade não depende do que a pessoa mostra aos amigos)
   const p2 = await page.context().newPage();
   p2.on('pageerror', (e) => { errors.push(e.message); });
   await stubFriendsCloud(p2, { code: 'ABCD2345' });
-  await seed(p2, { history: [6, 2800], insignias: OCEAN, social: Object.assign({}, SOCIAL_ON, { share: false }), ui: { tip_news18: 0 } });
+  await seed(p2, { history: [6, 2800], insignias: OCEAN, social: Object.assign({}, SOCIAL_ON, { share: false }), ui: { tip_news19: 0, tip_news18: 0 } });
   await p2.goto('/');
   await expect(p2.locator('#view')).toBeVisible();
-  await expect(p2.locator('#tTips .tip')).toHaveCount(0);
+  await expect(p2.locator('#tTips .tip')).toHaveCount(1);
+  await expect(p2.locator('#tTips .tip')).toContainText('Mais desafios no Maré');
   await p2.close();
 });
 
 test('o cartão de novidades: dispensar no "x" o apaga para sempre, sem abrir o painel', async ({ page }) => {
-  await stubFriendsCloud(page, { code: 'ABCD2345' });
-  await seed(page, { history: [6, 2800], insignias: OCEAN, social: SOCIAL_ON, ui: { tip_news18: 0 } });
+  await seed(page, { history: [6, 2800], insignias: OCEAN, ui: { tip_news19: 0 } });
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('Novidade na turma');
+  await expect(page.locator('#tTips .tip')).toContainText('Mais desafios no Maré');
   await page.locator('#tTips .tip').getByRole('button', { name: 'Dispensar dica' }).click();
-  await expect(page.locator('#tTips')).not.toContainText('Novidade na turma');
+  await expect(page.locator('#tTips')).not.toContainText('Mais desafios no Maré');
   await expect(page.locator('#sheet')).toBeHidden();
-  expect((await stored(page)).ui.tip_news18).toBe(1);
+  expect((await stored(page)).ui.tip_news19).toBe(1);
   await page.reload();
   await expect(page.locator('#view')).toBeVisible();
-  await expect(page.locator('#tTips')).not.toContainText('Novidade na turma');
+  await expect(page.locator('#tTips')).not.toContainText('Mais desafios no Maré');
 });
 
 test('importar um backup da 1.5 (só as medalhas antigas) já traz as medalhas novas que o histórico cumpre, em silêncio e com a data certa', async ({ page }) => {
@@ -486,7 +489,7 @@ test('medalha nova ao vivo: bater a meta depois de 3 dias sem bater comemora "Vo
   await expect(medal(page, 'Volta por cima').locator('em')).toBeVisible();
 });
 
-test('layout: a Jornada com 30 medalhas, os gráficos e o seu mês cabe em qualquer tela, no tema claro e no escuro', async ({ page }, info) => {
+test('layout: a Jornada com 37 medalhas, os gráficos e o seu mês cabe em qualquer tela, no tema claro e no escuro', async ({ page }, info) => {
   // 70 dias (dois meses de uso, em qualquer dia do ano) com horários variados (cedo, tarde, noite), alguns dias de meta e outros não
   const rows = [];
   for (let i = 1; i <= 70; i++) rows.push([i, i % 3 ? [[7, 40, 400], [9, 30, 350], [12, 30, 700], [16, 0, 600], [20, 30, 500]] : [[10, 0, 300], [22, 20, 400]], 2000]);

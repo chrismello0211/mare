@@ -1,6 +1,6 @@
 {
   "name": "mare",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "private": true,
   "type": "module",
   "description": "Maré — PWA de hidratação (pt-BR)",

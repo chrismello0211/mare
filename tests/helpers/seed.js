@@ -1,8 +1,10 @@
 // Maré — estado de partida dos testes de interface (usado por e2e.spec.js e e2e-friends.spec.js).
 // Estado pronto, pulando o onboarding. É montado dentro do navegador para usar o fuso do aparelho emulado.
 // Opções: todayMl, entries [[ml, bebida]], history [dias, ml por dia] (para ter litros acumulados), insignias { id: há quantos dias },
-// rows [[dias atrás, [[hora, min, ml, bebida?], ...], meta?]] (dias com horários à escolha), profile, social, ui, last, medals (true = as 30 medalhas; ou uma lista
-// de ids, como ['first', 's7']; ou { id: instante em ms } para escolher a data de cada uma), reminders, missions [dias atrás, ...] (as missões cumpridas nesses dias, às 20h).
+// rows [[dias atrás, [[hora, min, ml, bebida?], ...], meta?]] (dias com horários à escolha), profile, social, ui, last, medals (true = as 37 medalhas; ou uma lista
+// de ids, como ['first', 's7']; ou { id: instante em ms } para escolher a data de cada uma), reminders, missions [dias atrás, ...] (as missões cumpridas nesses dias, às 20h),
+// extras [[dias atrás, 'e' (leve) ou 'h' (ousada)], ...] (as missões extras cumpridas, às 20h), challenges [['w' (semana) ou 'm' (mês), quantas atrás], ...] (os desafios já vencidos: 0 = o desta semana ou deste mês).
+// Atenção: todayMl e entries entram "há 1 minuto", na hora de verdade. De madrugada, 500 ml assim já valem a medalha de antes das 9h; os testes que contam medalhas usam todayMl: 0.
 export async function seed(page, o) {
   await page.addInitScript((opt) => {
     if (sessionStorage.getItem('mare:seeded')) return; // só na 1ª carga: recarregar mantém o que o teste fez
@@ -25,9 +27,16 @@ export async function seed(page, o) {
     });
     const mis = {}; // missões cumpridas: a chave é o dia e o valor é a hora em que foram cumpridas (20h)
     (opt.missions || []).forEach((n) => { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - n, 20); mis[d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate())] = d.getTime(); });
+    const ext = {}; // missões extras cumpridas: 'dia:e' (leve) e 'dia:h' (ousada)
+    (opt.extras || []).forEach((x) => { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - x[0], 20); ext[d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ':' + x[1]] = d.getTime(); });
+    const chl = {}; // desafios vencidos: a semana pela segunda-feira, o mês por 'AAAA-MM'
+    (opt.challenges || []).forEach((x) => {
+      if (x[0] === 'w') { const t = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7) - 7 * x[1]); chl[t.getFullYear() + '-' + p2(t.getMonth() + 1) + '-' + p2(t.getDate())] = now.getTime() - 60000 - 7 * 864e5 * x[1]; }
+      else { const t = new Date(now.getFullYear(), now.getMonth() - x[1], 1); chl[t.getFullYear() + '-' + p2(t.getMonth() + 1)] = now.getTime() - 60000 - 30 * 864e5 * x[1]; }
+    });
     const ins = {};
     Object.keys(opt.insignias || {}).forEach((id) => { ins[id] = now.getTime() - 864e5 * (1 + opt.insignias[id]); }); // valor = há quantos dias
-    const ach = {}, every = ['first', 'goal', 's3', 's7', 's14', 's30', 'early', 'sunset', 'mission', 'm10', 'weekend', 'd10', 's60', 's100', 'd30', 'd100', 'm30', 'early7', 'sunset5', 'thirds7', 'win25', 'back', 'weekends4', 'wwd', 'm1', 'use100', 'summer', 'weekends12', 'oceans', 'crew'];
+    const ach = {}, every = ['first', 'goal', 's3', 's7', 's14', 's30', 'early', 'sunset', 'mission', 'm10', 'weekend', 'd10', 's60', 's100', 'd30', 'd100', 'm30', 'early7', 'sunset5', 'thirds7', 'win25', 'back', 'weekends4', 'wwd', 'm1', 'use100', 'summer', 'weekends12', 'oceans', 'crew', 'trio', 'trio7', 'wk1', 'wk4', 'wk12', 'mo1', 'mo3'];
     if (opt.medals && typeof opt.medals === 'object' && !Array.isArray(opt.medals)) Object.keys(opt.medals).forEach((id) => { ach[id] = opt.medals[id]; }); // { id: instante em ms }
     else (opt.medals === true ? every : Array.isArray(opt.medals) ? opt.medals : []).forEach((id) => { ach[id] = 1; });
     localStorage.setItem('mare:v1', JSON.stringify({
@@ -35,8 +44,8 @@ export async function seed(page, o) {
       profile: Object.assign({ name: 'Ana', weight: 70, activity: 'moderate', wake: '07:00', sleep: '23:00', unit: 'ml', theme: 'light' }, opt.profile || {}),
       goal: { mode: 'manual', manual: 2800, climate: false, bonus: 0, temp: null, day: '' },
       cups: [150, 250, 350, 500], last: opt.last || 'water', reminders: Object.assign({ enabled: false, interval: 90, smart: true, nextAt: 0 }, opt.reminders || {}),
-      days: days, achievements: ach, missions: mis, insignias: ins, social: Object.assign({ on: false, nick: '', share: true, code: '' }, opt.social || {}),
-      ui: Object.assign({ tip_install: 1, tip_climate: 1, tip_news12: 1, tip_news15: 1, tip_news16: 1, tip_news17: 1, tip_news18: 1, tip_account: 1 }, opt.ui || {}), // tip_account: 1 = a dica da conta (1.3.0) já foi dispensada; tip_news18: 1 = o cartão de novidades da turma (1.9.0) também (os testes do cartão passam tip_news18: 0; os de antes, 12 a 17, já não aparecem)
+      days: days, achievements: ach, missions: mis, extras: ext, challenges: chl, insignias: ins, social: Object.assign({ on: false, nick: '', share: true, code: '' }, opt.social || {}),
+      ui: Object.assign({ tip_install: 1, tip_climate: 1, tip_news12: 1, tip_news15: 1, tip_news16: 1, tip_news17: 1, tip_news18: 1, tip_news19: 1, tip_account: 1 }, opt.ui || {}), // tip_account: 1 = a dica da conta (1.3.0) já foi dispensada; tip_news19: 1 = o cartão de novidades dos desafios (1.10.0) também (os testes do cartão passam tip_news19: 0; os de antes, 12 a 18, já não aparecem)
     }));
   }, o || {});
 }

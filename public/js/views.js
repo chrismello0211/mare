@@ -6,10 +6,11 @@
 //  • Painel de registro: #eMl, #eTime, #eErr. Onboarding: #obName, #obWeight, #obWake, #obSleep, #obGoal (data-total), #obDrop.
 //  • "Hoje" é montado em partes com id (TODAY_PARTS) para atualizar sem redesenhar a gota (#drop).
 //  • Barras com data-w crescem via ui.animBars; a gota enche via ui.dropTo(el, total, meta, dropOpts(total, meta)).
-import { WATERS, OTHERS, ACTIVITY, INSIGNIAS, ACHIEVEMENTS, MEDAL_GROUPS, MEDALS_1_6, PATTERN_MIN, HM_WEEKS, achievementById, context, medalProgress, nearestMedal, patterns,
+import { WATERS, OTHERS, ACTIVITY, INSIGNIAS, ACHIEVEMENTS, MEDAL_GROUPS, MEDALS_1_6, MEDALS_1_9, PATTERN_MIN, HM_WEEKS, achievementById, context, medalProgress, nearestMedal, patterns,
   months, heatmap,
   drink, isOther, dayTotal, dayOther, otherCounted, mixOn, isMet, calcGoal, goalToday, expectedBy,
-  dayWindow, streak, bestStreak, insigniaById, unlockedInsignias, mascotOf, reefFor, missionFor, missionProgress, stats, dayKey, keyToDate,
+  dayWindow, streak, bestStreak, insigniaById, unlockedInsignias, mascotOf, reefFor, missionFor, missionProgress, missionsOf, tierProgress, extraKey, weekGoal, monthGoal,
+  stats, dayKey, keyToDate,
   addDays, minOf, fmtHM, fmtNum } from './core.js';
 import { S, ACCT, esc, clamp, plural, byT, p2, cap, MONTHS, today, longDate, shortDate, relDay, goalNow, totalNow, otherNow, othersOn, allMl,
   firstName, U, vol, unitL, fromMl, big, compact, presets } from './store.js';
@@ -81,12 +82,11 @@ function tipsHTML() {
   // Conta (1.3.0): a dica mais importante vai primeiro. Só aparece a partir do segundo dia de uso (quem acabou de chegar ainda não tem o que perder)
   // e some para sempre se for dispensada: o cartão em Ajustes continua lá. Quem já tem conta, ou perdeu o login e vê o aviso em Ajustes, não vê a dica.
   if (!ACCT.on && !ACCT.ended && !ui.tip_account && Object.keys(S.days).length >= 2) return accountTip();
-  // Novidades (1.9.0): um cartão discreto, uma vez só, para quem está na turma com o progresso ligado (é a única pessoa a quem a novidade diz respeito: a
-  // turma passou a ver a % de verdade, até 150%, e agora dá para mostrar só até 100%). Dispensar o cartão, abrir o painel, mexer na chave ou entrar na turma
-  // o apaga para sempre (tip_news18). Quem está começando agora, ou chega por uma conta, já nasce com ele dispensado. Os cartões de antes (tip_news12, da 1.2,
-  // tip_news15, da 1.5, tip_news16, da 1.6 e tip_news17, da 1.7) não voltam mais: o painel de agora traz também as novidades das versões anteriores.
-  if (!ui.tip_news18 && S.social && S.social.on && S.social.share !== false) {
-    return tip('news18', '📈', 'Novidade na turma', 'Seus amigos agora veem quanto você passou da meta, até 150%. Se preferir, dá para mostrar só até 100%.', ['news', 'Ver as novidades']);
+  // Novidades (1.10.0): um cartão discreto, uma vez só, para quem já usava o Maré (missões extras, desafios da semana e do mês e as medalhas deles). Dispensar o
+  // cartão ou abrir o painel o apaga para sempre (tip_news19). Quem está começando agora, ou chega por uma conta, já nasce com ele dispensado. Os cartões de antes
+  // (tip_news12, da 1.2, tip_news15, da 1.5, tip_news16, da 1.6, tip_news17, da 1.7 e tip_news18, da 1.9) não voltam mais: o painel de agora traz também o que eles contavam.
+  if (!ui.tip_news19) {
+    return tip('news19', '🧭', 'Mais desafios no Maré', 'Missões extras todo dia, desafio da semana e do mês, e medalhas novas.', ['news', 'Ver as novidades']);
   }
   if (!isStandalone() && !isNative() && !ui.tip_install && (canInstall() || ios || isAndroid())) {
     return tip('install', '📲', 'Instale o Maré', ios
@@ -110,6 +110,41 @@ function missionHTML() {
     '<div class="bar" role="progressbar" aria-label="Progresso da missão" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + p + '">' +
     '<i style="width:' + from + '%" data-w="' + p + '"></i></div></div></section>';
 }
+// As barras das missões extras e dos desafios também crescem a partir do valor anterior (por dia, semana ou mês), e não do zero
+const lastXP = {};
+const grow = (id, p) => { const from = lastXP[id] == null ? 0 : lastXP[id]; lastXP[id] = p; return from; };
+const xbar = (id, p, label, text) => '<div class="bar" role="progressbar" aria-label="' + label + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + p +
+  '"' + (text ? ' aria-valuetext="' + text + '"' : '') + '><i style="width:' + grow(id, p) + '%" data-w="' + p + '"></i></div>';
+// Missões extras (1.10.0): a leve e a ousada de hoje, ao lado da missão do dia. Cumprir as três é o "Dia cheio".
+function extrasHTML() {
+  const k = today(), t = missionsOf(k), goal = goalNow(), day = S.days[k], ex = S.extras || {};
+  let n = 0;
+  const rows = [['e', 'Leve', t.easy], ['h', 'Ousada', t.hard]].map((x) => {
+    const m = x[2], raw = Math.round(tierProgress(m, day, goal) * 100), done = !!ex[extraKey(k, x[0])] || raw >= 100, p = done ? 100 : raw;
+    if (done) n++;
+    return '<li class="ex-i' + (done ? ' done' : '') + '"><div class="m-ico" aria-hidden="true">' + m.e + '</div><div class="m-body"><span class="m-k">Missão ' + x[1].toLowerCase() +
+      (done ? ' cumprida\u00a0✓' : '') + '</span><span class="m-t">' + m.t + '</span>' + xbar(k + ':' + x[0], p, 'Progresso da missão ' + x[1].toLowerCase()) + '</div></li>';
+  });
+  const full = n === 2 && (!!S.missions[k] || missionProgress(k, day, goal) >= 1);
+  return '<section class="card extras" aria-label="Missões extras de hoje"><div class="card-h"><h2>Missões extras</h2><small>' + n + ' de 2</small></div><ul class="ex-list">' + rows.join('') + '</ul>' +
+    (full ? '<p class="ex-full"><span aria-hidden="true">🍀</span> Dia cheio: as 3 missões de hoje</p>' : '') + '</section>';
+}
+// "Termina hoje", "termina amanhã", "termina em 3 dias" (o domingo, ou o último dia do mês, ainda conta)
+const endsIn = (n) => (n <= 0 ? 'Termina hoje' : n === 1 ? 'Termina amanhã' : 'Termina em ' + n + ' dias');
+// O que se diz de um desafio (g = weekGoal ou monthGoal): vencido, sem chance de fechar nesta janela (sem cobrança) ou quando termina
+const chlStatus = (g) => (g.done ? 'Vencido 🎉' : g.over ? 'Essa fica para a próxima' : endsIn(g.toEnd));
+// Uma linha de desafio (a da semana ou a do mês) na tela Hoje. Sem chance de fechar e sem nenhum dia contado, a linha nem aparece: não há o que mostrar.
+function challengeRow(g, kind) {
+  if (!g.done && g.over && !g.have) return '';
+  const of = kind === 'w' ? 'da semana' : 'do mês', have = g.done ? g.need : Math.min(g.have, g.need), p = g.done ? 100 : Math.min(100, g.pct), txt = have + ' de ' + g.need + ' dias';
+  return '<li class="ex-i ch-i' + (g.done ? ' done' : '') + (g.over ? ' over' : '') + '"><div class="m-ico" aria-hidden="true">' + g.c.e + '</div><div class="m-body"><span class="m-k">Desafio ' + of +
+    (g.done ? ' vencido\u00a0✓' : '') + '</span><span class="m-t">' + g.c.t + '</span><span class="m-d">' + g.c.d + '</span>' + xbar(g.key, p, 'Progresso do desafio ' + of, txt) +
+    '<div class="ch-f"><span>' + txt + '</span><span>' + chlStatus(g) + '</span></div></div></li>';
+}
+function challengesHTML() {
+  const k = today(), rows = challengeRow(weekGoal(S, k), 'w') + challengeRow(monthGoal(S, k), 'm');
+  return rows ? '<section class="card extras chl" aria-label="Desafios da semana e do mês"><div class="card-h"><h2>Desafios</h2><small>semana e mês</small></div><ul class="ex-list">' + rows + '</ul></section>' : '';
+}
 // Com "outros líquidos" desligado em Ajustes, esses registros ficam guardados, mas não aparecem nas listas.
 const shown = (es) => (othersOn() ? es : es.filter((e) => !isOther(e)));
 function entryItem(k, e) {
@@ -127,7 +162,7 @@ function logHTML() {
   return '<section class="card"><div class="card-h"><h2>Registros de hoje</h2><small>' + (n ? plural(n, 'registro', 'registros') : '') + '</small></div>' +
     (n ? entryList(k) : empty('🥛', 'Nada por aqui ainda. Que tal começar com um copo agora?')) + '</section>';
 }
-export const TODAY_PARTS = { tTop: topHTML, tMeta: metaHTML, tQuick: quickHTML, tCrew: crewHTML, tTips: tipsHTML, tMission: missionHTML, tLog: logHTML };
+export const TODAY_PARTS = { tTop: topHTML, tMeta: metaHTML, tQuick: quickHTML, tCrew: crewHTML, tTips: tipsHTML, tMission: missionHTML, tExtras: extrasHTML, tChallenges: challengesHTML, tLog: logHTML };
 const part = (id) => '<div id="' + id + '">' + TODAY_PARTS[id]() + '</div>';
 // A segunda gota (outros líquidos) fica no canto da principal. Como a principal, não é redesenhada a cada registro:
 // o app.js só sobe e desce o nível dela (paintDrop2).
@@ -141,7 +176,7 @@ export function todayView() {
   return part('tTop') + '<section class="hero" aria-label="Progresso de hoje"><div class="drops"><div class="drop-wrap" id="drop">' +
     dropSVG('hd', { pct: '', num: '', sub: '', label: 'Progresso de hoje' }) + '</div>' + (othersOn() ? drop2HTML() : '') +
     '</div><div class="hero-meta" id="tMeta">' + metaHTML() + '</div></section>' +
-    part('tQuick') + part('tCrew') + part('tTips') + part('tMission') + part('tLog');
+    part('tQuick') + part('tCrew') + part('tTips') + part('tMission') + part('tExtras') + part('tChallenges') + part('tLog');
 }
 export function dropOpts(total, goal) {
   return { fmt: (n) => fmtNum(n, U()), sub: 'de ' + vol(goal),
@@ -272,10 +307,10 @@ function reefTile(x, mine, mas) {
     '" aria-label="' + x.n + ', ' + (on ? 'conquistada em ' + shortDate(ts) : 'bloqueada, desbloqueia com ' + big(x.at * 1000)) + '">' +
     badge(x.id, { size: 0, locked: !on }) + '<b>' + x.n + '</b><small>' + (on ? shortDate(ts) : big(x.at * 1000)) + '</small></button>';
 }
-const bar = (v, label) => '<div class="bar" role="progressbar" aria-label="' + label + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + v +
-  '"><i data-w="' + v + '"></i></div>';
+const bar = (v, label, text) => '<div class="bar" role="progressbar" aria-label="' + label + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + v +
+  '"' + (text ? ' aria-valuetext="' + text + '"' : '') + '><i data-w="' + v + '"></i></div>';
 // "faltam 3 dias", "falta 1 fim de semana": as unidades das medalhas vêm no plural (core.js), aqui se acerta o singular
-const SING = { dias: 'dia', 'missões': 'missão', 'fins de semana': 'fim de semana' };
+const SING = { dias: 'dia', 'missões': 'missão', 'fins de semana': 'fim de semana', desafios: 'desafio' };
 const leftText = (n, unit) => (n === 1 ? 'falta 1 ' + (SING[unit] || unit) : 'faltam ' + n + ' ' + unit);
 const insRows = (list) => '<div class="ins-list">' + list.map((x) => '<div class="ins"><span class="em" aria-hidden="true">' + x.e + '</span><p>' + x.t + '</p></div>').join('') + '</div>';
 const hr = (h) => h + 'h';
@@ -349,6 +384,31 @@ function heatHTML(hm) {
     '</div><div class="hm-g" aria-hidden="true">' + cols + '</div></div><div class="legend" aria-hidden="true"><span>Menos</span><i class="cal-d"></i><i class="cal-d l1"></i>' +
     '<i class="cal-d l2"></i><i class="cal-d l3"></i><span>Meta</span></div>' + (hm.text ? insRows([{ e: '🎯', t: hm.text }]) : '') + '</section>';
 }
+// Desafios (1.10.0), na Jornada: o da semana com um pontinho por dia (de segunda a domingo), o do mês em barra, e o que já foi vencido
+const WD_I = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'], WD_L = ['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'];
+function chlWeek(g, k) {
+  const have = g.done ? g.need : Math.min(g.have, g.need), got = g.days.map((v, i) => (v === 1 ? WD_L[i] : '')).filter(Boolean);
+  const dots = g.days.map((v, i) => '<span class="wd ' + (v === 1 ? 'on' : v === 0 ? 'off' : 'fut') + (addDays(g.from, i) === k ? ' now' : '') + '"><i>' + (v === 1 ? '✓' : '') + '</i><small>' + WD_I[i] + '</small></span>').join('');
+  return '<div class="chl-r' + (g.done ? ' done' : '') + '"><div class="chl-h"><span class="m-k">Desafio da semana' + (g.done ? ' vencido\u00a0✓' : '') + '</span><b>' + have + ' de ' + g.need + ' dias</b></div>' +
+    '<p class="chl-t"><span aria-hidden="true">' + g.c.e + '</span> ' + g.c.t + '</p><p class="m-d">' + g.c.d + '</p>' +
+    '<div class="wdots" role="img" aria-label="' + (got.length ? 'Dias que contaram nesta semana: ' + got.join(', ') + '.' : 'Nenhum dia contou ainda nesta semana.') + '">' + dots + '</div>' +
+    '<p class="chl-s">' + chlStatus(g) + '</p></div>';
+}
+function chlMonth(g) {
+  const have = g.done ? g.need : Math.min(g.have, g.need), p = g.done ? 100 : Math.min(100, g.pct);
+  return '<div class="chl-r' + (g.done ? ' done' : '') + '"><div class="chl-h"><span class="m-k">Desafio do mês' + (g.done ? ' vencido\u00a0✓' : '') + '</span><b>' + have + ' de ' + g.need + ' dias</b></div>' +
+    '<p class="chl-t"><span aria-hidden="true">' + g.c.e + '</span> ' + g.c.t + '</p><p class="m-d">' + g.c.d + '</p>' +
+    bar(p, 'Progresso do desafio do mês', have + ' de ' + g.need + ' dias') + '<p class="chl-s">' + chlStatus(g) + '</p></div>';
+}
+function challengesJourneyHTML(ctx) {
+  const k = today(), w = weekGoal(S, k), m = monthGoal(S, k), won = [];
+  if (ctx.weeksWon) won.push(plural(ctx.weeksWon, 'semana', 'semanas'));
+  if (ctx.monthsWon) won.push(plural(ctx.monthsWon, 'mês', 'meses'));
+  const t = [];
+  t.push(won.length ? 'Você já venceu ' + won.join(' e ') + ' de desafio.' : 'Nenhum desafio vencido ainda: o primeiro pode ser o desta semana.');
+  if (ctx.trios) t.push('Dias cheios, com as 3 missões cumpridas: ' + ctx.trios + '.');
+  return '<section class="card chl-j">' + chlWeek(w, k) + chlMonth(m) + insRows([{ e: '🍀', t: t.join(' ') }]) + '</section>';
+}
 // A medalha que falta e está mais perto, no mesmo desenho da missão do dia
 function nearHTML(near) {
   if (!near) return '';
@@ -387,6 +447,7 @@ export function journeyView() {
     '<br>' + big(tot) + ' de água · ' + plural(mis, 'missão cumprida', 'missões cumpridas') + '</p></section>' +
     '<div class="card-h out"><h2>Seu recife</h2><small>' + rf.have + ' de ' + INSIGNIAS.length + '</small></div>' +
     '<section class="reef" aria-label="Insígnias">' + INSIGNIAS.map((x) => reefTile(x, mine, mas)).join('') + '</section>' +
+    '<div class="card-h out"><h2>Desafios</h2><small>semana e mês</small></div>' + challengesJourneyHTML(ctx) +
     '<div class="card-h out"><h2>Seus padrões</h2><small>últimas 4 semanas</small></div>' + patternsHTML(pt) +
     '<div class="card-h out"><h2>Seus meses</h2><small>' + (mo.ready ? MONTHS[+mo.cur.ym.slice(5, 7) - 1] + ' e ' + MONTHS[+mo.prev.ym.slice(5, 7) - 1] : 'mês a mês') + '</small></div>' +
     monthsHTML(mo) + heatHTML(hm) +
@@ -422,17 +483,24 @@ export function unlockSheet(id) {
     (S.social && S.social.on && S.social.share !== false ? '<p class="note">Seus amigos vão ver essa insígnia no seu perfil.</p>' : '') +
     '<div class="btns">' + btn('close-sheet', 'Que legal!') + btn('reef', 'Ver meu recife', 'ghost') + '</div></div>';
 }
-// Novidades do Maré (o cartão da tela Hoje abre este painel). 1.9.0: o que há de novo na turma vem primeiro; o que veio nas versões 1.1 a 1.7 fica na seção de baixo.
-// O painel só abre pelo cartão, e o cartão só aparece para quem está na turma com o progresso ligado: por isso o texto fala da turma sem condição.
+// Novidades do Maré (o cartão da tela Hoje abre este painel). 1.10.0: o que veio com as missões extras e os desafios vem primeiro; o que veio nas versões 1.1 a 1.9 fica na
+// seção de baixo. O cartão é para quem já usava o Maré (quem chega agora já nasce com ele dispensado), com ou sem turma: o botão da turma só aparece para quem está nela.
 export function newsSheet() {
   const have = unlockedInsignias(S).length, ni = (e, b, t) => '<div class="news-i"><span class="em" aria-hidden="true">' + e + '</span><div><b>' + b + '</b><p>' + t + '</p></div></div>';
-  const got = S.achievements || {}, fresh = ACHIEVEMENTS.slice(MEDALS_1_6).filter((a) => got[a.id]).length, added = ACHIEVEMENTS.length - MEDALS_1_6;
+  const got = S.achievements || {}, fresh = ACHIEVEMENTS.slice(MEDALS_1_6, MEDALS_1_9).filter((a) => got[a.id]).length, added = MEDALS_1_9 - MEDALS_1_6;
+  const fresh10 = ACHIEVEMENTS.slice(MEDALS_1_9).filter((a) => got[a.id]).length, added10 = ACHIEVEMENTS.length - MEDALS_1_9, crew = !!(S.social && S.social.on);
   return sheetHead('Novidades do Maré') +
+    ni('🧭', 'Mais duas missões por dia', 'Além da missão do dia, agora tem uma leve e uma ousada, sempre de tipos diferentes. Cumprir as três é um “Dia cheio” 🍀. Elas ficam na tela Hoje.') +
+    ni('📅', 'Desafio da semana e do mês', 'Cada semana (de segunda a domingo) e cada mês têm um desafio, igual para todo mundo: quantos dias você cumpre uma regra, como bater a meta em 5 dias. ' +
+      'Dá para acompanhar na Hoje e na Jornada. Se uma semana ficar corrida, tudo bem: a próxima traz outro.') +
+    ni('🏅', added10 + ' medalhas novas', 'Trio de missões, Sete trios, Semana vencida, Quatro semanas vencidas, Trimestre de desafios, Mês vencido e Três meses vencidos. ' +
+      (fresh10 ? 'Você já conquistou ' + fresh10 + ' das ' + added10 + '. ' : '') + 'Elas também aparecem no seu perfil para a turma.') +
+    ni('💙', 'Sem pressão', 'Nenhuma missão ou desafio pede mais água do que a sua meta: eles olham o ritmo e a constância do seu dia.') +
+    '<p class="news-h">Das versões anteriores</p>' +
     ni('📈', 'A porcentagem vai além de 100%', 'A turma vê quanto você fez da meta do dia de verdade: 118% aparece como 118%, até 150% (acima disso, “150%+”). O ranking de Hoje usa esse número.') +
     ni('🙈', 'Mostrar só até 100%', 'Prefere que a turma não saiba quanto você passou da meta? Desligue “Mostrar quanto passei da meta” em Meu perfil ou em Ajustes → Amigos. ' +
       'Seus amigos passam a ver só “Meta batida hoje”, e o seu lugar no ranking também para em 100%.') +
-    '<p class="news-h">Das versões anteriores</p>' +
-    ni('🏅', added + ' medalhas novas', 'Agora são ' + ACHIEVEMENTS.length + ': um mês e cem dias de Maré, o verão em dia, fins de semana de ouro, o Dia dos Oceanos e a Turma completa, que só sai quando você e pelo menos dois amigos batem a meta no mesmo dia. ' +
+    ni('🏅', added + ' medalhas novas', 'Entraram um mês e cem dias de Maré, o verão em dia, fins de semana de ouro, o Dia dos Oceanos e a Turma completa, que só sai quando você e pelo menos dois amigos batem a meta no mesmo dia. ' +
       (fresh ? 'Você já conquistou ' + fresh + ' das novas, com a data em que as merecia. ' : '') + 'Elas também aparecem no seu perfil para a turma.') +
     ni('📅', 'Seus meses', 'A Jornada ganhou o seu mês contra o anterior, com a média por dia e os dias na meta, e um calendário colorido dos últimos 3 meses: um quadradinho por dia.') +
     ni('☁️', 'Medalhas na conta', 'Quem tem conta passa a guardar também o dia em que cada medalha saiu, e ela volta do mesmo jeito em outro aparelho.') +
@@ -441,7 +509,7 @@ export function newsSheet() {
     (have > 1 ? 'Você já tem ' + have + ' de ' + INSIGNIAS.length + '.' : 'Você começa com a concha.') + '</p></div></div>' +
     ni('🏆', 'Uma turma, um ranking', 'Os amigos agora formam uma turma só: todo mundo vê todo mundo, com ranking do dia, da semana e da sequência. Cada um decide o que mostra, e a meta em ml só aparece se você deixar.') +
     ni('🔔', 'Avisos mais espertos', 'Os avisos respeitam seu horário de sono. Dá para escolher saber quando um amigo bate a meta e receber o resumo da semana da turma no domingo.') +
-    '<div class="btns stk">' + btn('fr-profile', 'Escolher o que a turma vê') + btn('news-go', 'Ver minhas medalhas', 'ghost') + btn('close-sheet', 'Depois', 'ghost') + '</div>';
+    '<div class="btns stk">' + (crew ? btn('fr-profile', 'Escolher o que a turma vê') : '') + btn('news-go', 'Ver minhas medalhas', crew ? 'ghost' : '') + btn('close-sheet', 'Depois', 'ghost') + '</div>';
 }
 export function shareText() {
   const st = streak(S.days, today()), m = mascotOf(S);

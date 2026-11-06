@@ -510,7 +510,7 @@ describe('initCloud: os ajustes da conta', () => {
     expect(nPrefs()).toBe(2);
     expect(Object.keys(ACC.prefsParse(await readDoc(env, PREFS)).prefs.ach).sort()).toEqual(['first', 's7']);
   });
-  test('com as 30 medalhas e o pior caso de nome, apelido e recados, o documento passa nas regras de verdade (até 4000 letras)', async () => {
+  test('com as 37 medalhas e o pior caso de nome, apelido e recados, o documento passa nas regras de verdade (até 4000 letras)', async () => {
     const all = {}; C.ACHIEVEMENTS.forEach((x, i) => { all[x.id] = Date.now() - (40 - i) * 864e5 - i * 777; });
     const a = await boot({ user: ACCT, profile: { name: 'ç'.repeat(30) }, social: { nick: '🐠'.repeat(20) }, ach: all });
     for (let i = 0; i < 60; i++) a.S.ui['tip_' + 'x'.repeat(20) + i] = 1;
@@ -518,7 +518,7 @@ describe('initCloud: os ajustes da conta', () => {
     const d = await until(() => readDoc(env, PREFS), 'os ajustes na nuvem');
     expect(d.j.length).toBeLessThanOrEqual(4000);
     const back = ACC.prefsParse(d).prefs;
-    expect(Object.keys(back.ach)).toHaveLength(30);
+    expect(Object.keys(back.ach)).toHaveLength(37);
     expect(Object.keys(back.ui).length).toBeGreaterThan(40); // nada foi solto: coube tudo
   });
   test('ajustes de outro aparelho que NÃO têm as medalhas daqui (um aparelho antigo gravou por cima): o app aplica o que chegou, guarda as suas medalhas e elas sobem de novo', async () => {

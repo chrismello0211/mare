@@ -245,6 +245,44 @@ body.no-tabs .wrap { padding-bottom: 20px; padding-bottom: calc(20px + env(safe-
 }
 .mission.done .bar i { background: var(--ok); }
 
+/* missões extras e desafios (1.10.0): as mesmas peças da missão do dia, em lista; na Jornada, o da semana ganha um pontinho por dia */
+.ex-list { margin: 0; padding: 0; list-style: none; }
+.ex-i { display: flex; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.ex-i:first-child { padding-top: 0; border-top: 0; }
+.ex-i:last-child { padding-bottom: 0; }
+.ex-i .m-ico { width: 42px; height: 42px; border-radius: 13px; font-size: 21px; }
+.ex-i .m-t { margin: 2px 0 7px; font-size: 14px; }
+.ex-i.done .m-k { color: var(--ok); }
+.ex-i.done .bar i { background: var(--ok); }
+.ch-i { align-items: flex-start; }
+.ch-i .m-t { margin-bottom: 2px; }
+.ch-i .m-d { margin: 0 0 8px; }
+.ch-f { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; margin-top: 6px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.ch-f span { white-space: nowrap; }
+.ch-f span:last-child { margin-left: auto; padding-left: 10px; text-align: right; }
+.ex-i.done .ch-f span:last-child { color: var(--ok); }
+.ex-full { margin-top: 12px; padding: 8px 12px; border-radius: 12px; background: var(--okbg); color: var(--ok); font-size: 13px; font-weight: 800; text-align: center; }
+.chl-r + .chl-r { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.chl-h { display: flex; align-items: baseline; justify-content: space-between; }
+.chl-h b { flex-shrink: 0; margin-left: 10px; font-size: 13px; white-space: nowrap; }
+.chl-t { margin-top: 4px; font-size: 16px; font-weight: 800; letter-spacing: -.01em; }
+.chl-r .m-d { margin: 2px 0 12px; }
+.chl-s { margin-top: 8px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.chl-r.done .m-k, .chl-r.done .chl-s { color: var(--ok); }
+.chl-r.done .bar i { background: var(--ok); }
+.chl-j .ins-list { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.wdots { display: flex; }
+.wd { flex: 1; min-width: 0; text-align: center; }
+.wd i {
+  display: block; width: 28px; height: 28px; margin: 0 auto; border-radius: 50%; background: var(--surface2);
+  color: var(--numw); font-size: 14px; font-style: normal; font-weight: 800; line-height: 28px;
+}
+.wd.on i { background: var(--ok); }
+.wd.fut i { opacity: .55; }
+.wd.now i { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--primary); }
+.wd small { display: block; margin-top: 4px; font-size: 11px; font-weight: 700; color: var(--muted); }
+.wd.now small { color: var(--primary); }
+
 /* lista de registros */
 .log-item { display: flex; align-items: center; width: 100%; padding: 10px 0; border-top: 1px solid var(--line); text-align: left; }
 .log-list li:first-child .log-item { border-top: 0; }

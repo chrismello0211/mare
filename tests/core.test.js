@@ -415,9 +415,11 @@ describe('conquistas', () => {
   it('a ordem das medalhas é um contrato: cada uma é um bit do perfil que a turma vê (só se acrescenta no fim)', () => {
     expect(C.ACHIEVEMENTS.map((a) => a.id)).toEqual(['first', 'goal', 's3', 's7', 's14', 's30', 'early', 'sunset', 'mission', 'm10', 'weekend', 'd10', // 1.0 a 1.5: bits 0 a 11
       's60', 's100', 'd30', 'd100', 'm30', 'early7', 'sunset5', 'thirds7', 'win25', 'back', 'weekends4', 'wwd', // 1.6.0: bits 12 a 23 (a 1ª palavra, "md", fica cheia)
-      'm1', 'use100', 'summer', 'weekends12', 'oceans', 'crew']); // 1.7.0: bits 24 a 29 (a 2ª palavra, "md2"), só no fim
+      'm1', 'use100', 'summer', 'weekends12', 'oceans', 'crew', // 1.7.0: bits 24 a 29 (a 2ª palavra, "md2"), só no fim
+      'trio', 'trio7', 'wk1', 'wk4', 'wk12', 'mo1', 'mo3']); // 1.10.0: bits 30 a 36 (os de 6 a 12 do "md2"), ainda no fim
     expect(C.MEDALS_1_5).toBe(12);
     expect(C.MEDALS_1_6).toBe(24);
+    expect(C.MEDALS_1_9).toBe(30);
     expect(new Set(C.ACHIEVEMENTS.map((a) => a.id)).size).toBe(C.ACHIEVEMENTS.length);
     expect(C.MEDAL_MAX).toBe(24); // as regras do Firestore de 30/10/2026 aceitam até 24 bits em "md" (16777215)
     expect(C.MEDAL_MAX2).toBe(31); // e a 1.7.0 acrescenta "md2", com até 31 bits (2147483647)
@@ -446,17 +448,20 @@ describe('conquistas', () => {
       for (let j = i + 1; j < n; j++) check([i, j]);
     }
     let seed = 20261102; // gerador fixo: são sempre as mesmas combinações
-    for (let t = 0; t < 3000; t++) { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; check(all.filter((i) => (seed >> (i % 30)) & 1)); }
+    for (let t = 0; t < 3000; t++) { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; check(all.filter((i) => (seed >> (i % 31)) & 1)); }
     // valores conhecidos (o que vai para a nuvem e as regras do Firestore conferem)
     const one = (id) => { const S = { achievements: {} }; S.achievements[id] = 5; return [C.medalMask(S), C.medalMask2(S)]; };
     expect(one('first')).toEqual([1, 0]); expect(one('wwd')).toEqual([8388608, 0]); expect(one('m1')).toEqual([0, 1]); expect(one('crew')).toEqual([0, 32]);
-    expect(ix('wwd')).toBe(23); expect(ix('m1')).toBe(24); expect(ix('crew')).toBe(29);
+    expect(one('trio')).toEqual([0, 64]); expect(one('mo3')).toEqual([0, 4096]);
+    expect(ix('wwd')).toBe(23); expect(ix('m1')).toBe(24); expect(ix('crew')).toBe(29); expect(ix('trio')).toBe(30); expect(ix('mo3')).toBe(36);
     const full = {}; C.ACHIEVEMENTS.forEach((a) => { full[a.id] = 5; });
-    expect([C.medalMask({ achievements: full }), C.medalMask2({ achievements: full })]).toEqual([16777215, 63]);
+    expect([C.medalMask({ achievements: full }), C.medalMask2({ achievements: full })]).toEqual([16777215, 8191]);
     // a leitura: o que um app novo faz com os dois números
     expect(C.medalsFromMask(16777215).length).toBe(24); // sem a 2ª palavra: só as 24 primeiras (amigo que ainda está na 1.6.0)
-    expect(C.medalsFromMask(0, 2147483647).map((a) => a.id)).toEqual(['m1', 'use100', 'summer', 'weekends12', 'oceans', 'crew']); // bits que não existem ainda (6 a 30) ficam de fora
+    expect(C.medalsFromMask(0, 2147483647).map((a) => a.id)).toEqual(['m1', 'use100', 'summer', 'weekends12', 'oceans', 'crew', 'trio', 'trio7', 'wk1', 'wk4', 'wk12', 'mo1', 'mo3']); // bits que não existem ainda (13 a 30) ficam de fora
     expect(C.medalsFromMask(0, 1 << 30)).toEqual([]);
+    expect(C.medalsFromMask(0, 1 << 13)).toEqual([]); // o primeiro bit livre da 2ª palavra
+    expect(C.medalsFromMask(0, 1 << 12).map((a) => a.id)).toEqual(['mo3']); // e o último que existe
     expect(C.medalsFromMask((1 << 24) | (1 << 3), 0).map((a) => a.id)).toEqual(['s7']); // o bit 24 de "md" não existe: ignorado (a 2ª palavra é que traz as outras)
     expect(C.medalsFromMask(1, 1).map((a) => a.id)).toEqual(['first', 'm1']);
     expect(C.medalsFromMask(C.medalMask({ achievements: { first: 0 } }), C.medalMask2({ achievements: { m1: 0 } }))).toEqual([]); // carimbo 0 = não tem

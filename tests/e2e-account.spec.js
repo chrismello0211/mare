@@ -117,21 +117,21 @@ test.describe('sem conta', () => {
     await expect(page.getByRole('button', { name: 'Apagar', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Excluir', exact: true })).toHaveCount(0);
     await expect(page.locator('.about')).toContainText('a cópia na nuvem só volta com uma conta'); // sem conta, a cópia na nuvem não ajuda quem perde o aparelho
-    await expect(page.locator('.about')).toContainText('v1.9.0');
+    await expect(page.locator('.about')).toContainText('v1.10.0');
   });
 
   test('a dica da conta vem primeiro, só a partir do segundo dia; dispensar não tira o cartão de Ajustes', async ({ page }) => {
     // um dia só: ainda não há o que perder
     await stubFriendsCloud(page);
-    await seed(page, { todayMl: 500, social: SOCIAL_ON, ui: { tip_account: 0, tip_news18: 0 } }); // o cartão de novidades da 1.9.0 é para quem está na turma
+    await seed(page, { todayMl: 500, social: SOCIAL_ON, ui: { tip_account: 0, tip_news19: 0 } }); // o cartão de novidades da 1.10.0 é para todos que já usavam o Maré
     await page.goto('/');
-    await expect(page.locator('.tip')).toContainText('Novidade na turma');
+    await expect(page.locator('.tip')).toContainText('Mais desafios no Maré');
     await page.evaluate(() => sessionStorage.clear());
     // dois dias ou mais: a dica da conta passa na frente das outras
     const p2 = await page.context().newPage();
     p2.on('pageerror', (e) => { errors.push(e.message); });
     await stubFriendsCloud(p2);
-    await seed(p2, { history: [2, 1500], todayMl: 500, social: SOCIAL_ON, ui: { tip_account: 0, tip_news18: 0 } });
+    await seed(p2, { history: [2, 1500], todayMl: 500, social: SOCIAL_ON, ui: { tip_account: 0, tip_news19: 0 } });
     await p2.goto('/');
     await expect(p2.locator('.tip')).toHaveCount(1);
     await expect(p2.locator('.tip')).toContainText('Proteja seus dados');
@@ -139,7 +139,7 @@ test.describe('sem conta', () => {
     await expect(sheet(p2).getByRole('heading', { name: 'Criar conta' })).toBeVisible();
     await p2.keyboard.press('Escape');
     await p2.getByRole('button', { name: 'Dispensar dica' }).click();
-    await expect(p2.locator('.tip')).toContainText('Novidade na turma'); // a próxima da fila
+    await expect(p2.locator('.tip')).toContainText('Mais desafios no Maré'); // a próxima da fila
     expect((await stored(p2)).ui.tip_account).toBe(1);
     await tabS(p2).click();
     await expect(p2.locator('.group', { hasText: 'Proteja seus dados' })).toBeVisible();
@@ -354,7 +354,8 @@ test.describe('entrar', () => {
     expect(s.ui.tip_news15).toBe(1);
     expect(s.ui.tip_news16).toBe(1);
     expect(s.ui.tip_news17).toBe(1);
-    expect(s.ui.tip_news18).toBe(1); // quem chega pela conta não vê o cartão de novidades
+    expect(s.ui.tip_news18).toBe(1);
+    expect(s.ui.tip_news19).toBe(1); // quem chega pela conta não vê o cartão de novidades
     expect(await hint(page)).toEqual({ uid: MARI_UID, email: MARI, verified: true });
     expect((await acct(page)).user).toMatchObject({ uid: MARI_UID, email: MARI });
     await tabS(page).click();
@@ -1213,7 +1214,7 @@ test.describe('com conta', () => {
     const m = (t) => Math.floor(t / 6e4) * 6e4, firstAt = m(Date.now() - 20 * 864e5), crewAt = m(Date.now() - 864e5);
     // o app recebe os ajustes já limpos (cleanPrefs): as medalhas chegam em ms, no minuto
     const remote = { u: Date.now() + 5000, prefs: Object.assign(JSON.parse(PREFS().j), { ach: { first: firstAt, crew: crewAt } }) };
-    await withAccount(page, null, { verified: true, remotePrefs: remote });
+    await withAccount(page, { todayMl: 0 }, { verified: true, remotePrefs: remote }); // sem água de hoje: de madrugada, os 500 ml de agora dariam a medalha de antes das 9h, que a nuvem não tem
     await page.goto('/');
     await tabS(page).click();
     await expect.poll(async () => (await stored(page)).achievements.crew).toBe(crewAt);

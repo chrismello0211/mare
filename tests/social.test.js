@@ -215,8 +215,12 @@ describe('o que vai para a nuvem (profilePayload)', () => {
     expect(SO.profilePayload(S, T)).toMatchObject({ md: 7, md2: 1 });
     S.achievements.crew = 5; // índice 29: o bit 5
     expect(SO.profilePayload(S, T)).toMatchObject({ md: 7, md2: 1 + 32 });
+    S.achievements.trio = 6; // 1.10.0, índice 30: o bit 6 da 2ª palavra
+    expect(SO.profilePayload(S, T)).toMatchObject({ md: 7, md2: 1 + 32 + 64 });
+    S.achievements.mo3 = 7; // índice 36: o bit 12, o último que existe
+    expect(SO.profilePayload(S, T)).toMatchObject({ md: 7, md2: 1 + 32 + 64 + 4096 });
     C.ACHIEVEMENTS.forEach((a) => { S.achievements[a.id] = 1; });
-    expect(SO.profilePayload(S, T)).toMatchObject({ md: 16777215, md2: 63 });
+    expect(SO.profilePayload(S, T)).toMatchObject({ md: 16777215, md2: 8191 }); // 13 bits na 2ª palavra
     expect(SO.profilePayload(S, T).md2).toBeLessThanOrEqual(SO.MD2_MAX);
     S.achievements = { first: 1, m1: 1 };
     const sp = SO.profilePayload(Object.assign({}, S, { social: { share: false } }), T);
@@ -437,7 +441,9 @@ describe('o que chega da nuvem (cleanFriend, cleanRequest)', () => {
     expect(ids({ md: 0, sh: true })).toEqual([]);
     expect(SO.medalsShown({ md: 0, sh: true })).toEqual([]); // vazia não é "não sei": o bloco decide mostrar ou não
     expect(ids({ md: SO.MD_MAX, sh: true })).toEqual(C.ACHIEVEMENTS.slice(0, 24).map((a) => a.id)); // a 1ª palavra cheia: as 24 primeiras (amigo na 1.6.0 ou antes)
-    expect(ids({ md: SO.MD_MAX, md2: 63, sh: true })).toEqual(C.ACHIEVEMENTS.map((a) => a.id)); // com a 2ª palavra, as 30
+    expect(ids({ md: SO.MD_MAX, md2: 63, sh: true })).toEqual(C.ACHIEVEMENTS.slice(0, 30).map((a) => a.id)); // as 30 de quem está na 1.7.0 a 1.9.0
+    expect(ids({ md: SO.MD_MAX, md2: 8191, sh: true })).toEqual(C.ACHIEVEMENTS.map((a) => a.id)); // com a 2ª palavra cheia, as 37
+    expect(ids({ md: 0, md2: 64 + 4096, sh: true })).toEqual(['trio', 'mo3']); // as da 1.10.0
     expect(ids({ md: 0, md2: 1 + 32, sh: true })).toEqual(['m1', 'crew']);
     expect(ids({ md: 1, md2: 0, sh: true })).toEqual(['first']);
     expect(ids({ md: (1 << 20) | 1, sh: true })).toEqual(['first', 'win25']); // o bit 20 é a Mês de ouro (1.6.0): um app antigo (só 12 medalhas) a ignoraria

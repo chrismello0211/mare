@@ -1,7 +1,7 @@
 // Maré — Service Worker (Parte 4): cache offline, atualização automática (1.5.1), push (lembretes e avisos dos amigos) e ação "+250 ml" da notificação.
 // A cada deploy, aumente VERSION (e APP_VERSION em js/app.js): é isso que dispara a atualização, que acontece sozinha (veja "Atualização automática").
 // Não use firebase-messaging-sw.js: o firebase.js registra o token FCM neste SW e o push chega aqui como "data".
-const VERSION = '1.9.0';
+const VERSION = '1.10.0';
 const CACHE = 'mare-' + VERSION, RUNTIME = 'mare-sdk', TAG = 'mare-lembrete';
 const SHELL = new URL('./', self.location).href, ROOT = new URL('./', self.location).pathname;
 const NEXT = SHELL + '?upd=1', ACK_MS = 2500; // NEXT: endereço limpo do app; "?upd=1" faz a tela nova avisar "Maré atualizado ✓"

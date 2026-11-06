@@ -197,9 +197,9 @@ test('desbloquear: o fundo do painel e o "voltar" também contam como "visto"', 
 });
 
 test('quem já usava o Maré ganha as insígnias de uma vez e só a mais alta é comemorada', async ({ page }) => {
-  await seed(page, { history: [26, 2500], ui: { tip_news17: 0, tip_news18: 0 }, medals: true }); // 65 L e nenhuma insígnia guardada (estado da versão 1.0.x), fora da turma
+  await seed(page, { history: [26, 2500], ui: { tip_news17: 0, tip_news18: 0 }, medals: true }); // 65 L e nenhuma insígnia guardada (estado da versão 1.0.x)
   await page.goto('/');
-  await expect(page.locator('#tTips')).not.toContainText('Novidade'); // o cartão de novidades (1.9.0) é da turma: quem não a usa não o vê (e o da 1.7.0 não volta)
+  await expect(page.locator('#tTips')).not.toContainText('Novidade'); // os cartões de novidades de antes (1.7.0 e 1.9.0) não voltam (o de agora, da 1.10.0, já vem dispensado do seed)
   await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Nova insígnia!', { timeout: 9000 });
   await expect(sheetOf(page)).toContainText('Tartaruga-marinha');
   await sheetOf(page).getByRole('button', { name: 'Que legal!' }).click();
@@ -219,8 +219,9 @@ test('quem está começando agora ganha a concha de presente, sem festa nem dica
   await page.getByRole('button', { name: /Agora não|Começar a usar/ }).click();
   await expect(page.locator('#tabbar')).toBeVisible();
   await expect(page.locator('#tTips')).not.toContainText('Novidade');
+  await expect(page.locator('#tTips')).not.toContainText('Mais desafios no Maré');
   const ui0 = (await stored(page)).ui;
-  expect([ui0.tip_news12, ui0.tip_news15, ui0.tip_news16, ui0.tip_news17, ui0.tip_news18]).toEqual([1, 1, 1, 1, 1]); // quem começa agora já nasce com todos os cartões de novidades dispensados
+  expect([ui0.tip_news12, ui0.tip_news15, ui0.tip_news16, ui0.tip_news17, ui0.tip_news18, ui0.tip_news19]).toEqual([1, 1, 1, 1, 1, 1]); // quem começa agora já nasce com todos os cartões de novidades dispensados
   await page.waitForTimeout(2500);
   await expect(page.locator('#sheet')).toBeHidden();
   await cup(page, '250 ml').click();

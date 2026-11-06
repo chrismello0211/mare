@@ -1,7 +1,7 @@
 // Maré — aplicativo (Parte 3C). Liga estado, telas, lembretes, clima, celebrações e a nuvem opcional.
 // Toda alteração segue: muda S → save() → afterChange() (lembrete, conquistas, nuvem) → atualiza só o necessário.
 import { ACTIVITY, drink, isWater, mixOn, retired, uid, dayKey, keyToDate, minOf, fmtHM, expectedBy, nextReminderAt, climateBonus, goalToday,
-  missionFor, missionProgress, newAchievements, medalDates, newInsignias, insigniaDates, insigniaById, achievementById, mergeAch, CREW_MIN, streak, buildICS, defaults,
+  missionFor, missionProgress, extrasDue, extraKey, challengesDue, newAchievements, medalDates, newInsignias, insigniaDates, insigniaById, achievementById, mergeAch, CREW_MIN, streak, buildICS, defaults,
   migrate } from './core.js';
 import { KEY, S, SOC, ACCT, setS, applyMix, hooks, load, save, clamp, num, plural, byT, shiftYm, today, goalNow, totalNow, otherNow, othersOn, ensureDay,
   syncTodayGoal, allMl, U, vol, toMl, fromMl, big, esc, wait } from './store.js';
@@ -19,11 +19,11 @@ import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inv
 import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs, achAhead } from './account.js';
 import { createSheet, signinSheet, resetSheet, resetDoneSheet, deleteSheet } from './account-view.js';
 
-export const APP_VERSION = '1.9.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.10.0'; // aumente a cada deploy, junto com VERSION no sw.js
 
-// Os cartões de novidades: só o mais novo (tip_news18, da 1.9.0) aparece; os de antes (1.2, 1.5, 1.6 e 1.7) já não voltam, mas ficam marcados como vistos
+// Os cartões de novidades: só o mais novo (tip_news19, da 1.10.0) aparece; os de antes (1.2, 1.5, 1.6, 1.7 e 1.9) já não voltam, mas ficam marcados como vistos
 // sempre que a pessoa vê o de agora, abre o painel, começa do zero ou chega por uma conta.
-const NEWS_TIPS = ['tip_news12', 'tip_news15', 'tip_news16', 'tip_news17', 'tip_news18'];
+const NEWS_TIPS = ['tip_news12', 'tip_news15', 'tip_news16', 'tip_news17', 'tip_news18', 'tip_news19'];
 function seeNews() { NEWS_TIPS.forEach((k) => { S.ui[k] = 1; }); }
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'friends', 'settings'];
@@ -105,7 +105,7 @@ function render(still) {
 function refreshToday(fx) {
   if (tab !== 'today' || !$('#drop')) return;
   Object.keys(TODAY_PARTS).forEach(refreshPart);
-  animBars($('#tMission'));
+  ['#tMission', '#tExtras', '#tChallenges'].forEach((id) => { const el = $(id); if (el) animBars(el); }); // as barras crescem a partir do valor de antes
   // fx: true = caiu água na gota principal; 'o' = caiu outro líquido na segunda gota
   if (fx === 'o') { if ($('#drop2')) splash($('#drop2'), levelY(otherNow() / goalNow())); }
   else if (fx) splash($('#drop'), levelY(totalNow() / goalNow()));
@@ -278,14 +278,29 @@ function celebrate(b, keys) {
     confetti();
     pop('🎯', 'Meta do dia', 'Você bateu a meta!', vol(total) + ' hoje · ' + plural(streak(S.days, k), 'dia seguido', 'dias seguidos'));
   }
-  if (!S.missions[k] && missionProgress(k, S.days[k], goal) >= 1) {
-    const m = missionFor(k);
-    S.missions[k] = Date.now();
-    pop(m.e, 'Missão cumprida', m.t, 'Amanhã tem missão nova');
-  }
+  celebrateMissions(k, goal);
+  // desafios da semana e do mês: o que fechou agora é guardado (depois disso, apagar registros não o desfaz) e comemorado, com a festa de sempre
+  challengesDue(S, k).forEach((x) => {
+    S.challenges[x.key] = Date.now();
+    confetti();
+    pop(x.c.e, x.kind === 'w' ? 'Desafio da semana' : 'Desafio do mês', x.c.t, x.kind === 'w' ? 'Você venceu a semana!' : 'Você venceu o mês!');
+  });
   newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); pop(a.e, 'Nova medalha', a.t, a.d); });
   if (grantInsignias(true).length) planUnlock(1600);
   save();
+}
+// As três missões de hoje: a do dia (S.missions) e a leve e a ousada (S.extras). As que fecharam neste registro são guardadas; uma sozinha ganha o seu cartão
+// e duas ou mais saem num só (um registro grande pode fechar várias, e uma fila de cartões atrapalharia mais do que comemoraria). A terceira do dia é o "Dia cheio".
+function celebrateMissions(k, goal) {
+  const done = [];
+  if (!S.missions[k] && missionProgress(k, S.days[k], goal) >= 1) { S.missions[k] = Date.now(); done.push({ t: 'd', m: missionFor(k) }); }
+  extrasDue(S, k, goal).forEach((x) => { S.extras[extraKey(k, x.t)] = Date.now(); done.push(x); });
+  if (!done.length) return;
+  const n = (S.missions[k] ? 1 : 0) + (S.extras[extraKey(k, 'e')] ? 1 : 0) + (S.extras[extraKey(k, 'h')] ? 1 : 0), full = n === 3;
+  const sub = full ? 'Dia cheio: as 3 missões de hoje' : n + ' de 3 missões hoje';
+  if (done.length > 1) { pop(full ? '🍀' : '🧭', 'Missões cumpridas', done.length + ' missões de uma vez', sub); return; }
+  const x = done[0];
+  pop(full ? '🍀' : x.m.e, x.t === 'd' ? 'Missão cumprida' : x.t === 'e' ? 'Missão leve cumprida' : 'Missão ousada cumprida', x.m.t, full || x.t !== 'd' ? sub : 'Amanhã tem missão nova');
 }
 
 /* ---------- medalhas ---------- */
@@ -629,7 +644,7 @@ function sanitize(raw) {
   s.goal.manual = clamp(+s.goal.manual || 2500, 500, 6000);
   s.goal.climate = !!s.goal.climate;
   s.last = drink(s.last).id;
-  ['achievements', 'missions'].forEach((key) => {
+  ['achievements', 'missions', 'extras', 'challenges'].forEach((key) => {
     const o = {};
     Object.keys(s[key]).forEach((x) => { if (isFinite(s[key][x])) o[String(x).slice(0, 24)] = +s[key][x]; });
     s[key] = o;
@@ -985,7 +1000,7 @@ async function joinFriends(el) {
   try {
     const s = await connectSoc(20000); // se a nuvem estava fora, tenta subi-la de novo uma vez
     const code = await guard(s.join({ payload: profilePayload(S, today()), code: S.social.code }), 25000);
-    S.social.on = true; S.social.code = code; S.ui.tip_news18 = 1; save(); // quem entra agora leu "O que a turma vê" e achou a chave: o cartão de novidades da turma não é para ele
+    S.social.on = true; S.social.code = code; save();
     ensurePush(); // com a permissão já dada, o aparelho passa a receber os avisos dos amigos
     SOC.st = s.state(); SOC.mode = 'ready'; frSig = '';
     s.start({ payload: socPayload });
@@ -1016,14 +1031,12 @@ function toggleShare() {
   if (sheetIsOpen() && $('#frNm', sheetBody)) openSheet(profileSheet()); // o texto sob o avatar muda junto
 }
 // "Mostrar quanto passei da meta" (1.9.0): desligado, o perfil sai com a % travada em 100 e a turma vê só "Meta batida hoje" (as regras e os aparelhos
-// antigos já aceitam isso). Quem achou a chave não precisa mais do cartão de novidades que a apresenta.
+// antigos já aceitam isso).
 function toggleOver() {
   S.social.over = S.social.over === false;
-  S.ui.tip_news18 = 1;
   save(); haptic('light');
   const on = S.social.over !== false;
   $$('[data-action="fr-over"]').forEach((x) => { x.setAttribute('aria-checked', on ? 'true' : 'false'); });
-  refreshPart('tTips');
   if (!S.social.on) return;
   socTouch(); // o perfil sai de novo, com a % de verdade ou travada em 100
   if (sheetIsOpen() && $('#frNm', sheetBody)) openSheet(profileSheet()); // o texto sob o avatar e a nota da chave mudam junto
