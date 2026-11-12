@@ -197,8 +197,18 @@ const nPrefs = () => H.sets.filter((p) => /\/backup\/prefs$/.test(p)).length;
 const T1 = Date.now() - 2 * 864e5, T2 = Date.now() - 3600e3;
 const dayDoc = (goal, ml, t) => ({ goal: goal, entries: [{ id: 'e' + t, t: t, ml: ml, d: 'water' }], u: t });
 const stateFor = (over) => { const S = C.defaults(Date.now() - 30 * 864e5); S.onboarded = true; Object.assign(S.profile, over || {}); return S; };
-const packOf = (over, u, ach) => { const S = stateFor(over); Object.assign(S.achievements, ach || {}); return ACC.prefsPack(S, u); };
+const packOf = (over, u, ach, trace) => { const S = stateFor(over); Object.assign(S.achievements, ach || {}); Object.assign(S, trace || {}); return ACC.prefsPack(S, u); }; // trace (1.11.0): { challenges, crewWon, missions, extras }
 const PACK = packOf({ name: 'Ana', weight: 64, wake: '06:30', sleep: '22:30', unit: 'oz' }, 777000);
+// O rastro das missões e dos desafios (1.11.0) de um aparelho, com datas relativas a hoje: weeks = semanas vencidas (a primeira é a semana passada; from muda de onde contam), months = meses vencidos
+// (o mês passado em diante), crew = semanas vencidas pela turma, days = dias de trio de missões (de ontem para trás). Devolve { challenges, crewWon, missions, extras }, os mapas do estado.
+const traceOf = (o) => {
+  const t = { challenges: {}, crewWon: {}, missions: {}, extras: {} }, mon = C.weekStart(C.dayKey()), today = C.dayKey(), now = new Date(), from = o.from || 1, noon = (k) => C.keyToDate(k).getTime();
+  for (let i = from; i < from + (o.weeks || 0); i++) { const w = C.addDays(mon, -7 * i); t.challenges[w] = noon(C.addDays(w, 5)); }
+  for (let i = 1; i <= (o.months || 0); i++) { const ym = C.dayKey(new Date(now.getFullYear(), now.getMonth() - i, 1)).slice(0, 7); t.challenges[ym] = noon(ym + '-20'); }
+  for (let i = from; i < from + (o.crew || 0); i++) { const w = C.addDays(mon, -7 * i); t.crewWon[w] = noon(C.addDays(w, 6)); }
+  for (let i = 1; i <= (o.days || 0); i++) { const k = C.addDays(today, -i); t.missions[k] = noon(k); t.extras[k + ':e'] = noon(k); t.extras[k + ':h'] = noon(k); }
+  return t;
+};
 // O que um aparelho antigo já deixou na nuvem desta conta
 async function seedAna(e, withPrefs) {
   await seed(e || env, async (db) => {
@@ -223,11 +233,12 @@ async function boot(o) {
   const S = stateFor(o.profile);
   S.onboarded = o.onboarded !== false;
   Object.assign(S.social, o.social || {}); Object.assign(S.reminders, o.reminders || {}); Object.assign(S.days, o.days || {}); Object.assign(S.achievements, o.ach || {});
+  Object.assign(S, JSON.parse(JSON.stringify(o.trace || {}))); // o rastro das missões e dos desafios que este aparelho já tinha (1.11.0): { challenges, crewWon, missions, extras }. Uma cópia: o app junta o que a nuvem traz NO MESMO mapa, e o teste ainda compara com o que o aparelho tinha antes
   const status = [], remote = [], prefs = [];
   const ended = [];
   const hooks = { state: () => S, onRemote: (d) => { remote.push(d); }, onStatus: (s) => { status.push(s); }, onEnded: () => { ended.push(Date.now()); } };
-  // como o app: aplica e devolve true quando as medalhas daqui estão à frente da cópia da nuvem (aí o firebase.js faz os ajustes subirem de novo)
-  if (o.onPrefs !== false) hooks.onPrefs = (p, u) => { prefs.push({ p: p, u: u }); ACC.applyPrefs(S, p, 'sync'); return ACC.achAhead(S.achievements, p.ach); };
+  // como o app: aplica e devolve true quando as medalhas, ou o rastro das missões e dos desafios, daqui estão à frente da cópia da nuvem (aí o firebase.js faz os ajustes subirem de novo)
+  if (o.onPrefs !== false) hooks.onPrefs = (p, u) => { prefs.push({ p: p, u: u }); ACC.applyPrefs(S, p, 'sync'); return ACC.achAhead(S.achievements, p.ach) || ACC.pgAhead(S, p.pg); };
   const mod = await getMod();
   const cloud = await mod.initCloud(hooks);
   await sleep(250); // o primeiro "puxar" da nuvem termina e agenda a primeira gravação
@@ -510,7 +521,7 @@ describe('initCloud: os ajustes da conta', () => {
     expect(nPrefs()).toBe(2);
     expect(Object.keys(ACC.prefsParse(await readDoc(env, PREFS)).prefs.ach).sort()).toEqual(['first', 's7']);
   });
-  test('com as 37 medalhas e o pior caso de nome, apelido e recados, o documento passa nas regras de verdade (até 4000 letras)', async () => {
+  test('com as 39 medalhas e o pior caso de nome, apelido e recados, o documento passa nas regras de verdade (até 4000 letras)', async () => {
     const all = {}; C.ACHIEVEMENTS.forEach((x, i) => { all[x.id] = Date.now() - (40 - i) * 864e5 - i * 777; });
     const a = await boot({ user: ACCT, profile: { name: 'ç'.repeat(30) }, social: { nick: '🐠'.repeat(20) }, ach: all });
     for (let i = 0; i < 60; i++) a.S.ui['tip_' + 'x'.repeat(20) + i] = 1;
@@ -518,8 +529,71 @@ describe('initCloud: os ajustes da conta', () => {
     const d = await until(() => readDoc(env, PREFS), 'os ajustes na nuvem');
     expect(d.j.length).toBeLessThanOrEqual(4000);
     const back = ACC.prefsParse(d).prefs;
-    expect(Object.keys(back.ach)).toHaveLength(37);
+    expect(Object.keys(back.ach)).toHaveLength(39);
     expect(Object.keys(back.ui).length).toBeGreaterThan(40); // nada foi solto: coube tudo
+    expect('pg' in JSON.parse(d.j), 'sem missão extra nem desafio guardados, o documento não ganha o campo pg').toBe(false);
+  });
+  // 1.11.0: o rastro das missões e dos desafios (pg) viaja no MESMO documento de ajustes (v, u e j: as regras do Firestore não mudam)
+  test('o rastro das missões e dos desafios vai no mesmo documento (v, u e j) e só existe quando há o que guardar', async () => {
+    const a = await boot({ user: ACCT, profile: { name: 'Ana' } });
+    a.cloud.syncPrefs(); hidden();
+    const d0 = await until(() => readDoc(env, PREFS), 'os ajustes na nuvem');
+    expect('pg' in JSON.parse(d0.j)).toBe(false); // sem missão extra nem desafio, o documento é o de sempre
+    Object.assign(a.S, traceOf({ weeks: 2, months: 1, crew: 1, days: 2 }));
+    a.cloud.syncPrefs(); hidden();
+    const d = await until(async () => { const x = await readDoc(env, PREFS); return x && 'pg' in JSON.parse(x.j) ? x : null; }, 'o rastro na nuvem');
+    expect(Object.keys(d).sort()).toEqual(['j', 'u', 'v']);
+    const pg = JSON.parse(d.j).pg;
+    expect(Object.keys(pg).sort()).toEqual(['c', 'd', 'f', 'm', 'w']);
+    expect([pg.w.length, pg.m.length, pg.c.length]).toEqual([2, 1, 1]);
+    expect(pg.d).toBe(C.addDays(C.dayKey(), -1));
+    expect(pg.f).toBe('77'); // os dois últimos dias: missão do dia, leve e ousada (1 + 2 + 4)
+    const back = ACC.prefsParse(d).prefs.pg;
+    expect([Object.keys(back.ch).length, Object.keys(back.cw).length, Object.keys(back.mi).length, Object.keys(back.ex).length]).toEqual([3, 1, 2, 4]);
+    expect(nPrefs()).toBe(2);
+  });
+  test('outro aparelho da conta: o rastro que a nuvem tem entra aqui, o que é só deste aparelho volta para a nuvem (a união), e a gravação para por aí', async () => {
+    const nuvem = traceOf({ weeks: 2, crew: 1, days: 1 }), daqui = traceOf({ weeks: 1, from: 4 }); // a semana de 4 atrás só este aparelho venceu
+    await seed(env, async (db) => { await FS.setDoc(FS.doc(db, PREFS), packOf({ name: 'Ana Remota' }, Date.now() - 5000, null, nuvem)); });
+    const a = await boot({ user: ACCT, profile: { name: 'Ana' }, trace: daqui });
+    expect(a.prefs).toHaveLength(1);
+    expect(Object.keys(a.S.challenges).sort()).toEqual(Object.keys(nuvem.challenges).concat(Object.keys(daqui.challenges)).sort()); // o que veio e o que já era daqui
+    expect(Object.keys(a.S.crewWon)).toEqual(Object.keys(nuvem.crewWon));
+    expect(Object.keys(a.S.missions)).toEqual(Object.keys(nuvem.missions));
+    hidden();
+    const d = await until(async () => { const x = await readDoc(env, PREFS); return x && JSON.parse(x.j).pg && JSON.parse(x.j).pg.w.length === 3 ? x : null; }, 'a semana que só este aparelho venceu voltou para a nuvem');
+    const back = ACC.prefsParse(d).prefs;
+    expect(Object.keys(back.pg.ch).sort()).toEqual(Object.keys(a.S.challenges).sort());
+    expect(back.profile.name).toBe('Ana Remota'); // sem desfazer o que o outro aparelho mudou
+    expect(nPrefs()).toBe(1);
+    await sleep(2000);
+    expect(nPrefs()).toBe(1); // e para por aí: não fica regravando
+  });
+  test('a nuvem já tem o rastro daqui: o que chegou entra e nada volta para a nuvem', async () => {
+    const nuvem = traceOf({ weeks: 3, months: 1, crew: 2, days: 3 });
+    await seed(env, async (db) => { await FS.setDoc(FS.doc(db, PREFS), packOf({ name: 'Ana Remota' }, Date.now() - 5000, null, nuvem)); });
+    const a = await boot({ user: ACCT, profile: { name: 'Ana' }, trace: traceOf({ weeks: 1, crew: 1, days: 1 }) }); // só uma parte do que a nuvem tem
+    expect(a.prefs).toHaveLength(1);
+    expect(Object.keys(a.S.challenges).length).toBe(4); // 3 semanas e 1 mês
+    expect(Object.keys(a.S.crewWon).length).toBe(2);
+    expect(Object.keys(a.S.missions).length).toBe(3);
+    hidden(); await sleep(600);
+    expect(nPrefs()).toBe(0); // a nuvem já tinha tudo: nada para devolver
+  });
+  test('o rastro no máximo (52 semanas, 24 meses, 52 vitórias da turma e 400 dias) com as 39 medalhas e o pior caso de nome, apelido e recados: o documento passa nas regras de verdade, e o que sai primeiro são os recados', async () => {
+    const all = {}; C.ACHIEVEMENTS.forEach((x, i) => { all[x.id] = Date.now() - (40 - i) * 864e5 - i * 777; });
+    const a = await boot({ user: ACCT, profile: { name: 'ç'.repeat(30) }, social: { nick: '🐠'.repeat(20) }, ach: all, trace: traceOf({ weeks: 52, months: 24, crew: 52, days: 400 }) });
+    for (let i = 0; i < 60; i++) a.S.ui['tip_' + 'x'.repeat(20) + i] = 1;
+    a.cloud.syncPrefs(); hidden();
+    const d = await until(() => readDoc(env, PREFS), 'os ajustes na nuvem');
+    expect(d.j.length).toBeLessThanOrEqual(4000); // o limite das regras (validPrefs)
+    const back = ACC.prefsParse(d).prefs;
+    expect(Object.keys(back.ach)).toHaveLength(39); // as datas das medalhas são o último recurso: ficam todas
+    expect(Object.keys(back.pg.ch)).toHaveLength(76); // 52 semanas e 24 meses
+    expect(Object.keys(back.pg.cw)).toHaveLength(52);
+    expect(Object.keys(back.pg.mi)).toHaveLength(400);
+    expect(Object.keys(back.pg.ex)).toHaveLength(800);
+    expect(Object.keys(back.ui)).toHaveLength(0); // os recados dispensados saem primeiro (cada um só volta a aparecer uma vez)
   });
   test('ajustes de outro aparelho que NÃO têm as medalhas daqui (um aparelho antigo gravou por cima): o app aplica o que chegou, guarda as suas medalhas e elas sobem de novo', async () => {
     const t1 = Date.now() - 3 * 864e5, t2 = Date.now() - 864e5;

@@ -4,7 +4,7 @@
 // registros, os horários, o peso nem a localização. Desde a 1.2.0 há ranking (Hoje, Semana, Sequência), uma decisão do dono: a lista deixou de
 // ser alfabética e a meta em ml é visível (com ela e a %, dá para calcular mais ou menos quanto a pessoa bebeu, e o app diz isso com todas as letras).
 // Tudo o que vem da nuvem passa por cleanFriend() antes de chegar à tela (um amigo mal-intencionado não pode quebrar o app).
-import { INSIGNIAS, insigniaById, addDays, keyToDate, goalToday, dayTotal, isMet, streak, mascotOf, unlockedInsignias, MEDAL_MAX, MEDAL_MAX2, medalMask, medalMask2, medalsFromMask } from './core.js';
+import { INSIGNIAS, insigniaById, addDays, keyToDate, weekStart, crewInfo, goalToday, dayTotal, isMet, streak, mascotOf, unlockedInsignias, MEDAL_MAX, MEDAL_MAX2, medalMask, medalMask2, medalsFromMask } from './core.js';
 
 export const MAX_FRIENDS = 30; // limite combinado no app (as regras do servidor não contam documentos); a turma inteira tem no máximo 31 pessoas
 export const GOAL_MAX = 10000; // teto da meta em ml que vai ao perfil (as regras aceitam até aqui)
@@ -302,6 +302,37 @@ export function turmaStreak(members) {
   if (!others.length) return { kind: 'quiet', met: 0, total: 0, text: 'Sua turma está quieta por enquanto', sub: 'Que tal acenar para alguém?' };
   if (!best) return { kind: 'none', met: 0, total: 0, text: 'Uma sequência nova começa hoje', sub: 'Bata a meta hoje e comece a sua.' };
   return { kind: 'some', met: 0, total: 0, text: 'A maior sequência da turma: ' + best + (best === 1 ? ' dia' : ' dias'), sub: 'Cada dia na meta mantém a maré subindo.' };
+}
+
+/* ---------- o desafio da turma (1.11.0) ---------- */
+// Quem entra na conta do desafio: eu (se mostro o progresso aos amigos: em pausa, fico de fora, porque os amigos não veem a minha semana) e os amigos que mostram a semana e apareceram nos últimos 3 dias
+// (os mesmos que turma() conta). Eu sou sempre o primeiro da lista (crewInfo olha a primeira linha da grade para saber se eu também bati a meta). Sem a semana de um amigo (perfil sem wm, em pausa), ele não conta.
+export function crewPeople(S, friends, today) {
+  if ((S.social || {}).share === false) return [];
+  const ms = [myMember(S, today)].concat((friends || []).map((f) => memberOf(f, today)));
+  return ms.filter((m) => m.me || (m.week.known && m.live.away <= 3));
+}
+// A grade da semana que começa em mon, vista de today: uma linha por pessoa, sete colunas (segunda a domingo), 1 = bateu a meta nesse dia. Cada perfil mostra só os últimos 7 dias (week.days[0] = hoje):
+// o dia j da semana está a (hoje − mon − j) dias de hoje, e o que fica fora dessa janela (ou ainda não chegou) vale 0.
+export function crewGrid(people, mon, today) {
+  const idx = daysBetween(mon, today);
+  return people.map((m) => { const row = []; for (let j = 0; j < WEEK; j++) { const rel = idx - j; row.push(rel >= 0 && rel < WEEK && m.week.days[rel] ? 1 : 0); } return row; });
+}
+// O desafio da turma desta semana (ver crewInfo em core.js); null se não há turma ou se eu estou em pausa
+export function crewGoal(S, friends, today) {
+  const mon = weekStart(today);
+  return crewInfo(S, crewGrid(crewPeople(S, friends, today), mon, today), mon, today);
+}
+// As semanas que acabaram de ser vencidas e ainda não estão em S.crewWon: a desta semana e, na segunda-feira, a que terminou ontem (a turma é assíncrona: o domingo de quem fechou a conta só chega
+// quando o perfil dele é lido, e a janela de 7 dias ainda mostra a semana de antes, menos a segunda-feira dela). past = true: é a da semana passada.
+export function crewDue(S, friends, today) {
+  const people = crewPeople(S, friends, today), mon = weekStart(today), weeks = today === mon ? [mon, addDays(mon, -7)] : [mon], out = [];
+  weeks.forEach((w) => {
+    if (((S.crewWon || {})[w] || 0) > 0) return;
+    const g = crewInfo(S, crewGrid(people, w, today), w, today);
+    if (g && g.done) out.push({ key: w, c: g.c, n: g.n, past: w !== mon });
+  });
+  return out;
 }
 
 /* ---------- acenos ---------- */

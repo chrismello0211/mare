@@ -6,19 +6,20 @@
 //  • Painel de registro: #eMl, #eTime, #eErr. Onboarding: #obName, #obWeight, #obWake, #obSleep, #obGoal (data-total), #obDrop.
 //  • "Hoje" é montado em partes com id (TODAY_PARTS) para atualizar sem redesenhar a gota (#drop).
 //  • Barras com data-w crescem via ui.animBars; a gota enche via ui.dropTo(el, total, meta, dropOpts(total, meta)).
-import { WATERS, OTHERS, ACTIVITY, INSIGNIAS, ACHIEVEMENTS, MEDAL_GROUPS, MEDALS_1_6, MEDALS_1_9, PATTERN_MIN, HM_WEEKS, achievementById, context, medalProgress, nearestMedal, patterns,
+import { WATERS, OTHERS, ACTIVITY, INSIGNIAS, ACHIEVEMENTS, MEDAL_GROUPS, MEDALS_1_6, MEDALS_1_9, MEDALS_1_10, PATTERN_MIN, HM_WEEKS, achievementById, context, medalProgress, nearestMedal, patterns,
   months, heatmap,
   drink, isOther, dayTotal, dayOther, otherCounted, mixOn, isMet, calcGoal, goalToday, expectedBy,
   dayWindow, streak, bestStreak, insigniaById, unlockedInsignias, mascotOf, reefFor, missionFor, missionProgress, missionsOf, tierProgress, extraKey, weekGoal, monthGoal,
   stats, dayKey, keyToDate,
   addDays, minOf, fmtHM, fmtNum } from './core.js';
-import { S, ACCT, esc, clamp, plural, byT, p2, cap, MONTHS, today, longDate, shortDate, relDay, goalNow, totalNow, otherNow, othersOn, allMl,
+import { S, SOC, ACCT, esc, clamp, plural, byT, p2, cap, MONTHS, today, longDate, shortDate, relDay, goalNow, totalNow, otherNow, othersOn, allMl,
   firstName, U, vol, unitL, fromMl, big, compact, presets } from './store.js';
 import { svgI, sheetHead, dropSVG } from './ui.js';
 import { badge } from './art.js';
 import { isIOS, isAndroid, iosVersion, isStandalone, isNative, canInstall, notifStatus } from './platform.js';
-import { att, btn, sbtn, sec, row, stack, sw, seg, empty, stat, tip, steps, shareIco } from './kit.js';
-import { crewHTML, settingsFriendsHTML, tabDots } from './friends-view.js';
+import { att, btn, sbtn, sec, row, stack, sw, seg, empty, stat, tip, steps, shareIco, endsIn } from './kit.js';
+import { crewHTML, crewRowHTML, settingsFriendsHTML, tabDots } from './friends-view.js';
+import { crewGoal } from './social.js';
 import { accountHTML, accountTip } from './account-view.js';
 
 /* ---------- peças ---------- */
@@ -82,11 +83,11 @@ function tipsHTML() {
   // Conta (1.3.0): a dica mais importante vai primeiro. Só aparece a partir do segundo dia de uso (quem acabou de chegar ainda não tem o que perder)
   // e some para sempre se for dispensada: o cartão em Ajustes continua lá. Quem já tem conta, ou perdeu o login e vê o aviso em Ajustes, não vê a dica.
   if (!ACCT.on && !ACCT.ended && !ui.tip_account && Object.keys(S.days).length >= 2) return accountTip();
-  // Novidades (1.10.0): um cartão discreto, uma vez só, para quem já usava o Maré (missões extras, desafios da semana e do mês e as medalhas deles). Dispensar o
-  // cartão ou abrir o painel o apaga para sempre (tip_news19). Quem está começando agora, ou chega por uma conta, já nasce com ele dispensado. Os cartões de antes
-  // (tip_news12, da 1.2, tip_news15, da 1.5, tip_news16, da 1.6, tip_news17, da 1.7 e tip_news18, da 1.9) não voltam mais: o painel de agora traz também o que eles contavam.
-  if (!ui.tip_news19) {
-    return tip('news19', '🧭', 'Mais desafios no Maré', 'Missões extras todo dia, desafio da semana e do mês, e medalhas novas.', ['news', 'Ver as novidades']);
+  // Novidades (1.11.0): um cartão discreto, uma vez só, para quem já usava o Maré (o desafio da turma, mais missões e desafios, as medalhas novas e os desafios na conta).
+  // Dispensar o cartão ou abrir o painel o apaga para sempre (tip_news20). Quem está começando agora, ou chega por uma conta, já nasce com ele dispensado. Os cartões de antes
+  // (tip_news12, da 1.2, tip_news15, da 1.5, tip_news16, da 1.6, tip_news17, da 1.7, tip_news18, da 1.9 e tip_news19, da 1.10) não voltam mais: o painel de agora traz também o que eles contavam.
+  if (!ui.tip_news20) {
+    return tip('news20', '🌊', 'O desafio da turma', 'Uma meta da semana para todos juntos, mais missões e desafios, e duas medalhas novas.', ['news', 'Ver as novidades']);
   }
   if (!isStandalone() && !isNative() && !ui.tip_install && (canInstall() || ios || isAndroid())) {
     return tip('install', '📲', 'Instale o Maré', ios
@@ -129,8 +130,6 @@ function extrasHTML() {
   return '<section class="card extras" aria-label="Missões extras de hoje"><div class="card-h"><h2>Missões extras</h2><small>' + n + ' de 2</small></div><ul class="ex-list">' + rows.join('') + '</ul>' +
     (full ? '<p class="ex-full"><span aria-hidden="true">🍀</span> Dia cheio: as 3 missões de hoje</p>' : '') + '</section>';
 }
-// "Termina hoje", "termina amanhã", "termina em 3 dias" (o domingo, ou o último dia do mês, ainda conta)
-const endsIn = (n) => (n <= 0 ? 'Termina hoje' : n === 1 ? 'Termina amanhã' : 'Termina em ' + n + ' dias');
 // O que se diz de um desafio (g = weekGoal ou monthGoal): vencido, sem chance de fechar nesta janela (sem cobrança) ou quando termina
 const chlStatus = (g) => (g.done ? 'Vencido 🎉' : g.over ? 'Essa fica para a próxima' : endsIn(g.toEnd));
 // Uma linha de desafio (a da semana ou a do mês) na tela Hoje. Sem chance de fechar e sem nenhum dia contado, a linha nem aparece: não há o que mostrar.
@@ -141,9 +140,11 @@ function challengeRow(g, kind) {
     (g.done ? ' vencido\u00a0✓' : '') + '</span><span class="m-t">' + g.c.t + '</span><span class="m-d">' + g.c.d + '</span>' + xbar(g.key, p, 'Progresso do desafio ' + of, txt) +
     '<div class="ch-f"><span>' + txt + '</span><span>' + chlStatus(g) + '</span></div></div></li>';
 }
+// Com turma (1.11.0), o desafio da turma é a terceira linha: a meta da semana para todo mundo junto (a conta é do social.js, com a semana que cada amigo já mostra)
 function challengesHTML() {
-  const k = today(), rows = challengeRow(weekGoal(S, k), 'w') + challengeRow(monthGoal(S, k), 'm');
-  return rows ? '<section class="card extras chl" aria-label="Desafios da semana e do mês"><div class="card-h"><h2>Desafios</h2><small>semana e mês</small></div><ul class="ex-list">' + rows + '</ul></section>' : '';
+  const k = today(), crew = crewRowHTML(crewGoal(S, SOC.st.friends, k), xbar), rows = challengeRow(weekGoal(S, k), 'w') + challengeRow(monthGoal(S, k), 'm') + crew;
+  return rows ? '<section class="card extras chl" aria-label="' + (crew ? 'Desafios da semana, do mês e da turma' : 'Desafios da semana e do mês') + '"><div class="card-h"><h2>Desafios</h2><small>' +
+    (crew ? 'semana, mês e turma' : 'semana e mês') + '</small></div><ul class="ex-list">' + rows + '</ul></section>' : '';
 }
 // Com "outros líquidos" desligado em Ajustes, esses registros ficam guardados, mas não aparecem nas listas.
 const shown = (es) => (othersOn() ? es : es.filter((e) => !isOther(e)));
@@ -407,6 +408,7 @@ function challengesJourneyHTML(ctx) {
   const t = [];
   t.push(won.length ? 'Você já venceu ' + won.join(' e ') + ' de desafio.' : 'Nenhum desafio vencido ainda: o primeiro pode ser o desta semana.');
   if (ctx.trios) t.push('Dias cheios, com as 3 missões cumpridas: ' + ctx.trios + '.');
+  if (ctx.crewWins) t.push('Desafios da turma vencidos: ' + ctx.crewWins + '.');
   return '<section class="card chl-j">' + chlWeek(w, k) + chlMonth(m) + insRows([{ e: '🍀', t: t.join(' ') }]) + '</section>';
 }
 // A medalha que falta e está mais perto, no mesmo desenho da missão do dia
@@ -483,20 +485,28 @@ export function unlockSheet(id) {
     (S.social && S.social.on && S.social.share !== false ? '<p class="note">Seus amigos vão ver essa insígnia no seu perfil.</p>' : '') +
     '<div class="btns">' + btn('close-sheet', 'Que legal!') + btn('reef', 'Ver meu recife', 'ghost') + '</div></div>';
 }
-// Novidades do Maré (o cartão da tela Hoje abre este painel). 1.10.0: o que veio com as missões extras e os desafios vem primeiro; o que veio nas versões 1.1 a 1.9 fica na
+// Novidades do Maré (o cartão da tela Hoje abre este painel). 1.11.0: o que veio com o desafio da turma vem primeiro; o que veio nas versões 1.1 a 1.10 fica na
 // seção de baixo. O cartão é para quem já usava o Maré (quem chega agora já nasce com ele dispensado), com ou sem turma: o botão da turma só aparece para quem está nela.
 export function newsSheet() {
   const have = unlockedInsignias(S).length, ni = (e, b, t) => '<div class="news-i"><span class="em" aria-hidden="true">' + e + '</span><div><b>' + b + '</b><p>' + t + '</p></div></div>';
   const got = S.achievements || {}, fresh = ACHIEVEMENTS.slice(MEDALS_1_6, MEDALS_1_9).filter((a) => got[a.id]).length, added = MEDALS_1_9 - MEDALS_1_6;
-  const fresh10 = ACHIEVEMENTS.slice(MEDALS_1_9).filter((a) => got[a.id]).length, added10 = ACHIEVEMENTS.length - MEDALS_1_9, crew = !!(S.social && S.social.on);
+  const fresh10 = ACHIEVEMENTS.slice(MEDALS_1_9, MEDALS_1_10).filter((a) => got[a.id]).length, added10 = MEDALS_1_10 - MEDALS_1_9, crew = !!(S.social && S.social.on);
+  const fresh11 = ACHIEVEMENTS.slice(MEDALS_1_10).filter((a) => got[a.id]).length, added11 = ACHIEVEMENTS.length - MEDALS_1_10;
   return sheetHead('Novidades do Maré') +
+    ni('🌊', 'O desafio da turma', 'Toda semana, de segunda a domingo, a turma tem uma meta para cumprir junto, feita com os dias em que cada um bate a meta: por exemplo, 4 metas por pessoa, ou ' +
+      'todo mundo em 3 dias. Ele aparece em Desafios, na Hoje, e na aba Amigos. Entram só você e os amigos que mostram o progresso, e a vitória pede que você também bata a meta em algum dia. ' +
+      'Se a semana não der, tudo bem: a próxima traz outro.') +
+    ni('🧭', 'Mais missões e desafios', 'Entraram 8 missões extras, 5 desafios da semana e 5 do mês. O que já está em andamento não muda: os novos entram nos próximos dias, semanas e meses.') +
+    ni('🏅', added11 + ' medalhas novas', 'Remando juntos, quando a turma vence um desafio, e Time da maré, com 4 vitórias. ' +
+      (fresh11 ? 'Você já conquistou ' + fresh11 + ' das ' + added11 + '. ' : '') + 'Elas também aparecem no seu perfil para a turma.') +
+    ni('☁️', 'Missões e desafios na conta', 'Quem tem conta passa a guardar também as missões extras e os desafios que já cumpriu, e as vitórias da turma. Eles voltam se você trocar de aparelho.') +
+    '<p class="news-h">Das versões anteriores</p>' +
     ni('🧭', 'Mais duas missões por dia', 'Além da missão do dia, agora tem uma leve e uma ousada, sempre de tipos diferentes. Cumprir as três é um “Dia cheio” 🍀. Elas ficam na tela Hoje.') +
     ni('📅', 'Desafio da semana e do mês', 'Cada semana (de segunda a domingo) e cada mês têm um desafio, igual para todo mundo: quantos dias você cumpre uma regra, como bater a meta em 5 dias. ' +
       'Dá para acompanhar na Hoje e na Jornada. Se uma semana ficar corrida, tudo bem: a próxima traz outro.') +
     ni('🏅', added10 + ' medalhas novas', 'Trio de missões, Sete trios, Semana vencida, Quatro semanas vencidas, Trimestre de desafios, Mês vencido e Três meses vencidos. ' +
       (fresh10 ? 'Você já conquistou ' + fresh10 + ' das ' + added10 + '. ' : '') + 'Elas também aparecem no seu perfil para a turma.') +
     ni('💙', 'Sem pressão', 'Nenhuma missão ou desafio pede mais água do que a sua meta: eles olham o ritmo e a constância do seu dia.') +
-    '<p class="news-h">Das versões anteriores</p>' +
     ni('📈', 'A porcentagem vai além de 100%', 'A turma vê quanto você fez da meta do dia de verdade: 118% aparece como 118%, até 150% (acima disso, “150%+”). O ranking de Hoje usa esse número.') +
     ni('🙈', 'Mostrar só até 100%', 'Prefere que a turma não saiba quanto você passou da meta? Desligue “Mostrar quanto passei da meta” em Meu perfil ou em Ajustes → Amigos. ' +
       'Seus amigos passam a ver só “Meta batida hoje”, e o seu lugar no ranking também para em 100%.') +

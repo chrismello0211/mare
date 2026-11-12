@@ -11,9 +11,9 @@ import { S, SOC, ACCT, esc, plural, today, shortDate, vol } from './store.js';
 import { sheetHead } from './ui.js';
 import { notifStatus } from './platform.js';
 import { badge } from './art.js';
-import { btn, sbtn, sec, row, sw, seg, empty, att, shareIco, tip } from './kit.js';
+import { btn, sbtn, sec, row, sw, seg, empty, att, shareIco, tip, endsIn } from './kit.js';
 import { MAX_FRIENDS, NICK_MAX, WEEK, RANKS, rankId, rankBoard, podium, memberOf, myMember, weekOf, turma, turmaWeek, turmaStreak, fmtCode,
-  liveOf, statusText, waveFor, waveIn, WAVE_TEXT, myLive, ringOf, unseenWaves, firstNick, profilePayload, medalsShown, errText, pctText, pctSay } from './social.js';
+  liveOf, statusText, waveFor, waveIn, WAVE_TEXT, myLive, ringOf, unseenWaves, firstNick, profilePayload, medalsShown, errText, pctText, pctSay, crewGoal } from './social.js';
 
 /* ---------- peças ---------- */
 // Avatar: o mascote num medalhão com um anel de progresso em volta. ring = ringOf(...) ou null (sem anel). size em px.
@@ -78,6 +78,25 @@ function tideCard(tm, by) {
   return '<section class="tide ' + tm.kind + '" aria-label="' + lbl[0] + '"><span class="tide-k">' + lbl[0] + '</span><p class="tide-t">' + tm.text + '</p><p class="tide-s">' + tm.sub +
     '</p>' + (tm.kind === 'quiet' || !tm.total ? '' : '<div class="bar" role="progressbar" aria-label="' + lbl[1] + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' +
       p + '"><i data-w="' + p + '"></i></div>') + '</section>';
+}
+
+/* o desafio da turma (1.11.0): a meta da semana para todo mundo junto */
+const crewBar = (id, p, label, text) => '<div class="bar" role="progressbar" aria-label="' + label + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + p + '" aria-valuetext="' + text + '"><i data-w="' + p + '"></i></div>';
+// A linha do desafio (g = crewGoal), a mesma na tela Hoje (xb = a barra de lá, que cresce a partir do valor de antes) e na aba Amigos (label = o rótulo pequeno de cima)
+export function crewRowHTML(g, xb, label) {
+  if (!g) return '';
+  const have = g.done ? g.need : Math.min(g.have, g.need), txt = have + ' de ' + g.need + ' ' + g.unit;
+  const say = g.done ? 'Vencido 🎉' : g.waiting ? 'Falta só você bater a meta' : endsIn(g.toEnd);
+  return '<li class="ex-i ch-i crw' + (g.done ? ' done' : '') + (g.waiting ? ' wait' : '') + '"><div class="m-ico" aria-hidden="true">' + g.c.e + '</div><div class="m-body"><span class="m-k">' + (label || 'Desafio da turma') +
+    (g.done ? (label ? ' · vencido\u00a0✓' : ' vencido\u00a0✓') : '') + '</span><span class="m-t">' + g.c.t + '</span><span class="m-d">' + g.text + '</span>' + (xb || crewBar)('crew:' + g.key, g.pct, 'Progresso do desafio da turma', txt) +
+    '<div class="ch-f"><span>' + txt + '</span><span>' + say + '</span></div></div></li>';
+}
+function crewCard() {
+  const g = crewGoal(S, SOC.st.friends, today());
+  if (!g) return mine().share === false ? '<section class="card extras chl crw-c" aria-label="Desafio da turma"><div class="card-h"><h2>Desafio da turma</h2></div>' +
+    '<p class="crw-n">Seu progresso está em pausa para os amigos, então você fica de fora do desafio da turma. Em Meu perfil dá para mostrá-lo de novo.</p></section>' : '';
+  return '<section class="card extras chl crw-c" aria-label="Desafio da turma"><div class="card-h"><h2>Desafio da turma</h2><small>' + plural(g.n, 'pessoa', 'pessoas') + '</small></div>' +
+    '<ul class="ex-list">' + crewRowHTML(g, null, 'Desta semana') + '</ul></section>';
 }
 
 /* o ranking da turma */
@@ -203,7 +222,7 @@ export function friendsView(ctx) {
   return '<header class="page-h fr-h"><div><h1 class="h1">Amigos</h1><p class="eyebrow">Cada gole conta, juntos</p></div>' +
     '<button class="chip fr-me" type="button" data-action="fr-profile" aria-label="Meu perfil">' + myAvatar(34) + '<span>Perfil</span></button></header>' +
     notice() + (st.reqIn.length ? reqCard(st.reqIn, true) : '') + pushCard() + goalCard() +
-    (any ? tideCard(summaryOf(ms, by), by) + rankCard(ms, by, t) : aloneCard()) + inviteCard() +
+    (any ? tideCard(summaryOf(ms, by), by) + crewCard() + rankCard(ms, by, t) : aloneCard()) + inviteCard() +
     (st.reqOut.length ? reqCard(st.reqOut, false) : '') +
     '<p class="hint">Todo mundo da turma vê todo mundo, e cada um decide o que mostrar. ' +
     '<button type="button" class="lnk" data-action="fr-about">Como funciona a privacidade</button></p>';
@@ -402,9 +421,14 @@ export function settingsFriendsHTML() {
     row('Novo código de convite', 'Quem tem o código antigo não consegue mais usá-lo. Sua turma continua.', sbtn('fr-newcode', 'Trocar')) +
     row('Sair da turma', 'Apaga seu perfil, convites e amizades da nuvem.', sbtn('fr-leave', 'Sair', 'ghost danger')) + '</div>';
 }
+// O que muda no desafio da turma (a aba e a linha da Hoje só se redesenham quando isto muda)
+export function crewSig() {
+  const g = crewGoal(S, SOC.st.friends, today());
+  return g ? [g.key, g.c.id, g.n, g.have, g.need, g.mine, g.done, g.waiting].join() : mine().share === false ? 'pausa' : '';
+}
 // Assinatura do que a aba mostra: o app só redesenha quando ela muda (um amigo atualizar o perfil não faz a tela piscar à toa)
 export function friendsSig() {
   const st = SOC.st;
   return JSON.stringify([SOC.mode, st.ready, st.err, st.code, st.friends, st.reqIn, st.reqOut, S.social, S.ui.frRank, S.profile.unit, today(), mascotOf(S).id,
-    myLive(S, today()), notifStatus(), !!S.ui.tip_fpush, ACCT.ended]);
+    myLive(S, today()), notifStatus(), !!S.ui.tip_fpush, ACCT.ended, crewSig()]);
 }

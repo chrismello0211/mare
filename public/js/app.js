@@ -13,17 +13,17 @@ import { isNative, reducedMotion, onMedia, haptic, registerSW, applyUpdate, relo
 import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboardingView, OB_STEPS, tabbarHTML, othersSheet, otherNote,
   entrySheet, daySheet, installSheet, notifHelpSheet, dropOpts, dropOpts2, drop2Label, paceInfo, goalSumHTML, remNoteText, shareText,
   insigniaSheet, unlockSheet, newsSheet, fmtW } from './views.js';
-import { friendsView, friendSheet, profileSheet, codeSheet, aboutSheet, friendsSig, inviteInfo, alertsOn, alertsNote, hitOn, weekOn, hitNote, weekNote } from './friends-view.js';
+import { friendsView, friendSheet, profileSheet, codeSheet, aboutSheet, friendsSig, crewSig, inviteInfo, alertsOn, alertsNote, hitOn, weekOn, hitNote, weekNote } from './friends-view.js';
 import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inviteLink, inviteText, fmtCode, profilePayload, liveOf, myLive, turma,
-  waveFor, seenWaves, arrivals, joinedText, rankId, errText } from './social.js';
-import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs, achAhead } from './account.js';
+  waveFor, seenWaves, arrivals, joinedText, rankId, errText, crewDue } from './social.js';
+import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs, achAhead, pgAhead, mergePg } from './account.js';
 import { createSheet, signinSheet, resetSheet, resetDoneSheet, deleteSheet } from './account-view.js';
 
-export const APP_VERSION = '1.10.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.11.0'; // aumente a cada deploy, junto com VERSION no sw.js
 
-// Os cartões de novidades: só o mais novo (tip_news19, da 1.10.0) aparece; os de antes (1.2, 1.5, 1.6, 1.7 e 1.9) já não voltam, mas ficam marcados como vistos
+// Os cartões de novidades: só o mais novo (tip_news20, da 1.11.0) aparece; os de antes (1.2, 1.5, 1.6, 1.7, 1.9 e 1.10) já não voltam, mas ficam marcados como vistos
 // sempre que a pessoa vê o de agora, abre o painel, começa do zero ou chega por uma conta.
-const NEWS_TIPS = ['tip_news12', 'tip_news15', 'tip_news16', 'tip_news17', 'tip_news18', 'tip_news19'];
+const NEWS_TIPS = ['tip_news12', 'tip_news15', 'tip_news16', 'tip_news17', 'tip_news18', 'tip_news19', 'tip_news20'];
 function seeNews() { NEWS_TIPS.forEach((k) => { S.ui[k] = 1; }); }
 
 const view = $('#view'), tabbar = $('#tabbar'), TABS = ['today', 'history', 'journey', 'friends', 'settings'];
@@ -32,7 +32,7 @@ let tab = 'today', ym = '', ob = null, dr = null, dropSt = null, dropSt2 = null,
 let cloud = null, syncState = 'off', cloudOn = false, cloudP = null, cloudFailed = false; // cloudFailed: tentou subir e falhou (sem internet ao abrir o app, por exemplo)
 // amigos: soc = camada de nuvem (social-cloud.js, criada sob demanda); frSig = o que a aba mostra agora; frInv = convite aberto por link (tela de entrada);
 // frCode = painel "Inserir código"; waving = acenos em andamento; tabHTML = a barra de abas desenhada agora (só mexe quando muda)
-let soc = null, socP = null, socWired = null, frSig = '', frInv = null, frCode = null, tabHTML = '';
+let soc = null, socP = null, socWired = null, frSig = '', crSig = '', frInv = null, frCode = null, tabHTML = '';
 const waving = {};
 // conta (1.3.0): acBusy = uma operação de conta em andamento (um toque duplo não repete) · acLast = como o painel de entrar foi aberto (e-mail fixo, título,
 // again = voltar à conta que o aparelho tinha, swap = trocar os dados daqui pelos de uma conta) · acMail = o último e-mail digitado nos painéis ·
@@ -644,7 +644,7 @@ function sanitize(raw) {
   s.goal.manual = clamp(+s.goal.manual || 2500, 500, 6000);
   s.goal.climate = !!s.goal.climate;
   s.last = drink(s.last).id;
-  ['achievements', 'missions', 'extras', 'challenges'].forEach((key) => {
+  ['achievements', 'missions', 'extras', 'challenges', 'crewWon'].forEach((key) => {
     const o = {};
     Object.keys(s[key]).forEach((x) => { if (isFinite(s[key][x])) o[String(x).slice(0, 24)] = +s[key][x]; });
     s[key] = o;
@@ -903,6 +903,7 @@ function announceSocial(prev, st) {
 // Quando todo mundo da turma bateu a meta, uma comemoração por dia. A medalha "Turma completa" (1.7.0) sai na primeira vez em que isso acontece com pelo
 // menos CREW_MIN pessoas (você e mais 2): é a única medalha que o histórico não mostra, então só nasce aqui (e viaja pela conta, em ach).
 function crewCheck(st) {
+  crewWeekCheck(st);
   if (!S.social.on || !st || !st.ready || !st.friends.length) return;
   const k = today(), daily = S.ui.crewAt !== k, medal = !S.achievements.crew;
   if (!daily && !medal) return;
@@ -923,6 +924,22 @@ function crewCheck(st) {
     if (tab === 'journey' && !typing()) render(true);
   }
 }
+// O desafio da turma (1.11.0): a meta da semana para todo mundo junto, que sai da semana de cada amigo (a conta é do social.js). Quando a turma fecha a conta, a vitória fica guardada em
+// S.crewWon (depois disso nada a desfaz) e vira festa, com as medalhas da turma que ela traz. Na segunda-feira ainda dá para fechar a semana que acabou de terminar: o domingo dos
+// amigos só chega quando o perfil deles é lido.
+function crewWeekCheck(st) {
+  if (!S.social.on || !st || !st.ready || !st.friends.length) return;
+  const due = crewDue(S, st.friends, today());
+  if (!due.length) return;
+  due.forEach((x) => { S.crewWon[x.key] = Date.now(); });
+  const x = due[0];
+  if (!popBusy()) confetti();
+  pop(x.c.e, 'Desafio da turma', x.c.t, due.length > 1 ? 'A turma venceu 2 semanas!' : x.past ? 'A turma venceu a semana passada!' : 'A turma venceu a semana!');
+  newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); pop(a.e, 'Nova medalha', a.t, a.d); });
+  save();
+  socTouch(); // a turma passa a ver as medalhas novas no perfil
+  if (tab === 'journey' && !typing()) render(true);
+}
 // Os acenos de agora viram "vistos" quando a aba Amigos está aberta (a bolinha da aba some)
 function markWavesSeen() {
   const seen = seenWaves(SOC.st.friends, today());
@@ -938,8 +955,11 @@ function refreshFriendsUI() {
   if (!S.onboarded || ob) return;
   if (tab === 'friends') markWavesSeen();
   paintTabs();
-  if (tab === 'today') refreshPart('tCrew');
-  else if (tab === 'friends' && friendsSig() !== frSig && !typing()) render(true);
+  if (tab === 'today') {
+    refreshPart('tCrew');
+    const cs = crewSig();
+    if (cs !== crSig) { crSig = cs; refreshPart('tChallenges'); const el = $('#tChallenges'); if (el) animBars(el); } // a linha do desafio da turma só se redesenha quando muda
+  } else if (tab === 'friends' && friendsSig() !== frSig && !typing()) render(true);
   refreshFriendSheet();
 }
 const friendById = (id) => SOC.st.friends.filter((f) => f.uid === id)[0] || null;
@@ -1233,15 +1253,16 @@ function accountRefresh() {
 }
 // Ajustes mais novos gravados por outro aparelho da mesma conta (chega no começo da sessão, vindo de firebase.js). Os amigos não são ligados nem
 // desligados por aqui, e os lembretes ficam como estão: ligar é do aparelho (precisa da permissão de notificação dele).
-// Devolve true quando este aparelho tem medalha (ou data mais antiga) que a cópia da nuvem não tinha: o firebase.js faz os ajustes subirem de novo.
+// Devolve true quando este aparelho tem medalha (ou data mais antiga) ou missão e desafio cumpridos que a cópia da nuvem não tinha: o firebase.js faz os ajustes subirem de novo.
 function applyRemotePrefs(p) {
   if (!S.onboarded || ob || !p) return false;
   applyPrefs(S, p, 'sync');
+  grantMedals(); // o que a nuvem trouxe (as semanas vencidas, as missões) pode fechar uma medalha: entra sem festa, datada pelo histórico
   applyMix(); syncTodayGoal(); save(); applyTheme();
   if (S.reminders.enabled) planReminder();
   paintTabs();
   refreshUI();
-  return achAhead(S.achievements, p.ach);
+  return achAhead(S.achievements, p.ach) || pgAhead(S, p.pg);
 }
 // O e-mail foi confirmado (a pessoa tocou no link que chegou)? O app só descobre perguntando: confere ao abrir Ajustes e ao voltar ao app (no máximo a cada 30 s)
 function checkVerified() {
@@ -1395,6 +1416,7 @@ function applyAccount(u, data) {
   if (inv) S.ui.invite = inv;
   const plan = restorePlan(data), keys = fillDays(data.days);
   mergeAch(S.achievements, plan.prefs && plan.prefs.ach); // as medalhas que a conta guardava, com a data em que saíram de verdade (1.7.0)
+  if (plan.prefs) mergePg(S, plan.prefs.pg); // as missões e os desafios cumpridos (1.11.0): antes de grantMedals, para o andamento das medalhas já voltar certo
   grantMedals(); // conquistas antigas que só o histórico mostra: sem festa, datadas pelo dia em que o histórico as cumpriu
   grantInsignias(false); // as insígnias dos registros (delas sai o mascote automático)
   const done = applyPlan(S, plan);

@@ -1,4 +1,4 @@
-// Maré — testes das medalhas (as 37 medalhas: as de 1.6.0, as 6 da 1.7.0 e as 7 da 1.10.0, o andamento, a data de cada uma), de "Seus padrões" e de "Seus meses". Rodar: npm test
+// Maré — testes das medalhas (as 39 medalhas: as de 1.6.0, as 6 da 1.7.0, as 7 da 1.10.0 e as 2 da 1.11.0, o andamento, a data de cada uma), de "Seus padrões" e de "Seus meses". Rodar: npm test
 // As datas são fixas (2026) e os horários, locais: valem em qualquer fuso.
 import { describe, it, expect, afterEach } from 'vitest';
 import * as C from '../public/js/core.js';
@@ -19,15 +19,15 @@ const streakOf = (from, n) => { const o = {}; for (let i = 0; i < n; i++) o[K(fr
 const rng = (seed) => () => { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; return seed / 0x80000000; };
 
 /* ---------- a lista, os grupos e o andamento ---------- */
-describe('as 37 medalhas: lista, grupos e andamento', () => {
+describe('as 39 medalhas: lista, grupos e andamento', () => {
   it('cada medalha tem emoji, título e descrição; os ids são únicos; a 1ª palavra da máscara está cheia (24 bits) e a lista cabe nas duas (55 no total)', () => {
-    expect(C.ACHIEVEMENTS.length).toBe(37);
+    expect(C.ACHIEVEMENTS.length).toBe(39);
     expect(C.MEDAL_MAX).toBe(24);
     expect(C.MEDAL_MAX2).toBe(31);
     expect(C.MEDAL_CAP).toBe(55);
     expect(C.ACHIEVEMENTS.length).toBeLessThanOrEqual(C.MEDAL_CAP); // a 56ª pede regra nova (uma terceira palavra)
     C.ACHIEVEMENTS.forEach((a) => { expect(a.e && a.t && a.d && typeof a.test === 'function', a.id).toBeTruthy(); });
-    expect(new Set(C.ACHIEVEMENTS.map((a) => a.id)).size).toBe(37);
+    expect(new Set(C.ACHIEVEMENTS.map((a) => a.id)).size).toBe(39);
     expect(C.ACHIEVEMENTS.filter((a) => a.id.length > 24).length).toBe(0); // o id vira chave no backup (corta em 24 letras)
     expect(C.achievementById('wwd').t).toBe('Dia Mundial da Água');
     expect(C.achievementById('nada')).toBeNull();
@@ -41,13 +41,13 @@ describe('as 37 medalhas: lista, grupos e andamento', () => {
   it('test e andamento (p) concordam: a medalha sai exatamente quando "quanto já fez" chega em "quanto precisa"', () => {
     C.ACHIEVEMENTS.filter((a) => a.p).forEach((a) => {
       for (let v = 0; v <= 130; v++) {
-        const c = { best: v, daysMet: v, missions: v, earlyDays: v, sunsetDays: v, thirdsDays: v, win30: v, weekends: v, daysUsed: v, trios: v, weeksWon: v, monthsWon: v };
+        const c = { best: v, daysMet: v, missions: v, earlyDays: v, sunsetDays: v, thirdsDays: v, win30: v, weekends: v, daysUsed: v, trios: v, weeksWon: v, monthsWon: v, crewWins: v };
         const x = a.p(c);
         expect(a.test(c), a.id + ' com ' + v).toBe(x[0] >= x[1]);
       }
     });
     // as medalhas "tudo ou nada" não têm andamento (a de verão também não: "faltam N dias" ficaria velho fora da estação)
-    ['first', 'goal', 'early', 'sunset', 'mission', 'weekend', 'back', 'wwd', 'summer', 'oceans', 'crew', 'trio', 'wk1', 'mo1'].forEach((id) => { expect(C.achievementById(id).p, id).toBeUndefined(); });
+    ['first', 'goal', 'early', 'sunset', 'mission', 'weekend', 'back', 'wwd', 'summer', 'oceans', 'crew', 'trio', 'wk1', 'mo1', 'cw1'].forEach((id) => { expect(C.achievementById(id).p, id).toBeUndefined(); });
   });
   it('medalProgress: nunca passa do total, nunca fica negativo e a unidade vem junto; "tudo ou nada" não tem andamento', () => {
     const s14 = C.achievementById('s14');

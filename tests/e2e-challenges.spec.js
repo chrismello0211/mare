@@ -1,5 +1,6 @@
-// Maré — testes de interface das missões extras e dos desafios da semana e do mês (1.10.0): os cartões da tela Hoje, os avisos de missão cumprida, o desafio
-// vencido, a seção da Jornada, o cartão de novidades e o painel. Cada teste roda em todos os aparelhos do playwright.config.js. Qualquer erro de JavaScript na página reprova.
+// Maré — testes de interface das missões extras e dos desafios da semana e do mês (1.10.0, com as missões e os desafios novos da 1.11.0): os cartões da tela Hoje, os avisos de missão
+// cumprida, o desafio vencido, a seção da Jornada, o cartão de novidades (o da 1.11.0) e o painel. O desafio da TURMA tem o seu arquivo: tests/e2e-crew-challenge.spec.js.
+// Cada teste roda em todos os aparelhos do playwright.config.js. Qualquer erro de JavaScript na página reprova.
 // As missões e os desafios saem da DATA, então os testes de regra fixam o relógio num dia escolhido (page.clock.install: ele segue andando, mas parte do meio-dia
 // desse dia, em São Paulo). Os dias são achados com o core.js, que faz o mesmo sorteio que o app, e não escritos à mão: se uma lista mudar, o teste acha outro dia.
 import { test, expect } from '@playwright/test';
@@ -261,7 +262,7 @@ test('jornada: a seção Desafios mostra a semana (um pontinho por dia), o mês 
   await expect(four).toContainText('2 de 4 desafios');
   await expect(medal(page, 'Sete trios')).toContainText('1 de 7 dias');
   await expect(medal(page, 'Trimestre de desafios')).toContainText('2 de 12 desafios');
-  await expect(page.locator('.medals .medal')).toHaveCount(37);
+  await expect(page.locator('.medals .medal')).toHaveCount(39);
 });
 
 test('jornada: os pontinhos da semana trazem ✓ no dia que contou, ficam vazios no que não contou e apagados nos que ainda não chegaram, e o resumo do leitor de tela lista os dias', async ({ page }) => {
@@ -299,27 +300,39 @@ test('jornada: sem nada vencido ainda, a seção convida em vez de cobrar', asyn
 });
 
 /* ---------- novidades ---------- */
-test('o cartão de novidades da 1.10.0 aparece para quem já usava o Maré, com ou sem turma, e o painel conta o que há de novo', async ({ page }) => {
-  await seed(page, { history: [3, 2800], insignias: OCEAN, ui: { tip_news19: 0 } }); // fora da turma
+test('o cartão de novidades da 1.11.0 aparece para quem já usava o Maré, com ou sem turma, e o painel conta o que há de novo', async ({ page }) => {
+  await seed(page, { history: [3, 2800], insignias: OCEAN, ui: { tip_news20: 0 } }); // fora da turma
   await page.goto('/');
   const card = page.locator('#tTips .tip');
-  await expect(card).toContainText('Mais desafios no Maré');
-  await expect(card).toContainText('Missões extras todo dia, desafio da semana e do mês, e medalhas novas.');
+  await expect(card).toContainText('O desafio da turma');
+  await expect(card).toContainText('Uma meta da semana para todos juntos, mais missões e desafios, e duas medalhas novas.');
   await card.getByRole('button', { name: 'Ver as novidades' }).click();
   await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Novidades do Maré');
-  await expect(sheetOf(page)).toContainText('Mais duas missões por dia');
+  // o que é novo da 1.11.0 vem primeiro
+  await expect(sheetOf(page)).toContainText('Toda semana, de segunda a domingo, a turma tem uma meta para cumprir junto');
+  await expect(sheetOf(page)).toContainText('Mais missões e desafios');
+  await expect(sheetOf(page)).toContainText('Entraram 8 missões extras, 5 desafios da semana e 5 do mês.');
+  await expect(sheetOf(page)).toContainText('2 medalhas novas');
+  await expect(sheetOf(page)).toContainText('Remando juntos, quando a turma vence um desafio, e Time da maré, com 4 vitórias.');
+  await expect(sheetOf(page)).toContainText('Missões e desafios na conta');
+  await expect(sheetOf(page)).not.toContainText('Você já conquistou 0');
+  // e o que veio nas versões de antes fica na seção de baixo, uma vez só
+  await expect(sheetOf(page).locator('.news-h')).toHaveText('Das versões anteriores');
+  const text = (await sheetOf(page).textContent()) || '';
+  expect(text.indexOf('O desafio da turma')).toBeGreaterThan(-1);
+  expect(text.indexOf('O desafio da turma')).toBeLessThan(text.indexOf('Das versões anteriores'));
+  expect(text.indexOf('Missões e desafios na conta')).toBeLessThan(text.indexOf('Das versões anteriores'));
+  expect(text.indexOf('Das versões anteriores')).toBeLessThan(text.indexOf('Mais duas missões por dia'));
   await expect(sheetOf(page)).toContainText('Desafio da semana e do mês');
   await expect(sheetOf(page)).toContainText('7 medalhas novas');
   await expect(sheetOf(page)).toContainText('Trio de missões, Sete trios, Semana vencida');
   await expect(sheetOf(page)).toContainText('Sem pressão');
-  await expect(sheetOf(page)).not.toContainText('Você já conquistou 0');
-  await expect(sheetOf(page).locator('.news-h')).toHaveText('Das versões anteriores');
   await expect(sheetOf(page)).toContainText('A porcentagem vai além de 100%');
   await expect(sheetOf(page)).toContainText('6 medalhas novas'); // as da 1.7.0 continuam contadas, agora na seção de baixo
   await expect(sheetOf(page).getByRole('button', { name: 'Escolher o que a turma vê' })).toHaveCount(0); // sem turma, nada de botão da turma
-  await expect(page.locator('#tTips')).not.toContainText('Mais desafios no Maré'); // abrir o painel apagou o cartão
+  await expect(page.locator('#tTips')).not.toContainText('O desafio da turma'); // abrir o painel apagou o cartão
   const ui = (await stored(page)).ui;
-  expect([ui.tip_news19, ui.tip_news18, ui.tip_news17, ui.tip_news16, ui.tip_news15, ui.tip_news12]).toEqual([1, 1, 1, 1, 1, 1]);
+  expect([ui.tip_news20, ui.tip_news19, ui.tip_news18, ui.tip_news17, ui.tip_news16, ui.tip_news15, ui.tip_news12]).toEqual([1, 1, 1, 1, 1, 1, 1]);
   await sheetOf(page).getByRole('button', { name: 'Ver minhas medalhas' }).click();
   await expect(tab(page, 'Jornada')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.chl-j')).toBeVisible();
@@ -327,35 +340,36 @@ test('o cartão de novidades da 1.10.0 aparece para quem já usava o Maré, com 
   await page.waitForTimeout(500); // voltar para a Hoje desempilha o histórico do navegador (history.go, que é assíncrono): recarregar no meio da volta aborta a navegação (net::ERR_ABORTED)
   await page.reload();
   await expect(page.locator('#view')).toBeVisible();
-  await expect(page.locator('#tTips')).not.toContainText('Mais desafios no Maré');
+  await expect(page.locator('#tTips')).not.toContainText('O desafio da turma');
   // quem já tem medalhas das novas vê quantas (e, sem nenhuma, a frase nem aparece)
   await expect(sheetOf(page)).toBeHidden();
   const p2 = await page.context().newPage();
   p2.on('pageerror', (e) => { errors.push(e.message); });
-  await seed(p2, { history: [3, 2800], insignias: OCEAN, ui: { tip_news19: 0 }, medals: ['trio', 'wk1'] });
+  await seed(p2, { history: [3, 2800], insignias: OCEAN, ui: { tip_news20: 0 }, medals: ['trio', 'wk1', 'cw1'] });
   await p2.goto('/');
   await p2.locator('#tTips').getByRole('button', { name: 'Ver as novidades' }).click();
-  await expect(p2.locator('#sheetBody')).toContainText('Você já conquistou 2 das 7.');
+  await expect(p2.locator('#sheetBody')).toContainText('Você já conquistou 1 das 2.'); // das da 1.11.0 (Remando juntos)
+  await expect(p2.locator('#sheetBody')).toContainText('Você já conquistou 2 das 7.'); // e das da 1.10.0, na seção de baixo
   await p2.close();
 });
 
 test('o cartão de novidades: o "x" o apaga para sempre sem abrir o painel; na turma, o painel traz o botão do perfil', async ({ page }) => {
   await stubFriendsCloud(page, { code: 'ABCD2345' });
-  await seed(page, { history: [3, 2800], insignias: OCEAN, social: SOCIAL_ON, ui: { tip_news19: 0 } });
+  await seed(page, { history: [3, 2800], insignias: OCEAN, social: SOCIAL_ON, ui: { tip_news20: 0 } });
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('Mais desafios no Maré');
+  await expect(page.locator('#tTips .tip')).toContainText('O desafio da turma');
   await page.locator('#tTips .tip').getByRole('button', { name: 'Dispensar dica' }).click();
-  await expect(page.locator('#tTips')).not.toContainText('Mais desafios no Maré');
+  await expect(page.locator('#tTips')).not.toContainText('O desafio da turma');
   await expect(page.locator('#sheet')).toBeHidden();
-  expect((await stored(page)).ui.tip_news19).toBe(1);
+  expect((await stored(page)).ui.tip_news20).toBe(1);
   await page.reload();
   await expect(page.locator('#view')).toBeVisible();
-  await expect(page.locator('#tTips')).not.toContainText('Mais desafios no Maré');
+  await expect(page.locator('#tTips')).not.toContainText('O desafio da turma');
   // quem está na turma encontra o painel do mesmo jeito (só não há mais o cartão): o botão do perfil da turma está lá
   const p2 = await page.context().newPage();
   p2.on('pageerror', (e) => { errors.push(e.message); });
   await stubFriendsCloud(p2, { code: 'ABCD2345' });
-  await seed(p2, { history: [3, 2800], insignias: OCEAN, social: SOCIAL_ON, ui: { tip_news19: 0 } });
+  await seed(p2, { history: [3, 2800], insignias: OCEAN, social: SOCIAL_ON, ui: { tip_news20: 0 } });
   await p2.goto('/');
   await p2.locator('#tTips .tip').getByRole('button', { name: 'Ver as novidades' }).click();
   await expect(p2.locator('#sheetBody').getByRole('button', { name: 'Escolher o que a turma vê' })).toBeVisible();
@@ -364,13 +378,13 @@ test('o cartão de novidades: o "x" o apaga para sempre sem abrir o painel; na t
 
 test('quem entra na turma ou liga o interruptor da porcentagem não mexe no cartão de novidades (ele é de todos, não só da turma)', async ({ page }) => {
   await stubFriendsCloud(page, { code: 'ABCD2345' });
-  await seed(page, { history: [3, 2800], insignias: OCEAN, social: SOCIAL_ON, ui: { tip_news19: 0 } });
+  await seed(page, { history: [3, 2800], insignias: OCEAN, social: SOCIAL_ON, ui: { tip_news20: 0 } });
   await page.goto('/');
-  await expect(page.locator('#tTips .tip')).toContainText('Mais desafios no Maré');
+  await expect(page.locator('#tTips .tip')).toContainText('O desafio da turma');
   await tab(page, 'Amigos').click();
   await tab(page, 'Hoje').click();
-  await expect(page.locator('#tTips .tip')).toContainText('Mais desafios no Maré');
-  expect((await stored(page)).ui.tip_news19).toBe(0);
+  await expect(page.locator('#tTips .tip')).toContainText('O desafio da turma');
+  expect((await stored(page)).ui.tip_news20).toBe(0);
 });
 
 /* ---------- o que vem de antes ---------- */
@@ -405,7 +419,8 @@ test('backup em arquivo: leva as missões extras e os desafios vencidos, e o que
   const backup = { app: 'mare', v: 1, data: { v: 1, onboarded: true, profile: { name: 'Bia', weight: 60, theme: 'light' }, days: { [k]: day },
     achievements: { first: 1 }, missions: { [k]: 5 },
     extras: { [k + ':e']: 7, [k + ':h']: 'ontem', [long]: 9, '2026-06-01:h': null, ruim: NaN },
-    challenges: { '2026-06-01': 11, '2026-06': 12, 'lixo': 'sim' } } };
+    challenges: { '2026-06-01': 11, '2026-06': 12, 'lixo': 'sim' },
+    crewWon: { '2026-06-01': 13, [long]: 14, 'lixo': 'sim' } } }; // 1.11.0: as vitórias da turma (crewWon) passam pela mesma limpeza
   await tab(page, 'Ajustes').click();
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'Importar' }).click()]);
   await chooser.setFiles({ name: 'mare-backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) });
@@ -418,6 +433,9 @@ test('backup em arquivo: leva as missões extras e os desafios vencidos, e o que
   expect(st.challenges['2026-06-01']).toBe(11);
   expect(st.challenges['2026-06']).toBe(12);
   expect(st.challenges.lixo).toBeUndefined();
+  expect(st.crewWon['2026-06-01'], 'a vitória da turma (1.11.0) vai no arquivo e volta').toBe(13);
+  expect(st.crewWon.lixo, 'texto não vale').toBeUndefined();
+  expect(Object.keys(st.crewWon).every((x) => x.length <= 24), 'chaves de até 24 letras').toBe(true);
 });
 
 /* ---------- o que não pode mudar e o que não pode errar ---------- */

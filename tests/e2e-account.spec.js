@@ -4,6 +4,8 @@
 import { test, expect } from '@playwright/test';
 import { seed } from './helpers/seed.js';
 import { stubFriendsCloud, SOCIAL_ON } from './helpers/friends.js';
+import * as C from '../public/js/core.js';
+import * as Acc from '../public/js/account.js';
 
 let errors = [];
 test.beforeEach(async ({ page }) => {
@@ -40,6 +42,25 @@ const shiftKey = (key, n) => {
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
 };
 const ME_UID = 'fakemeuid0000000000000000001'; // o login anônimo da nuvem de mentira
+
+// O rastro das missões e dos desafios (pg, 1.11.0): as chaves de semana (a segunda-feira) e de mês que o app guarda, achadas com o core.js e o relógio de agora
+const tabJ = (page) => page.locator('#tabbar').getByRole('button', { name: 'Jornada', exact: true });
+const medalTile = (page, name) => page.locator('.medals .medal').filter({ has: page.locator('b', { hasText: new RegExp('^' + name + '$') }) });
+const monKey = (n) => C.addDays(C.weekStart(C.dayKey()), -7 * n); // a segunda-feira de n semanas atrás
+const ymAgo = (n) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - n); return C.dayKey(d).slice(0, 7); }; // o mês de n meses atrás ('AAAA-MM')
+const noonOf = (k) => C.keyToDate(k).getTime(); // o meio-dia desse dia
+const dnum = (k) => Math.round(Date.UTC(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10)) / 864e5); // o dia como número, o mesmo que o pg usa
+const emptyTrace = () => ({ challenges: {}, crewWon: {}, missions: {}, extras: {} });
+// os ajustes que outro aparelho da conta mandou, já limpos como o app os recebe (cleanPrefs). Com TODAS as medalhas, em data bem antiga: assim a única coisa que pode fazer este aparelho
+// ter "algo a mais" que a nuvem é o rastro das missões e dos desafios (pg), que é o que os testes querem ver
+const ALL_OLD = (() => { const o = {}; C.ACHIEVEMENTS.forEach((a) => { o[a.id] = Math.floor((Date.now() - 100 * 864e5) / 6e4); }); return o; })();
+const remoteWithPg = (pg) => ({ u: Date.now() + 5000, prefs: Acc.cleanPrefs(Object.assign(JSON.parse(PREFS({ pg: pg }).j), { ach: ALL_OLD })) });
+// um dia em que a missão leve é "Beba água 3 vezes hoje" e a do dia não fecha com 3 copos ao meio-dia (o mesmo critério de tests/e2e-challenges.spec.js)
+const LEVE3 = (() => {
+  let k = '2026-06-01';
+  for (let i = 0; i < 800; i++, k = C.addDays(k, 1)) { const t = C.missionsOf(k); if (t.easy.id === 'e3' && ['am500', 'by19', 'noon', 'thirds'].indexOf(t.main.id) >= 0) return k; }
+  throw new Error('nenhum dia serve');
+})();
 
 const EMAIL = 'ana@exemplo.com', PW = 'Maré-segura-77';
 const MARI = 'marianne@exemplo.com', MARI_PW = 'Senha-da-Mari-1', MARI_UID = 'marianneuid000000000000000001';
@@ -117,21 +138,21 @@ test.describe('sem conta', () => {
     await expect(page.getByRole('button', { name: 'Apagar', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Excluir', exact: true })).toHaveCount(0);
     await expect(page.locator('.about')).toContainText('a cópia na nuvem só volta com uma conta'); // sem conta, a cópia na nuvem não ajuda quem perde o aparelho
-    await expect(page.locator('.about')).toContainText('v1.10.0');
+    await expect(page.locator('.about')).toContainText('v1.11.0');
   });
 
   test('a dica da conta vem primeiro, só a partir do segundo dia; dispensar não tira o cartão de Ajustes', async ({ page }) => {
     // um dia só: ainda não há o que perder
     await stubFriendsCloud(page);
-    await seed(page, { todayMl: 500, social: SOCIAL_ON, ui: { tip_account: 0, tip_news19: 0 } }); // o cartão de novidades da 1.10.0 é para todos que já usavam o Maré
+    await seed(page, { todayMl: 500, social: SOCIAL_ON, ui: { tip_account: 0, tip_news20: 0 } }); // o cartão de novidades da 1.11.0 é para todos que já usavam o Maré
     await page.goto('/');
-    await expect(page.locator('.tip')).toContainText('Mais desafios no Maré');
+    await expect(page.locator('.tip')).toContainText('O desafio da turma');
     await page.evaluate(() => sessionStorage.clear());
     // dois dias ou mais: a dica da conta passa na frente das outras
     const p2 = await page.context().newPage();
     p2.on('pageerror', (e) => { errors.push(e.message); });
     await stubFriendsCloud(p2);
-    await seed(p2, { history: [2, 1500], todayMl: 500, social: SOCIAL_ON, ui: { tip_account: 0, tip_news19: 0 } });
+    await seed(p2, { history: [2, 1500], todayMl: 500, social: SOCIAL_ON, ui: { tip_account: 0, tip_news20: 0 } });
     await p2.goto('/');
     await expect(p2.locator('.tip')).toHaveCount(1);
     await expect(p2.locator('.tip')).toContainText('Proteja seus dados');
@@ -139,7 +160,7 @@ test.describe('sem conta', () => {
     await expect(sheet(p2).getByRole('heading', { name: 'Criar conta' })).toBeVisible();
     await p2.keyboard.press('Escape');
     await p2.getByRole('button', { name: 'Dispensar dica' }).click();
-    await expect(p2.locator('.tip')).toContainText('Mais desafios no Maré'); // a próxima da fila
+    await expect(p2.locator('.tip')).toContainText('O desafio da turma'); // a próxima da fila
     expect((await stored(p2)).ui.tip_account).toBe(1);
     await tabS(p2).click();
     await expect(p2.locator('.group', { hasText: 'Proteja seus dados' })).toBeVisible();
@@ -355,7 +376,9 @@ test.describe('entrar', () => {
     expect(s.ui.tip_news16).toBe(1);
     expect(s.ui.tip_news17).toBe(1);
     expect(s.ui.tip_news18).toBe(1);
-    expect(s.ui.tip_news19).toBe(1); // quem chega pela conta não vê o cartão de novidades
+    expect(s.ui.tip_news19).toBe(1);
+    expect(s.ui.tip_news20).toBe(1); // quem chega pela conta não vê o cartão de novidades
+    expect([s.challenges, s.crewWon, s.missions, s.extras], 'o backup desta conta não traz o rastro das missões e dos desafios (é de antes da 1.11.0): nada aparece do nada').toEqual([{}, {}, {}, {}]);
     expect(await hint(page)).toEqual({ uid: MARI_UID, email: MARI, verified: true });
     expect((await acct(page)).user).toMatchObject({ uid: MARI_UID, email: MARI });
     await tabS(page).click();
@@ -410,6 +433,51 @@ test.describe('entrar', () => {
     expect(s.achievements.s7, 'data do futuro não vale, e os 4 dias não dão uma semana').toBeUndefined();
     expect(keyOfTs(s.achievements.s3)).toBe(dkey(3)); // as que a conta não guardava seguem com a data do histórico
     expect(keyOfTs(s.achievements.sunset)).toBe(dkey(5));
+  });
+
+  // 1.11.0: o rastro das missões e dos desafios (pg) viaja junto com os ajustes. Em aparelho novo, as semanas e os meses vencidos, as vitórias da turma e os dias de missão voltam
+  // (com o meio-dia do dia certo), em silêncio, e as medalhas que contam com eles voltam com o andamento certo. O que não faz sentido (lixo, uma segunda-feira que ainda não chegou) fica de fora
+  test('aparelho novo: a conta devolve as semanas e os meses de desafio vencidos, as vitórias da turma e os dias de missão, em silêncio, e o andamento das medalhas volta certo', async ({ page }) => {
+    const w1 = monKey(1), w2 = monKey(2), w3 = monKey(3), mo = ymAgo(1), d1 = dkey(3), d2 = dkey(2);
+    const S0 = emptyTrace(); // o que o aparelho antigo tinha
+    S0.challenges[w1] = noonOf(C.addDays(w1, 5)); // a semana passada, vencida no sábado
+    S0.challenges[w2] = noonOf(C.addDays(w2, 6)); // a de duas semanas atrás, no domingo
+    S0.challenges[w3] = noonOf(w3); // a de três, na própria segunda-feira
+    S0.challenges[mo] = noonOf(mo + '-20'); // o mês passado, no dia 20
+    S0.crewWon[w1] = noonOf(C.addDays(w1, 6)); // a turma fechou a semana passada no domingo
+    S0.missions[d1] = noonOf(d1); S0.extras[d1 + ':e'] = noonOf(d1); S0.extras[d1 + ':h'] = noonOf(d1); // um dia cheio, com as 3 missões
+    S0.missions[d2] = noonOf(d2); // e um só com a missão do dia
+    const pg = Acc.pgSnapshot(S0, 1);
+    pg.w = pg.w.concat(['x', 1.5, dnum(C.addDays(monKey(0), 14)) * 8]); // lixo: texto, número quebrado e uma segunda-feira que ainda não chegou
+    const users = {}; users[MARI] = account({ cloud: Object.assign({}, account().cloud, { prefs: PREFS({ pg: pg }) }) });
+    await openFresh(page, users);
+    await page.getByRole('button', { name: 'Entrar na conta' }).click();
+    await fill(page, MARI, MARI_PW);
+    await primary(page).click();
+    await expect(toast(page)).toContainText('Bem-vindo de volta!');
+    await expect(page.locator('#tabbar')).toBeVisible();
+    await expect(page.locator('.medal-pop')).toHaveCount(0); // tudo em silêncio: são conquistas antigas
+    const s = await stored(page);
+    expect(Object.keys(s.challenges).sort(), 'as três semanas e o mês, sem o lixo').toEqual([w1, w2, w3, mo].sort());
+    expect(keyOfTs(s.challenges[w1])).toBe(C.addDays(w1, 5)); // cada um com o dia em que foi vencido
+    expect(keyOfTs(s.challenges[w2])).toBe(C.addDays(w2, 6));
+    expect(keyOfTs(s.challenges[w3])).toBe(w3);
+    expect(keyOfTs(s.challenges[mo])).toBe(mo + '-20');
+    expect(Object.keys(s.crewWon)).toEqual([w1]);
+    expect(keyOfTs(s.crewWon[w1])).toBe(C.addDays(w1, 6));
+    expect(Object.keys(s.missions).sort()).toEqual([d1, d2].sort());
+    expect(Object.keys(s.extras).sort()).toEqual([d1 + ':e', d1 + ':h']);
+    ['mission', 'trio', 'wk1', 'mo1', 'cw1'].forEach((id) => { expect(Object.keys(s.achievements), 'medalha ' + id).toContain(id); }); // as que o rastro já cumpre entram sem festa
+    ['wk4', 'mo3', 'cw4', 'trio7'].forEach((id) => { expect(Object.keys(s.achievements), 'ainda não: ' + id).not.toContain(id); });
+    // o andamento das medalhas que ainda faltam volta certo (antes da 1.11.0 recomeçava do zero)
+    await tabJ(page).click();
+    await expect(page.locator('.chl-j')).toContainText('Você já venceu 3 semanas e 1 mês de desafio.');
+    await expect(page.locator('.chl-j')).toContainText('Dias cheios, com as 3 missões cumpridas: 1.');
+    await expect(page.locator('.chl-j')).toContainText('Desafios da turma vencidos: 1.');
+    await expect(medalTile(page, 'Quatro semanas vencidas')).toHaveClass(/\boff\b/);
+    await expect(medalTile(page, 'Quatro semanas vencidas')).toContainText('3 de 4 desafios');
+    await expect(medalTile(page, 'Time da maré')).toContainText('1 de 4 desafios');
+    await expect(medalTile(page, 'Remando juntos')).not.toHaveClass(/\boff\b/);
   });
 
   test('conta criada pelo administrador (sem ajustes salvos): os registros voltam e o onboarding vem preenchido', async ({ page }) => {
@@ -1232,6 +1300,66 @@ test.describe('com conta', () => {
     await expect.poll(async () => (await stored(page)).profile.name).toBe('Ana Clara'); // os ajustes chegaram
     expect((await stored(page)).achievements.first).toBe(mine);
     expect(await page.evaluate(() => window.__acct.prefsRet), 'a nuvem ficou com a data mais nova: este aparelho avisa que os ajustes precisam subir de novo').toBe(true);
+  });
+
+  // 1.11.0: o rastro das missões e dos desafios (pg) chega nos ajustes de outro aparelho da conta. Entra só o que aqui ainda não existe (o que já estava guardado aqui, com a hora de verdade, fica
+  // como está), sem festa; e a resposta do app diz se ESTE aparelho tem algo que a conta não tinha (aí os ajustes sobem de novo). Nestes dois testes a conta já tem todas as medalhas,
+  // para que só o rastro (pg) decida essa resposta.
+  test('ajustes de outro aparelho da mesma conta trazem as semanas, os meses e as missões que faltam aqui, em silêncio; o que já estava aqui fica como estava e nada precisa subir de novo', async ({ page }) => {
+    const w1 = monKey(1), w2 = monKey(2), w3 = monKey(3), mo = ymAgo(1), d1 = dkey(1), d2 = dkey(2);
+    const S1 = emptyTrace(); // o que o outro aparelho tinha
+    S1.challenges[w1] = noonOf(C.addDays(w1, 5)); S1.challenges[w2] = noonOf(C.addDays(w2, 6)); S1.challenges[w3] = noonOf(C.addDays(w3, 3)); S1.challenges[mo] = noonOf(mo + '-20');
+    S1.crewWon[w1] = noonOf(C.addDays(w1, 6));
+    S1.missions[d1] = noonOf(d1); S1.missions[d2] = noonOf(d2); S1.extras[d2 + ':e'] = noonOf(d2); S1.extras[d2 + ':h'] = noonOf(d2);
+    const t0 = Date.now();
+    // este aparelho já tinha vencido a semana w3 e cumprido a missão de ontem (às 20h), e o outro também: valem as horas daqui
+    await withAccount(page, { challenges: [['w', 3]], missions: [1], todayMl: 0 }, { verified: true, remotePrefs: remoteWithPg(Acc.pgSnapshot(S1, 1)) });
+    await page.goto('/');
+    await expect.poll(async () => Object.keys((await stored(page)).challenges).length).toBe(4); // as semanas e o mês do outro aparelho entraram
+    const s = await stored(page);
+    expect(Object.keys(s.challenges).sort()).toEqual([w1, w2, w3, mo].sort());
+    expect(keyOfTs(s.challenges[w1])).toBe(C.addDays(w1, 5)); // o que veio: o meio-dia do dia em que a conta venceu
+    expect(keyOfTs(s.challenges[mo])).toBe(mo + '-20');
+    expect(Math.abs(s.challenges[w3] - (t0 - 60000 - 21 * 864e5)), 'a semana que já estava aqui fica com a hora daqui').toBeLessThan(120000);
+    expect(Object.keys(s.crewWon)).toEqual([w1]);
+    expect(Object.keys(s.missions).sort()).toEqual([d1, d2].sort());
+    expect(await page.evaluate((t) => new Date(t).getHours(), s.missions[d1]), 'a missão de ontem que já estava aqui fica às 20h').toBe(20);
+    expect(await page.evaluate((t) => new Date(t).getHours(), s.missions[d2]), 'a que veio da conta ganha o meio-dia do dia').toBe(12);
+    expect(Object.keys(s.extras).sort()).toEqual([d2 + ':e', d2 + ':h']);
+    expect(Object.keys(s.achievements), 'o que o rastro cumpre (semana, mês, turma) já está nas medalhas da conta').toEqual(expect.arrayContaining(['wk1', 'mo1', 'cw1', 'mission']));
+    await expect(page.locator('.medal-pop')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => window.__acct.prefsRet), 'a conta já tem tudo o que este aparelho tem: nada a reenviar').toBe(false);
+  });
+
+  test('este aparelho venceu uma semana que a conta não tem: os ajustes que chegam entram, e o aparelho avisa que os ajustes daqui precisam subir de novo', async ({ page }) => {
+    const w1 = monKey(1), w4 = monKey(4);
+    const S1 = emptyTrace();
+    S1.challenges[w1] = noonOf(C.addDays(w1, 5)); // a conta só conhece a semana passada
+    await withAccount(page, { challenges: [['w', 4]], todayMl: 0 }, { verified: true, remotePrefs: remoteWithPg(Acc.pgSnapshot(S1, 1)) }); // e este aparelho venceu a de quatro semanas atrás
+    await page.goto('/');
+    await expect.poll(async () => Object.keys((await stored(page)).challenges).length).toBe(2);
+    expect(Object.keys((await stored(page)).challenges).sort()).toEqual([w1, w4].sort());
+    await expect.poll(() => page.evaluate(() => window.__acct.prefsRet), 'só o rastro daqui é novo para a conta: é ele que manda os ajustes subirem').toBe(true);
+  });
+
+  test('cumprir uma missão com a conta: o documento de ajustes que vai para a nuvem passa a levar o dia da missão (e segue bem abaixo do limite)', async ({ page }) => {
+    await page.clock.install({ time: new Date(LEVE3 + 'T15:00:00Z') }); // meio-dia em São Paulo
+    await withAccount(page, { medals: true, insignias: { concha: 6 }, todayMl: 0 }, { verified: true });
+    await page.goto('/');
+    await expect(page.locator('#tExtras .extras')).toBeVisible();
+    await page.waitForFunction(() => !!(window.__acct && window.__acct.hooks && window.__acct.hooks.onRemote)); // a nuvem de mentira já subiu
+    // o documento que o app mandaria agora (o mesmo prefsPack que o firebase.js grava)
+    const pack = () => page.evaluate(async () => { const m = await import('/js/account.js'); const p = m.prefsPack(JSON.parse(localStorage.getItem('mare:v1')), 1); return p ? { len: p.j.length, j: JSON.parse(p.j) } : null; });
+    const before = await pack();
+    expect(before.j.pg, 'sem nenhuma missão extra nem desafio, o documento é o de sempre: sem o campo pg').toBeUndefined();
+    const synced = (await acct(page)).prefsSynced;
+    for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Adicionar 250 ml', exact: true }).click();
+    await expect(page.locator('#tExtras .ex-i').nth(0)).toHaveClass(/done/); // "Beba água 3 vezes hoje"
+    await expect.poll(async () => (await acct(page)).prefsSynced, 'cada mudança manda os ajustes para a nuvem').toBeGreaterThan(synced);
+    const after = await pack();
+    expect(after.j.pg, 'um dia, com a missão leve (o dígito 2)').toEqual({ d: LEVE3, f: '2' });
+    expect(after.len).toBeLessThan(4000);
+    expect(after.len).toBeGreaterThan(before.len); // e o documento mudou: a marca de texto do firebase.js vai ver a diferença e gravar
   });
 
   test('sem conta, "Importar" continua substituindo os dados do aparelho (o aviso é outro)', async ({ page }) => {

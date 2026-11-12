@@ -7,7 +7,7 @@
 //  • Os registros (days) já iam para a nuvem desde a 1.0. O que só existia no aparelho (nome, peso, atividade, metas, copos, tema,
 //    escolhas dos amigos) agora também vai, num único documento (users/{uid}/backup/prefs), mas SÓ para quem tem conta.
 //  • Entrar num aparelho novo = baixar tudo isso de volta (restorePlan) e aplicar (applyPrefs).
-import { ACTIVITY, ACHIEVEMENTS, drink, insigniaById, defaults, keyToDate, mascotOf, mergeAch } from './core.js';
+import { ACTIVITY, ACHIEVEMENTS, drink, insigniaById, defaults, dayKey, keyToDate, mascotOf, mergeAch } from './core.js';
 import { cleanNick, rankId } from './social.js';
 
 export const PW_MIN = 8, PW_MAX = 128, EMAIL_MAX = 254;
@@ -139,6 +139,105 @@ export const emailShort = (e) => { const s = String(e || ''), at = s.indexOf('@'
 // ach (1.7.0): as medalhas conquistadas, cada uma com o instante em que saiu, em MINUTOS desde 1970 (cabe nos 4000 caracteres e ainda mostra o dia certo em
 // qualquer fuso). Sem isso, num aparelho novo a data de cada medalha era refeita pelo histórico, e a medalha que só acontece na hora (a da turma) se perdia.
 const stamp = (v) => { const n = +v; return isFinite(n) && n > 0 ? n : 0; };
+/* ---------- o rastro das missões e dos desafios (pg, 1.11.0) ---------- */
+// As missões do dia (S.missions), as extras (S.extras), os desafios da semana e do mês (S.challenges) e as vitórias da turma (S.crewWon) só existiam neste aparelho: trocar de
+// aparelho zerava o andamento das medalhas que vêm deles (a medalha já conquistada volta por "ach", mas "3 de 4 semanas vencidas" recomeçava do zero). Agora vão junto, num campo
+// "pg" do MESMO documento dos ajustes (o recipiente só confere {v, u, j} e o tamanho de j: as regras do Firestore não mudam). Forma curta, para caber muito histórico em poucos caracteres:
+//   w, c = as semanas vencidas (desafio da semana, desafio da turma): cada uma é um número, dia-da-segunda-feira × 8 + os dias até a vitória (0 a 7: na segunda-feira a turma ainda fecha a semana que passou);
+//   m    = os meses vencidos: (ano × 12 + mês − 1) × 32 + o dia do mês da vitória − 1;
+//   d, f = os dias com missão: d é o último dia (AAAA-MM-DD) e f um texto com um dígito por dia, do mais antigo ao d: 1 = a missão do dia, 2 = a leve, 4 = a ousada (somados).
+// Só os mais recentes vão (PG_MAX); a medalha já conquistada não depende disso. Na volta, cada coisa entra com o instante do meio-dia do dia certo (o app só olha o DIA e se existe).
+export const PG_MAX = { w: 52, m: 24, c: 52, d: 400 };
+const DAY0 = 17167; // 1/1/2017 (em dias desde 1970): nada do Maré é mais antigo
+const dn = (k) => Math.round(Date.UTC(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10)) / 864e5);
+const dkey = (n) => new Date(n * 864e5).toISOString().slice(0, 10);
+const realDay = (k) => /^\d{4}-\d{2}-\d{2}$/.test(k) && dkey(dn(k)) === k;
+const isMon = (n) => ((n % 7) + 7) % 7 === 4; // 1/1/1970 foi uma quinta-feira: a segunda-feira é o dia 4, 11, 18…
+const whole = (v) => typeof v === 'number' && isFinite(v) && v === Math.floor(v) && v >= 0;
+const winDn = (t) => dn(dayKey(new Date(t))); // o dia (como inteiro) em que o instante cai, na hora local
+function weekCode(key, t) {
+  if (!realDay(key)) return -1;
+  const n = dn(key);
+  return isMon(n) && n >= DAY0 ? n * 8 + clamp(winDn(t) - n, 0, 7) : -1;
+}
+function monthCode(key, t) {
+  if (!/^\d{4}-\d{2}$/.test(key)) return -1;
+  const y = +key.slice(0, 4), mo = +key.slice(5, 7);
+  return y >= 2017 && mo >= 1 && mo <= 12 ? (y * 12 + mo - 1) * 32 + clamp(winDn(t) - dn(key + '-01'), 0, 30) : -1;
+}
+// keep (de 0 a 1) = que fração dos mais recentes vai: prefsPack encolhe o rastro, nesta ordem, quando o texto passa do limite. null se não há nada para guardar.
+export function pgSnapshot(S, keep) {
+  keep = keep == null ? 1 : Math.min(1, keep);
+  if (!(keep > 0)) return null;
+  const take = (list, max) => { list.sort((a, b) => a - b); const m = Math.ceil(max * keep); return list.length > m ? list.slice(list.length - m) : list; };
+  const w = [], m = [], c = [], flag = {}, ch = S.challenges || {}, cw = S.crewWon || {}, mi = S.missions || {}, ex = S.extras || {};
+  Object.keys(ch).forEach((k) => {
+    const t = stamp(ch[k]), v = !t ? -1 : k.length === 10 ? weekCode(k, t) : k.length === 7 ? monthCode(k, t) : -1;
+    if (v >= 0) (k.length === 10 ? w : m).push(v);
+  });
+  Object.keys(cw).forEach((k) => { const t = stamp(cw[k]), v = t && k.length === 10 ? weekCode(k, t) : -1; if (v >= 0) c.push(v); });
+  Object.keys(mi).forEach((k) => { if (stamp(mi[k]) && realDay(k)) flag[k] = (flag[k] || 0) | 1; });
+  Object.keys(ex).forEach((k) => {
+    const d = k.slice(0, 10), s = k.slice(10);
+    if ((s === ':e' || s === ':h') && stamp(ex[k]) && realDay(d)) flag[d] = (flag[d] || 0) | (s === ':e' ? 2 : 4);
+  });
+  const out = {}, days = Object.keys(flag).sort();
+  if (w.length) out.w = take(w, PG_MAX.w);
+  if (m.length) out.m = take(m, PG_MAX.m);
+  if (c.length) out.c = take(c, PG_MAX.c);
+  if (days.length) {
+    const last = days[days.length - 1], ln = dn(last), from = ln - Math.ceil(PG_MAX.d * keep) + 1, within = days.filter((k) => dn(k) >= from);
+    let f = '';
+    for (let n = dn(within[0]); n <= ln; n++) f += flag[dkey(n)] || 0;
+    out.d = last; out.f = f;
+  }
+  return Object.keys(out).length ? out : null;
+}
+// O contrário, e sem confiar em nada: o que veio da nuvem (ou de um aparelho de outra versão) passa por aqui. Devolve sempre { ch, cw, mi, ex }, no formato dos mapas do estado
+// (S.challenges, S.crewWon, S.missions, S.extras), com o instante do meio-dia do dia da conquista; o que não faz sentido (tipo errado, dia que não existe, segunda-feira que não é
+// segunda, data no futuro ou antes de 2017) simplesmente fica de fora.
+export function cleanPg(raw, now) {
+  const out = { ch: {}, cw: {}, mi: {}, ex: {} }, o = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  now = now || Date.now();
+  const top = dn(dayKey(new Date(now))) + 1, at = (n) => Math.min(now, keyToDate(dkey(n)).getTime()), list = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
+  [['w', 'ch'], ['c', 'cw']].forEach((x) => {
+    list(o[x[0]], PG_MAX.w * 4).forEach((v) => {
+      if (!whole(v)) return;
+      const n = Math.floor(v / 8), win = n + (v - n * 8);
+      if (isMon(n) && n >= DAY0 && win <= top) out[x[1]][dkey(n)] = at(win);
+    });
+  });
+  list(o.m, PG_MAX.m * 4).forEach((v) => {
+    if (!whole(v)) return;
+    const ix = Math.floor(v / 32), off = v - ix * 32, y = Math.floor(ix / 12), mo = ix - y * 12 + 1, dim = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+    if (y < 2017 || y > 2200) return;
+    const win = dn(y + '-' + (mo < 10 ? '0' : '') + mo + '-01') + Math.min(off, dim - 1);
+    if (win <= top) out.ch[y + '-' + (mo < 10 ? '0' : '') + mo] = at(win);
+  });
+  if (typeof o.d === 'string' && realDay(o.d) && typeof o.f === 'string' && /^[0-7]{1,800}$/.test(o.f) && dn(o.d) <= top) {
+    const last = dn(o.d), len = o.f.length;
+    for (let i = 0; i < len; i++) {
+      const g = +o.f.charAt(i), n = last - (len - 1 - i);
+      if (!g || n < DAY0) continue;
+      const k = dkey(n);
+      if (g & 1) out.mi[k] = at(n);
+      if (g & 2) out.ex[k + ':e'] = at(n);
+      if (g & 4) out.ex[k + ':h'] = at(n);
+    }
+  }
+  return out;
+}
+// Junta o rastro da nuvem ao deste aparelho: só entra o que aqui ainda não existe (o que já está guardado aqui, com o instante de verdade, fica como está). Devolve quantas entradas entraram.
+export function mergePg(S, pg) {
+  let n = 0;
+  [['challenges', 'ch'], ['crewWon', 'cw'], ['missions', 'mi'], ['extras', 'ex']].forEach((x) => {
+    const from = pg && pg[x[1]] && typeof pg[x[1]] === 'object' ? pg[x[1]] : {};
+    if (!S[x[0]] || typeof S[x[0]] !== 'object' || Array.isArray(S[x[0]])) S[x[0]] = {};
+    const into = S[x[0]];
+    Object.keys(from).forEach((k) => { if (!(stamp(into[k]) > 0) && stamp(from[k]) > 0) { into[k] = from[k]; n++; } });
+  });
+  return n;
+}
 export function prefsSnapshot(S) {
   const p = S.profile, g = S.goal, r = S.reminders, c = S.social, ui = {}, ach = {}, got = S.achievements || {};
   ACHIEVEMENTS.forEach((a) => { const t = stamp(got[a.id]); if (t) ach[a.id] = Math.round(t / 6e4); });
@@ -159,11 +258,20 @@ export function prefsSnapshot(S) {
   };
 }
 // O documento como vai para o Firestore. null se, por algum motivo, passar do limite (aí o app só não faz o backup dos ajustes). Se passar, vão
-// embora primeiro os recados dispensados e depois as datas das medalhas (as medalhas voltam do histórico, só que com a data refeita).
+// embora primeiro os recados dispensados, depois o rastro das missões e dos desafios (só os mais recentes, até não sobrar nada) e por último as datas das
+// medalhas (as medalhas voltam do histórico, só que com a data refeita). pg só existe quando há alguma coisa para guardar: o documento de quem nunca cumpriu
+// uma missão extra ou um desafio é igual ao de antes.
 export function prefsPack(S, u) {
-  const snap = prefsSnapshot(S);
+  const snap = prefsSnapshot(S), pg = pgSnapshot(S, 1);
+  if (pg) snap.pg = pg;
   let j = JSON.stringify(snap);
   if (j.length > PREFS_MAX) { snap.ui = {}; j = JSON.stringify(snap); }
+  [0.5, 0.25, 0.1, 0].forEach((keep) => {
+    if (j.length <= PREFS_MAX || !snap.pg) return;
+    const less = pgSnapshot(S, keep);
+    if (less) snap.pg = less; else delete snap.pg;
+    j = JSON.stringify(snap);
+  });
   if (j.length > PREFS_MAX) { snap.ach = {}; j = JSON.stringify(snap); }
   if (j.length > PREFS_MAX) return null;
   return { v: 1, u: u || Date.now(), j: j };
@@ -208,7 +316,7 @@ export function cleanPrefs(o) {
     createdAt: isFinite(ca) && ca > 1e12 && ca <= Date.now() + 864e5 ? Math.round(ca) : 0,
     profile: profile, goal: goal, cups: cups,
     last: l.g === 'w' ? l.id : D.last, lastO: lo.g === 'o' ? lo.id : D.lastO,
-    reminders: reminders, social: social, ach: ach, ui: ui,
+    reminders: reminders, social: social, ach: ach, pg: cleanPg(src.pg, now), ui: ui,
   };
 }
 // Este aparelho tem alguma medalha que a cópia da nuvem (o "ach" de cleanPrefs) não tem, ou com uma data mais antiga (a diferença de um minuto)? Então a nuvem
@@ -216,6 +324,16 @@ export function cleanPrefs(o) {
 export function achAhead(got, ach) {
   const a = ach && typeof ach === 'object' ? ach : {}, g = got || {};
   return ACHIEVEMENTS.some((x) => { const t = stamp(g[x.id]), r = stamp(a[x.id]); return t > 0 && !(r > 0 && Math.round(r / 6e4) <= Math.round(t / 6e4)); });
+}
+// O mesmo para o rastro das missões e dos desafios (pg): este aparelho tem alguma coisa que a cópia da nuvem (o "pg" de cleanPrefs) não tem? A conta é feita com o que o
+// app mandaria de verdade (prefsPack, já com o corte por tamanho), para o que nunca caberia na nuvem não fazer os ajustes subirem a cada abertura.
+export function pgAhead(S, pg) {
+  const pack = prefsPack(S, 1);
+  if (!pack) return false;
+  let mine;
+  try { mine = cleanPg(JSON.parse(pack.j).pg); } catch (e) { return false; }
+  const r = pg && typeof pg === 'object' ? pg : {};
+  return ['ch', 'cw', 'mi', 'ex'].some((c) => Object.keys(mine[c]).some((k) => !(r[c] && typeof r[c] === 'object' && stamp(r[c][k]) > 0)));
 }
 // O documento da nuvem → { u, prefs } limpo, ou null se não for um backup válido
 export function prefsParse(raw) {
@@ -243,6 +361,7 @@ export function applyPrefs(S, p, mode) {
   Object.keys(p.ui).forEach((k) => { S.ui[k] = p.ui[k]; });
   if (p.createdAt && (!S.createdAt || p.createdAt < S.createdAt)) S.createdAt = p.createdAt;
   mergeAch(S.achievements, p.ach); // as medalhas da conta entram com a data em que saíram de verdade; as que só aqui existem ficam (de cada uma vale a data mais antiga)
+  mergePg(S, p.pg); // as missões e os desafios que a conta guardava entram junto (só o que aqui ainda não existe)
   return S;
 }
 

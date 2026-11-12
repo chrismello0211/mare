@@ -22,5 +22,7 @@ export const stat = (e, l, v) => '<div class="stat"><span class="em" aria-hidden
 export const tip = (id, e, title, text, b) => '<section class="card tip"><span class="em" aria-hidden="true">' + e + '</span><div class="tip-b"><b>' +
   title + '</b><p>' + text + '</p>' + (b ? btn(b[0], b[1], 'sm', b[2]) : '') + '</div><button class="tip-x" type="button" data-action="tip-x" data-tip="' +
   id + '" aria-label="Dispensar dica">×</button></section>';
+// "Termina hoje", "termina amanhã", "termina em 3 dias" (o domingo, ou o último dia do mês, ainda conta): os desafios da Hoje e da aba Amigos dizem o prazo do mesmo jeito
+export const endsIn = (n) => (n <= 0 ? 'Termina hoje' : n === 1 ? 'Termina amanhã' : 'Termina em ' + n + ' dias');
 export const steps = (list) => '<ol class="steps">' + list.map((s) => '<li>' + s + '</li>').join('') + '</ol>';
 export const shareIco = () => svgI('share', 'ico-share');

@@ -30,7 +30,7 @@ function used() {
 const MIN = 6e4, at = (ms) => Math.round(ms / MIN);
 const T1 = Date.UTC(2025, 8, 3, 15, 30, 12, 345), T2 = Date.UTC(2025, 9, 1, 12, 0, 0, 0), T3 = Date.UTC(2025, 9, 20, 23, 59, 59, 999); // em 2025: sempre no passado
 function medalsUsed() { const S = used(); S.achievements = { first: T1, s7: T2, crew: T3 }; return S; }
-// o app todo conquistado: as 37 medalhas, uma por dia (para medir o tamanho do pior caso)
+// o app todo conquistado: as 39 medalhas, uma por dia (para medir o tamanho do pior caso)
 function allMedals() { const S = used(); C.ACHIEVEMENTS.forEach((a, i) => { S.achievements[a.id] = Date.UTC(2025, 8, 1 + i, 9, 15 + (i % 40), 7, 123); }); return S; }
 
 describe('e-mail', () => {
@@ -258,9 +258,9 @@ describe('backup dos ajustes: o que sai do aparelho', () => {
     const T = used(); T.profile.name = 'x'.repeat(5000);
     expect(A.prefsPack(T, 1)).toBe(null);
   });
-  it('com as 37 medalhas o texto ainda cabe com folga, e cada medalha cabe com a sua data', () => {
+  it('com as 39 medalhas o texto ainda cabe com folga, e cada medalha cabe com a sua data', () => {
     const S = allMedals(), p = A.prefsPack(S, 1), o = JSON.parse(p.j);
-    expect(C.ACHIEVEMENTS.length).toBe(37);
+    expect(C.ACHIEVEMENTS.length).toBe(39);
     expect(Object.keys(o.ach)).toEqual(C.ACHIEVEMENTS.map((a) => a.id));
     C.ACHIEVEMENTS.forEach((a) => expect(o.ach[a.id], a.id).toBe(at(S.achievements[a.id])));
     expect(p.j.length).toBeLessThan(A.PREFS_MAX - 2000); // sobra para o nome, o apelido e os recados, no pior caso
@@ -269,7 +269,7 @@ describe('backup dos ajustes: o que sai do aparelho', () => {
     const q = A.prefsPack(S, 1);
     expect(q).not.toBe(null);
     expect(q.j.length).toBeLessThanOrEqual(A.PREFS_MAX);
-    expect(Object.keys(JSON.parse(q.j).ach)).toHaveLength(37); // o pior caso de antes continua cabendo, agora com as 37 datas dentro
+    expect(Object.keys(JSON.parse(q.j).ach)).toHaveLength(39); // o pior caso de antes continua cabendo, agora com as 39 datas dentro
   });
   it('se passar do limite, saem primeiro os recados e só depois as datas das medalhas (os ajustes nunca saem)', () => {
     // 1) só os recados já resolvem: as datas ficam
@@ -278,7 +278,7 @@ describe('backup dos ajustes: o que sai do aparelho', () => {
     const a = A.prefsPack(M, 2);
     expect(a).not.toBe(null);
     const oa = JSON.parse(a.j);
-    expect(oa.ui).toEqual({}); expect(Object.keys(oa.ach)).toHaveLength(37);
+    expect(oa.ui).toEqual({}); expect(Object.keys(oa.ach)).toHaveLength(39);
     // 2) sem os recados ainda passa, mas sem as datas cabe: as datas saem e o resto do backup fica inteiro
     const S = allMedals(); S.ui = {};
     const semDatas = (x) => JSON.stringify(Object.assign(A.prefsSnapshot(x), { ach: {} })).length;
@@ -377,7 +377,7 @@ describe('backup dos ajustes: o que volta é sempre limpo', () => {
     const p = A.prefsParse({ v: 1, u: 5, j: '{"__proto__":{"x":1},"profile":{"__proto__":{"y":2},"name":"Ana"},"constructor":{"prototype":{"z":3}}}' });
     expect(p.prefs.profile.name).toBe('Ana');
     expect(({}).x).toBeUndefined(); expect(({}).y).toBeUndefined(); expect(({}).z).toBeUndefined();
-    expect(Object.keys(p.prefs).sort()).toEqual(['ach', 'cups', 'createdAt', 'goal', 'last', 'lastO', 'profile', 'reminders', 'social', 'ui'].sort());
+    expect(Object.keys(p.prefs).sort()).toEqual(['ach', 'cups', 'createdAt', 'goal', 'last', 'lastO', 'pg', 'profile', 'reminders', 'social', 'ui'].sort());
   });
   it('JSON com "__proto__" e "constructor" dentro das medalhas também não contamina nada', () => {
     const ms = at(T1), j = '{"ach":{"__proto__":{"first":' + ms + ',"polluted":1},"constructor":{"prototype":{"z":3}},"first":' + ms + ',"hasOwnProperty":' + ms + '}}';
@@ -493,7 +493,7 @@ describe('aplicar ajustes ao app', () => {
     expect(A.achAhead(b.achievements, back.prefs.ach)).toBe(false);
     const all = allMedals(), c = C.defaults(), cb = A.prefsParse(A.prefsPack(all, 11));
     A.applyPrefs(c, cb.prefs, 'restore');
-    expect(Object.keys(c.achievements)).toHaveLength(37);
+    expect(Object.keys(c.achievements)).toHaveLength(39);
     C.ACHIEVEMENTS.forEach((x) => expect(Math.abs(c.achievements[x.id] - all.achievements[x.id]), x.id).toBeLessThanOrEqual(MIN / 2)); // a data só perde os segundos
     expect(A.achAhead(all.achievements, cb.prefs.ach)).toBe(false);
   });
