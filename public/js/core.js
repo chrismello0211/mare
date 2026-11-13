@@ -258,6 +258,9 @@ const SINCE_1_11 = { day: '2026-11-16', week: '2026-11-23', month: '2026-12' };
 // umas três semanas depois da publicação: quem demora a atualizar ainda vê, até lá, o mesmo desafio dos amigos. Quem publicar uma leva nova põe a data DEPOIS destas e depois do dia da publicação.
 // tests/fixtures/picks-1.11.0.json trava as escolhas da 1.11.0 até a véspera destas datas (e picks-1.10.0.json, as de antes).
 const SINCE_1_12 = { day: '2026-12-07', week: '2026-12-07', month: '2027-01', crew: '2026-12-07' };
+// 1.13.0: mais uma leva, duas semanas depois da anterior (segunda-feira 21/12/2026; as do mês, em fevereiro de 2027): as 10 entradas novas das listas, mais quatro desafios novos da turma. Entre elas estão as versões
+// que crescem com a turma de "Turma cheia" e "Todos a bordo" (decisão 13 da Parte 22), com outro `id` e a mesma data de estreia das outras. tests/fixtures/picks-1.12.0.json trava as escolhas da 1.12.0 até a véspera.
+const SINCE_1_13 = { day: '2026-12-21', week: '2026-12-21', month: '2027-02', crew: '2026-12-21' };
 const poolAt = (pool, k) => pool.filter((m) => !m.since || m.since <= k); // as entradas que já valem no dia k (ou na semana, ou no mês: a chave de texto também compara)
 export const MISSIONS_EASY = [
   { id: 'ehalf', f: 'vol', e: '🌓', t: 'Chegue à metade da meta', p: (es, g) => counted(es, g) / (g / 2) },
@@ -275,6 +278,10 @@ export const MISSIONS_EASY = [
   { id: 'e13', since: SINCE_1_12.day, f: 'vol', e: '🕛', t: 'Chegue a um terço da meta antes do meio-dia', p: (es, g) => sumBefore(es, 720, g) / (g / 3) },
   { id: 'e2pm', since: SINCE_1_12.day, f: 'cnt', e: '⛅', t: 'Beba água 2 vezes à tarde', p: (es) => waterIn(es, 720, 1080) / 2 },
   { id: 'esnack', since: SINCE_1_12.day, f: 'spr', e: '🍪', t: 'Beba água no lanche da tarde, entre 15h e 17h', p: (es) => inWindow(es, 900, 1020) },
+  // 1.13.0 (a partir de SINCE_1_13.day)
+  { id: 'ehalf16', since: SINCE_1_13.day, f: 'vol', e: '🕓', t: 'Chegue à metade da meta antes das 16h', p: (es, g) => sumBefore(es, 960, g) / (g / 2) },
+  { id: 'e2eve', since: SINCE_1_13.day, f: 'cnt', e: '🌉', t: 'Beba água 2 vezes à noite, depois das 18h', p: (es) => waterIn(es, 1080, 1440) / 2 },
+  { id: 'emid', since: SINCE_1_13.day, f: 'spr', e: '🌻', t: 'Beba água no meio da manhã, entre 9h e 11h', p: (es) => inWindow(es, 540, 660) },
 ];
 export const MISSIONS_HARD = [
   { id: 'hv17', f: 'vol', e: '🏁', t: 'Bata a meta antes das 17h', p: (es, g) => sumBefore(es, 1020, g) / g },
@@ -293,6 +300,10 @@ export const MISSIONS_HARD = [
   { id: 'h23', since: SINCE_1_12.day, f: 'vol', e: '🏃', t: 'Chegue a dois terços da meta antes das 15h', p: (es, g) => sumBefore(es, 900, g) / ((g * 2) / 3) },
   { id: 'hblocks2', since: SINCE_1_12.day, f: 'cnt', e: '🔔', t: 'Beba água a cada 2 horas, das 8h às 20h', p: (es) => spans(es, 480, 120, 6) / 6 },
   { id: 'hnight2', since: SINCE_1_12.day, f: 'spr', e: '🌌', t: 'Beba água em 2 horários diferentes à noite, depois das 18h', p: (es) => hoursOf(es, 1080) / 2 },
+  // 1.13.0 (a partir de SINCE_1_13.day)
+  { id: 'h13a', since: SINCE_1_13.day, f: 'vol', e: '⚡', t: 'Chegue a um terço da meta antes das 10h', p: (es, g) => sumBefore(es, 600, g) / (g / 3) },
+  { id: 'hhours8', since: SINCE_1_13.day, f: 'cnt', e: '🕗', t: 'Beba água em 8 horários diferentes', p: (es) => hoursOf(es) / 8 },
+  { id: 'hthree', since: SINCE_1_13.day, f: 'spr', e: '🍴', t: 'Beba água antes das 10h, no almoço e depois das 18h', p: (es) => (inWindow(es, 0, 600) + inWindow(es, 660, 900) + inWindow(es, 1080, 1440)) / 3 },
 ];
 // O hash acima é linear: datas seguidas (e baralhos de ids parecidos) dão números parecidos, e o sorteio sairia em sequência. Este misturador (o final do MurmurHash3) espalha.
 const mix32 = (h) => { h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; return h >>> 0; };
@@ -442,6 +453,11 @@ export const WEEKLY = [
   { id: 'weve', since: SINCE_1_12.week, e: '🌛', t: 'Ritual da noite', d: 'Beba água à noite, depois das 18h, em 5 dias desta semana', need: 5, day: (f, d) => waterBetween(d, 1080, 1440) },
   { id: 'wlunch', since: SINCE_1_12.week, e: '🍽️', t: 'Água no almoço', d: 'Beba água na hora do almoço, entre 11h e 15h, em 5 dias desta semana', need: 5, day: (f, d) => waterBetween(d, 660, 900) },
   { id: 'w8', since: SINCE_1_12.week, e: '💦', t: 'Oito goles por dia', d: 'Beba água pelo menos 8 vezes em 3 dias desta semana', need: 3, day: (f) => f.n >= 8 },
+  // 1.13.0 (a partir de SINCE_1_13.week, uma segunda-feira)
+  { id: 'wlate', since: SINCE_1_13.week, e: '🌆', t: 'Meta antes das 20h', d: 'Bata a meta antes das 20h em 5 dias desta semana', need: 5, day: (f) => hitBy(f, 1200) },
+  { id: 'whalf13', since: SINCE_1_13.week, e: '🕐', t: 'Metade até as 13h', d: 'Chegue à metade da meta antes das 13h em 3 dias desta semana', need: 3, day: (f, d) => halfBy(d, 780) },
+  { id: 'wsnack', since: SINCE_1_13.week, e: '🍪', t: 'Água no lanche', d: 'Beba água no lanche da tarde, entre 15h e 17h, em 5 dias desta semana', need: 5, day: (f, d) => waterBetween(d, 900, 1020) },
+  { id: 'wbook', since: SINCE_1_13.week, e: '📖', t: 'Começo e fim do dia', d: 'Beba água antes das 10h e depois das 18h, no mesmo dia, em 4 dias desta semana', need: 4, day: (f, d) => waterBetween(d, 0, 600) && waterBetween(d, 1080, 1440) },
 ];
 export const MONTHLY = [
   { id: 'mgoal', e: '🏅', t: 'Meta em 20 dias', d: 'Bata a meta em 20 dias deste mês', need: 20, day: (f) => f.hit >= 0 },
@@ -462,6 +478,11 @@ export const MONTHLY = [
   { id: 'mfirst', since: SINCE_1_12.month, e: '⏱️', t: 'Começo cedo', d: 'Faça o primeiro registro de água antes das 10h em 20 dias deste mês', need: 20, day: (f) => f.first >= 0 && f.first < 600 },
   { id: 'mhalf', since: SINCE_1_12.month, e: '⏰', t: 'Metade até as 15h', d: 'Chegue à metade da meta antes das 15h em 18 dias deste mês', need: 18, day: (f, d) => halfBy(d, 900) },
   { id: 'meve', since: SINCE_1_12.month, e: '🌛', t: 'Ritual da noite', d: 'Beba água à noite, depois das 18h, em 20 dias deste mês', need: 20, day: (f, d) => waterBetween(d, 1080, 1440) },
+  // 1.13.0 (a partir de SINCE_1_13.month)
+  { id: 'mblocks', since: SINCE_1_13.month, e: '🔔', t: 'Água a cada 3 horas', d: 'Beba água a cada 3 horas, das 8h às 20h, em 12 dias deste mês', need: 12, day: (f, d) => !!d && spans(d.entries || [], 480, 180, 4) === 4 },
+  { id: 'mlunch', since: SINCE_1_13.month, e: '🍽️', t: 'Água no almoço', d: 'Beba água na hora do almoço, entre 11h e 15h, em 20 dias deste mês', need: 20, day: (f, d) => waterBetween(d, 660, 900) },
+  { id: 'm8', since: SINCE_1_13.month, e: '💦', t: 'Oito goles por dia', d: 'Beba água pelo menos 8 vezes em 12 dias deste mês', need: 12, day: (f) => f.n >= 8 },
+  { id: 'mbook', since: SINCE_1_13.month, e: '📖', t: 'Começo e fim do dia', d: 'Beba água antes das 10h e depois das 18h, no mesmo dia, em 15 dias deste mês', need: 15, day: (f, d) => waterBetween(d, 0, 600) && waterBetween(d, 1080, 1440) },
 ];
 export const weekStart = (k) => addDays(k, -((keyToDate(k).getDay() + 6) % 7)); // a segunda-feira da semana de k
 export const monthStart = (k) => k.slice(0, 7) + '-01';
@@ -535,6 +556,9 @@ const mostOf = (n) => Math.max(2, Math.ceil(n * 0.6)); // "a maior parte da turm
 const nearAll = (n) => Math.max(2, Math.ceil((n * 3) / 4)); // "quase todos": 3 de cada 4 pessoas (todas, numa turma de 2 ou 3)
 const runOf = (last, ok) => { let best = 0, run = 0; for (let j = 0; j <= last; j++) { run = ok(j) ? run + 1 : 0; if (run > best) best = run; } return best; }; // a maior sequência de dias seguidos (até o último que já aconteceu) em que ok(j) vale
 const hasPair = (r, last) => { for (let j = 1; j <= last; j++) if (r[j - 1] && r[j]) return true; return false; }; // a pessoa bateu a meta em 2 dias seguidos
+const halfOf = (n) => Math.max(2, Math.ceil(n / 2)); // "metade da turma" (1.13.0): nunca menos de 2 pessoas (todas, numa turma de 2)
+const hasRun = (r, last, k) => runOf(last, (j) => !!r[j]) >= k; // a pessoa bateu a meta em k dias seguidos (1.13.0)
+const peopleSay = (k, n, verb) => (k === n ? 'as ' + n + ' pessoas ' + verb : 'pelo menos ' + k + ' das ' + n + ' pessoas ' + verb); // "as 2 pessoas batem" ou "pelo menos 3 das 4 pessoas batem" (1.13.0)
 export const CREW_CHALLENGES = [
   { id: 'ctotal', e: '🌊', t: 'Maré da semana', unit: 'metas', d: (n) => 'Juntos, a turma bate a meta ' + 4 * n + ' vezes nesta semana: 4 por pessoa, em média',
     calc: (g, last) => ({ have: g.reduce((s, r) => s + rowSum(r, last), 0), need: 4 * g.length }) },
@@ -551,7 +575,56 @@ export const CREW_CHALLENGES = [
   { id: 'cpairs', since: SINCE_1_12.crew, e: '🔥', t: 'Dois dias seguidos', unit: 'pessoas',
     d: (n) => (nearAll(n) === n ? 'Cada pessoa da turma tem' : 'Pelo menos ' + nearAll(n) + ' das ' + n + ' pessoas têm') + ' 2 dias seguidos na meta nesta semana',
     calc: (g, last) => ({ have: g.filter((r) => hasPair(r, last)).length, need: nearAll(g.length) }) },
+  // 1.13.0 (a partir de SINCE_1_13.crew, uma segunda-feira): "Maré cheia" e "Quatro dias a bordo" são as versões de "Turma cheia" e "Todos a bordo" que crescem com a turma (frações em vez de um número fixo de
+  // pessoas); "Meio da semana" olha dois dias que ficam entre o começo e o fim de semana; "Três seguidos" olha a constância de cada pessoa. Nenhuma fecha com um dia só e nenhuma olha quanto alguém bebeu.
+  { id: 'cgrow', since: SINCE_1_13.crew, e: '🌕', t: 'Maré cheia', unit: 'dias',
+    d: (n) => 'Em 4 dias desta semana, ' + peopleSay(mostOf(n), n, 'batem') + ' a meta no mesmo dia',
+    calc: (g, last) => { let have = 0; for (let j = 0; j <= last; j++) if (colSum(g, j) >= mostOf(g.length)) have++; return { have: have, need: 4 }; } },
+  { id: 'cnear', since: SINCE_1_13.crew, e: '⚓', t: 'Quatro dias a bordo', unit: 'pessoas',
+    d: (n) => (nearAll(n) === n ? 'Cada pessoa da turma bate' : 'Pelo menos ' + nearAll(n) + ' das ' + n + ' pessoas batem') + ' a meta em pelo menos 4 dias desta semana',
+    calc: (g, last) => ({ have: g.filter((r) => rowSum(r, last) >= 4).length, need: nearAll(g.length) }) },
+  { id: 'cmid', since: SINCE_1_13.crew, e: '🚤', t: 'Meio da semana', unit: 'dias',
+    d: (n) => 'Na quarta e na quinta, ' + peopleSay(mostOf(n), n, 'batem') + ' a meta, em cada dia',
+    calc: (g, last) => ({ have: [2, 3].filter((j) => j <= last && colSum(g, j) >= mostOf(g.length)).length, need: 2 }) },
+  { id: 'crun', since: SINCE_1_13.crew, e: '🐬', t: 'Três seguidos', unit: 'pessoas',
+    d: (n) => 'Nesta semana, ' + peopleSay(mostOf(n), n, 'têm') + ' 3 dias seguidos na meta',
+    calc: (g, last) => ({ have: g.filter((r) => hasRun(r, last, 3)).length, need: mostOf(g.length) }) },
 ];
+/* ---------- desafio do mês da turma (1.13.0) ---------- */
+// O mesmo desafio da turma, para o mês de calendário: um por mês, sorteado pela data (o mesmo para todo mundo, nunca o mesmo em dois meses seguidos), a meta cresce com a turma e a vitória só vale se EU também
+// bati a meta em alguns dias (CREW_MONTH_MINE). Em vez da grade de 7 dias (que não cobre um mês), cada pessoa entra com UMA conta: quantos dias do mês ela bateu a meta (os campos mm e mp do perfil; ver social.js, monthOf).
+// Os limites são frações dos dias do mês (round(f × dias)), então um mês de 28 dias e um de 31 pedem a mesma proporção. Como as semanais, as regras olham a constância de cada pessoa (nunca quanto bebeu) e nenhuma
+// fecha antes de o mês passar de 40% (o menor limite é 45% dos dias). A primeira regra pede a média da turma, as outras a fração da turma (a maior parte, quase todos, a metade) que atinge a fração dos dias.
+// Quem vence guarda o mês em S.crewWon, na mesma tabela das semanas, com a chave 'AAAA-MM' (as medalhas só contam as chaves de 10 caracteres, as segundas-feiras).
+export const CREW_MONTH_FROM = '2026-12'; // o primeiro mês com desafio da turma (os celulares têm até 1/12 para publicar os campos novos)
+export const CREW_MONTH_MINE = 4; // dias do mês em que eu preciso ter batido a meta para a vitória da turma valer para mim
+const MF = { total: 0.58, most: 0.55, near: 0.45, half: 0.65 }; // a fração dos dias do mês que cada regra pede (calibrada por simulação: decisão 7 da Parte 23)
+const mneed = (f, D) => Math.round(f * D);
+const countsAt = (cs, k) => cs.filter((c) => c >= k).length; // quantas pessoas bateram a meta em pelo menos k dias do mês
+export const CREW_MONTHLY = [
+  { id: 'mtotal', e: '🌊', t: 'Maré do mês', unit: 'metas',
+    d: (n, D) => 'Juntos, a turma bate a meta ' + n * mneed(MF.total, D) + ' vezes neste mês: ' + mneed(MF.total, D) + ' por pessoa, em média',
+    calc: (cs, D) => ({ have: cs.reduce((s, c) => s + c, 0), need: cs.length * mneed(MF.total, D) }) },
+  { id: 'mmost', e: '⚓', t: 'Turma firme', unit: 'pessoas',
+    d: (n, D) => (mostOf(n) === n ? 'As ' + n + ' pessoas batem' : 'Pelo menos ' + mostOf(n) + ' das ' + n + ' pessoas batem') + ' a meta em pelo menos ' + mneed(MF.most, D) + ' dias deste mês',
+    calc: (cs, D) => ({ have: countsAt(cs, mneed(MF.most, D)), need: mostOf(cs.length) }) },
+  { id: 'mnear', e: '🚢', t: 'Quase todos a bordo', unit: 'pessoas',
+    d: (n, D) => (nearAll(n) === n ? 'Cada pessoa da turma bate' : 'Pelo menos ' + nearAll(n) + ' das ' + n + ' pessoas batem') + ' a meta em pelo menos ' + mneed(MF.near, D) + ' dias deste mês',
+    calc: (cs, D) => ({ have: countsAt(cs, mneed(MF.near, D)), need: nearAll(cs.length) }) },
+  { id: 'mhalf', e: '💪', t: 'Ritmo forte', unit: 'pessoas',
+    d: (n, D) => (halfOf(n) === n ? 'As ' + n + ' pessoas batem' : 'Pelo menos ' + halfOf(n) + ' das ' + n + ' pessoas batem') + ' a meta em pelo menos ' + mneed(MF.half, D) + ' dias deste mês',
+    calc: (cs, D) => ({ have: countsAt(cs, mneed(MF.half, D)), need: halfOf(cs.length) }) },
+];
+// O desafio da turma do mês ym ('AAAA-MM'), visto de today (um dia desse mês ou, nos primeiros dias do mês seguinte, o mês que acabou de fechar). counts = uma conta por pessoa (os dias do mês em que bateu a meta),
+// a minha primeiro. Devolve o mesmo que crewInfo (c, key = ym, n, text, unit, have, need, mine, ready, done, waiting, pct, at, toEnd), mais D (os dias do mês). null se a turma tem menos de 2 pessoas ou o mês é anterior a CREW_MONTH_FROM.
+export function crewMonthInfo(S, counts, ym, today) {
+  const n = counts.length;
+  if (n < 2 || ym < CREW_MONTH_FROM) return null;
+  const D = +monthEnd(ym + '-01').slice(8), c = deckPick(CREW_MONTHLY, monthNo(ym), 'cm', monthNo), at = +(S.crewWon || {})[ym] || 0;
+  const r = c.calc(counts, D), mine = counts[0], ready = r.have >= r.need, done = at > 0 || (ready && mine >= CREW_MONTH_MINE);
+  return { c: c, key: ym, n: n, D: D, text: c.d(n, D), unit: c.unit, have: r.have, need: r.need, mine: mine, ready: ready, done: done, waiting: !done && ready,
+    pct: done || ready ? 100 : Math.min(99, Math.round((r.have / r.need) * 100)), at: at, toEnd: Math.max(0, dnum(ym + '-' + pad(D)) - dnum(today)) };
+}
 // O desafio da turma da semana que começa em mon (uma segunda-feira), visto de today (um dia dessa semana, ou o dia seguinte a ela): { c, key (mon), n (pessoas na conta), text, unit, have, need,
 // mine (os dias em que EU bati a meta nesta semana), ready (a turma já cumpriu a conta), done (guardado, ou cumprido e eu também bati a meta em algum dia: é "a turma", mas quem não bebeu nada
 // a semana inteira não leva a vitória de graça), waiting (a turma cumpriu e falta eu bater a meta num dia), pct, at (o instante em que foi guardado, ou 0), toEnd (dias até o domingo) }.

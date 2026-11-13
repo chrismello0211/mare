@@ -4,7 +4,7 @@
 // registros, os horários, o peso nem a localização. Desde a 1.2.0 há ranking (Hoje, Semana, Sequência), uma decisão do dono: a lista deixou de
 // ser alfabética e a meta em ml é visível (com ela e a %, dá para calcular mais ou menos quanto a pessoa bebeu, e o app diz isso com todas as letras).
 // Tudo o que vem da nuvem passa por cleanFriend() antes de chegar à tela (um amigo mal-intencionado não pode quebrar o app).
-import { INSIGNIAS, insigniaById, addDays, keyToDate, weekStart, crewInfo, goalToday, dayTotal, isMet, streak, mascotOf, unlockedInsignias, MEDAL_MAX, MEDAL_MAX2, medalMask, medalMask2, medalsFromMask } from './core.js';
+import { INSIGNIAS, insigniaById, addDays, keyToDate, weekStart, crewInfo, crewMonthInfo, goalToday, dayTotal, isMet, streak, mascotOf, unlockedInsignias, MEDAL_MAX, MEDAL_MAX2, medalMask, medalMask2, medalsFromMask } from './core.js';
 
 export const MAX_FRIENDS = 30; // limite combinado no app (as regras do servidor não contam documentos); a turma inteira tem no máximo 31 pessoas
 export const GOAL_MAX = 10000; // teto da meta em ml que vai ao perfil (as regras aceitam até aqui)
@@ -86,7 +86,8 @@ export const otherOf = (m, me) => (Array.isArray(m) ? m.filter((x) => x !== me)[
 /* ---------- o que vai para a nuvem ---------- */
 // Só isto sai do aparelho: nome escolhido, mascote, insígnias, % da meta de hoje (0–150; até a 1.7.0, 0–100), se bateu a meta, a sequência, quais dos últimos 7 dias
 // bateram a meta (wm, uma máscara de 7 bits), quais medalhas a pessoa tem (md, uma máscara de bits na ordem de ACHIEVEMENTS; 1.5.0; md2, a segunda
-// palavra, com as de índice 24 em diante, só quando não é zero; 1.7.0) e, só se a pessoa deixar, a meta do dia em ml (gl). Sem peso, sem volumes bebidos, sem horários, sem localização. share = false esconde o progresso e as
+// palavra, com as de índice 24 em diante, só quando não é zero; 1.7.0), quantos dias do mês (do dia 1 até o dia do perfil) e do mês anterior bateram a meta (mm e mp, 1.13.0: só duas contas, nunca quais dias;
+// só quem mostra o progresso as envia) e, só se a pessoa deixar, a meta do dia em ml (gl). Sem peso, sem volumes bebidos, sem horários, sem localização. share = false esconde o progresso e as
 // medalhas (só nome e insígnias): medalha é hábito (sequência, madrugador…), então segue o mesmo interruptor. S.social.goal só vale true com uma
 // escolha explícita (null = a pessoa ainda não decidiu, e então a meta não sai). S.social.over === false (1.9.0) segura a % em 100: o perfil sai como o da 1.7.0.
 // wm: o bit i (0 a 6) diz se o dia (k − i) bateu a meta; o bit 0 é o dia do perfil (day). Quem olha desloca a janela pelos dias que passaram.
@@ -107,6 +108,15 @@ export const pctSay = (n) => (n >= PCT_MAX ? PCT_MAX + '% ou mais' : n + '%') + 
 // Quanto da % a turma pode ver (1.9.0): com "Mostrar quanto passei da meta" desligado (S.social.over === false), a % para em 100, como na 1.7.0:
 // quem passou da meta aparece só como "Meta batida hoje", sem o quanto passou. Vale para todo mundo que olha, inclusive para o meu próprio ranking.
 export const pctCap = (sc, n) => (sc && sc.over === false ? Math.min(100, n) : n);
+// Quantos dias do mês ym ('AAAA-MM') bateram a meta, do dia 1 até upTo (um dia da mesma chave: o último que já aconteceu; para um mês que já acabou, qualquer dia depois dele). Só o que o aparelho sabe.
+export function monthHits(S, ym, upTo) {
+  let n = 0;
+  for (let d = ym + '-01'; d.slice(0, 7) === ym && d <= upTo; d = addDays(d, 1)) if (isMet(S.days[d])) n++;
+  return n;
+}
+const ymPrev = (k) => addDays(k.slice(0, 7) + '-01', -1).slice(0, 7); // o mês anterior ao de k (AAAA-MM)
+const ymNext = (ym) => addDays(ym + '-01', 31).slice(0, 7); // o mês seguinte a ym: o dia 1 mais 31 dias sempre cai no mês seguinte
+const ymLen = (ym) => new Date(+ym.slice(0, 4), +ym.slice(5, 7), 0).getDate(); // quantos dias tem o mês ym
 export function profilePayload(S, k) {
   // A meta é a do dia (a mesma da tela e de isMet); sem registro do dia, a de hoje pelas configurações
   const sc = S.social || {}, share = sc.share !== false, day = S.days[k], goal = (day && day.goal) || goalToday(S, k) || 2000, total = dayTotal(day);
@@ -127,12 +137,15 @@ export function profilePayload(S, k) {
   // md2 só vai quando há medalha da segunda palavra: quem ainda não tem nenhuma segue mandando o formato de antes (que as regras antigas aceitam)
   const m2 = share ? medalMask2(S) : 0;
   if (m2) p.md2 = m2;
+  // mm e mp (1.13.0) vão sempre que a pessoa mostra o progresso (mesmo com 0: "0 dias" é uma informação, e a falta do campo quer dizer "app antigo"); com o progresso em pausa o perfil sai sem eles
+  if (share) { p.mm = monthHits(S, k.slice(0, 7), k); p.mp = monthHits(S, ymPrev(k), k); }
   return p;
 }
 export function samePayload(a, b) {
   if (!a || !b) return false;
   return a.nm === b.nm && a.mc === b.mc && a.pct === b.pct && a.met === b.met && a.st === b.st && a.day === b.day && a.sh === b.sh &&
-    a.gl === b.gl && a.wm === b.wm && a.md === b.md && (a.md2 || 0) === (b.md2 || 0) && (a.ins || []).join(',') === (b.ins || []).join(',');
+    a.gl === b.gl && a.wm === b.wm && a.md === b.md && (a.md2 || 0) === (b.md2 || 0) && (a.mm == null ? -1 : a.mm) === (b.mm == null ? -1 : b.mm) &&
+    (a.mp == null ? -1 : a.mp) === (b.mp == null ? -1 : b.mp) && (a.ins || []).join(',') === (b.ins || []).join(',');
 }
 
 /* ---------- o que chega da nuvem (nunca confiar) ---------- */
@@ -141,6 +154,7 @@ const str = (v, max) => (typeof v === 'string' ? tidy(v, max) : '');
 const mascotId = (v) => { const x = insigniaById(typeof v === 'string' ? v : ''); return x ? x.id : INSIGNIAS[0].id; };
 const dayOk = (v) => (typeof v === 'string' && DAY_RE.test(v) ? v : '');
 const goalOf = (v) => { if (v == null || v === '') return null; const n = int(v, 0, GOAL_MAX); return n >= 100 ? n : null; }; // meta em ml: de 100 a 10000, senão não vale
+const dayCount = (v) => (typeof v === 'number' && isFinite(v) ? int(v, 0, 31) : null); // contas de dias do mês (mm, mp): de 0 a 31, ou null se não é um número
 const waveOf = (w) => (w && typeof w === 'object' && WAVE_KINDS.indexOf(w.k) >= 0 && dayOk(w.d) ? { k: w.k, d: w.d } : null);
 // Um amigo: perfil (profiles/{uid}) + dados da amizade (friendships/{par}). Qualquer parte pode faltar. me = meu uid
 export function cleanFriend(uid, prof, pair, me) {
@@ -154,6 +168,7 @@ export function cleanFriend(uid, prof, pair, me) {
     uid: uid, nm: nm, mc: mascotId(p.mc || (fromReq ? q.mc : q.tc)), ins: ins,
     pct: p.pct == null ? null : int(p.pct, 0, PCT_MAX), met: p.met === true, st: int(p.st, 0, 9999), day: dayOk(p.day), sh: p.sh !== false,
     gl: goalOf(p.gl), wm: p.wm == null ? null : int(p.wm, 0, 127), md: p.md == null ? null : int(p.md, 0, MD_MAX), md2: p.md2 == null ? 0 : int(p.md2, 0, MD2_MAX),
+    mm: dayCount(p.mm), mp: dayCount(p.mp),
     since: ms(q.ok) || ms(q.at),
     mine: waveOf(w[String(me || '')]), theirs: waveOf(w[uid]), // mine: o aceno que eu mandei; theirs: o que ele mandou
   };
@@ -175,7 +190,7 @@ export function cleanInvite(code, raw, me) {
 // Perfil "de reserva" montado a partir da cópia guardada no aparelho: enquanto o perfil novo não chega da nuvem, a tela continua
 // mostrando o que já se sabia do amigo, em vez de piscar em branco.
 export function profileOfCached(f) {
-  return f ? { nm: f.nm, mc: f.mc, ins: f.ins, pct: f.pct, met: f.met, st: f.st, day: f.day, sh: f.sh, gl: f.gl, wm: f.wm, md: f.md, md2: f.md2 } : null;
+  return f ? { nm: f.nm, mc: f.mc, ins: f.ins, pct: f.pct, met: f.met, st: f.st, day: f.day, sh: f.sh, gl: f.gl, wm: f.wm, md: f.md, md2: f.md2, mm: f.mm, mp: f.mp } : null;
 }
 
 /* ---------- leitura do estado de um amigo ---------- */
@@ -331,6 +346,42 @@ export function crewDue(S, friends, today) {
     if (((S.crewWon || {})[w] || 0) > 0) return;
     const g = crewInfo(S, crewGrid(people, w, today), w, today);
     if (g && g.done) out.push({ key: w, c: g.c, n: g.n, past: w !== mon });
+  });
+  return out;
+}
+
+/* ---------- o desafio do mês da turma (1.13.0) ---------- */
+// Quantos dias do mês ym ('AAAA-MM') a pessoa p (um amigo limpo por cleanFriend, ou o meu perfil) bateu a meta, visto do dia de quem olha (today): de 0 ao tamanho do mês, ou null quando não dá para saber (perfil sem os
+// campos novos, ou seja, app antigo; progresso em pausa; um dia que ainda nem chegou; um perfil de mais de um mês depois do mês pedido). mm conta o mês do dia do perfil (p.day) e mp o mês anterior a esse. Se o perfil
+// é de um mês ANTES de ym (o amigo ainda não abriu o app neste mês), ele ainda não registrou nada em ym: 0.
+export function monthOf(p, ym, today) {
+  if (!p || p.mm == null || p.sh === false || !p.day || ahead(p.day, today)) return null;
+  const pm = p.day.slice(0, 7);
+  if (pm === ym) return Math.min(p.mm, ymLen(ym));
+  if (pm === ymNext(ym)) return p.mp == null ? null : Math.min(p.mp, ymLen(ym));
+  return pm < ym ? 0 : null;
+}
+// A conta de cada pessoa do desafio do mês ym, eu primeiro (sem a minha, ou seja, com o progresso em pausa, não há turma: []): os mesmos amigos da semana (mostram o progresso e apareceram nos últimos 3 dias), cada
+// um com os dias do mês em que bateu a meta; quem não tem a conta (app antigo) fica de fora.
+export function crewMonthCounts(S, friends, ym, today) {
+  if ((S.social || {}).share === false) return [];
+  const out = [monthHits(S, ym, today)];
+  (friends || []).forEach((f) => { const c = monthOf(f, ym, today); if (c != null && liveOf(f, today).away <= 3) out.push(c); });
+  return out;
+}
+// O desafio da turma deste mês (ver crewMonthInfo em core.js); null se não há turma, se eu estou em pausa ou se o mês é anterior à estreia (CREW_MONTH_FROM)
+export function crewMonthGoal(S, friends, today) {
+  const ym = today.slice(0, 7);
+  return crewMonthInfo(S, crewMonthCounts(S, friends, ym, today), ym, today);
+}
+// Os meses que acabaram de ser vencidos e ainda não estão em S.crewWon (a chave é o mês, AAAA-MM): este mês e, nos 7 primeiros dias do mês seguinte, o que acabou de fechar (a turma é assíncrona: o último dia de quem fechou a
+// conta só chega quando o perfil dele é lido; depois dele, mp guarda o mês fechado). past = true: é o do mês passado.
+export function crewMonthDue(S, friends, today) {
+  const ym = today.slice(0, 7), months = today.slice(8) <= '07' ? [ym, ymPrev(today)] : [ym], out = [];
+  months.forEach((m) => {
+    if (((S.crewWon || {})[m] || 0) > 0) return;
+    const g = crewMonthInfo(S, crewMonthCounts(S, friends, m, today), m, today);
+    if (g && g.done) out.push({ key: m, c: g.c, n: g.n, past: m !== ym });
   });
   return out;
 }

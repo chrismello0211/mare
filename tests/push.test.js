@@ -7,8 +7,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import * as P from '../functions/social-push.js';
 import * as SO from '../public/js/social.js';
+import * as C from '../public/js/core.js';
 
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+const read =(rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 
 const U = (n) => n + 'x'.repeat(28 - n.length);
 const ANA = U('ana'), BRU = U('bruno'), CAI = U('caio'); // ANA < BRU < CAI (a ordem do id da amizade)
@@ -42,7 +43,8 @@ describe('nomes: a mesma limpeza do app', () => {
   it('nenhum caractere invisível solto nos arquivos do servidor (só escapes \\uXXXX): o que o editor ou o zip mexerem não muda o código', () => {
     const files = readdirSync(new URL('../functions/', import.meta.url)).filter((f) => f.endsWith('.js'));
     expect(files.sort()).toEqual(expect.arrayContaining(['clock.js', 'crew-push.js', 'friend-push.js', 'index.js', 'network.js', 'quiet.js', 'social-push.js']));
-    files.forEach((f) => {
+    // functions/core.js (1.13.0) é a cópia do motor do app (public/js/core.js): os emoji dele levam o seletor U+FE0F, de propósito. A cópia não é código de limpeza de nome, e tests/crew.test.js garante que ela é idêntica à do app
+    files.filter((f) => f !== 'core.js').forEach((f) => {
       // eslint-disable-next-line no-control-regex
       expect([f, /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00A0\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2000-\u200F\u202A-\u202F\u205F-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB]/.test(read('../functions/' + f))]).toEqual([f, false]);
     });
@@ -437,6 +439,31 @@ describe('1.2.0: a turma única, a meta batida e o resumo da semana', () => {
     expect(P.weekMessage({ hits: 21, total: 21, mine: 7 }).body).toBe('Semana perfeita! Todo mundo bateu a meta todos os dias.');
     expect(P.weekMessage({ hits: 0, total: 0, mine: null }).body).not.toContain('Semana perfeita'); // sem ninguém para contar não é "perfeita"
     expect(JSON.stringify(P.weekMessage({ hits: 4, total: 14, mine: 2 }))).not.toMatch(/undefined|null|NaN|ranking| (último|última|perdeu|menos) /);
+  });
+  it('weekMessage com a vitória da turma (1.13.0): UMA frase a mais no mesmo aviso, com o título do desafio, antes do convite; nunca um aviso novo', () => {
+    expect(P.weekMessage({ hits: 23, total: 35, mine: 5, won: 'Maré da semana' })).toEqual({ title: 'Resumo da semana da turma 🌊', tag: 'mare-turma-semana', url: './?tab=friends',
+      body: 'A turma bateu a meta 23 vezes nos últimos 7 dias. Você bateu em 5 dias. A turma venceu o desafio da semana: Maré da semana. Toque para ver a turma.' });
+    expect(P.weekMessage({ hits: 9, total: 21, mine: 0, won: 'Todos a bordo' }).body).toBe('A turma bateu a meta 9 vezes nos últimos 7 dias. A turma venceu o desafio da semana: Todos a bordo. Toque para ver a turma.');
+    expect(P.weekMessage({ hits: 21, total: 21, mine: 7, won: 'Corrente da turma' }).body).toBe('Semana perfeita! Todo mundo bateu a meta todos os dias. A turma venceu o desafio da semana: Corrente da turma.');
+    // o título, a etiqueta (um aviso só por vez, no mesmo lugar da tela) e o destino não mudam; a frase nova entra logo depois da conta da semana
+    const a = P.weekMessage({ hits: 5, total: 14, mine: 2 }), b = P.weekMessage({ hits: 5, total: 14, mine: 2, won: 'Maré cheia' });
+    expect([b.title, b.tag, b.url]).toEqual([a.title, a.tag, a.url]);
+    expect(b.body).toBe(a.body.replace(' Toque para ver a turma.', ' A turma venceu o desafio da semana: Maré cheia. Toque para ver a turma.'));
+    expect(b.body).not.toMatch(/ranking| (último|última|perdeu|menos) |\d+ ?ml/);
+  });
+  it('weekMessage: vitória sem texto (ou que não é texto) deixa o aviso exatamente como era; os espaços das pontas saem e o título é cortado em 60 letras', () => {
+    const plain = P.weekMessage({ hits: 23, total: 35, mine: 5 });
+    [undefined, null, '', '   ', '\n\t', 0, 5, true, {}, [], ['Maré da semana'], { t: 'x' }].forEach((won) => expect(P.weekMessage({ hits: 23, total: 35, mine: 5, won: won })).toEqual(plain));
+    expect(P.weekMessage({ hits: 3, total: 14, mine: 1, won: '  Maré da semana \n' }).body).toContain('desafio da semana: Maré da semana. Toque');
+    expect(P.weekMessage({ hits: 3, total: 14, mine: 1, won: '  ' + 'x'.repeat(100) + '  ' }).body).toContain('desafio da semana: ' + 'x'.repeat(60) + '. Toque');
+    expect(P.weekMessage({ hits: 3, total: 14, mine: 1, won: 'x'.repeat(100) }).body).not.toContain('x'.repeat(61));
+  });
+  it('weekMessage com a vitória: o título de cada um dos desafios da turma sai inteiro (nenhum passa de 60 letras)', () => {
+    expect(C.CREW_CHALLENGES.length).toBe(10);
+    C.CREW_CHALLENGES.forEach((c) => {
+      expect(c.t.length).toBeLessThanOrEqual(60);
+      expect(P.weekMessage({ hits: 12, total: 21, mine: 3, won: c.t }).body).toContain('A turma venceu o desafio da semana: ' + c.t + '. Toque para ver a turma.');
+    });
   });
   it('weekMessage nunca quebra com números estranhos', () => {
     [{}, { hits: 'x', total: NaN, mine: 'y' }, { hits: -4, total: -1, mine: 99 }, { hits: 1e9, total: 1e9, mine: 7.9 }].forEach((w) => {

@@ -7,9 +7,16 @@ function cut(rules, what, find, to) {
   if (!hit) throw new Error('old-rules.js: não achei ' + what + ' em firestore.rules');
   return rules.replace(find, to);
 }
-// Regras da 1.7.0 (as que estavam no ar antes da 1.8.0): o perfil já tem a segunda palavra das medalhas (md2), mas a pct só vai até 100
+// Regras da 1.8.0 até a 1.12.x (as que estavam no ar antes da 1.13.0): a pct vai até 150, mas o perfil ainda não tem os dias do mês (mm) nem os do mês anterior (mp)
+export function rules18x(rules) {
+  let s = cut(rules, 'a lista de campos do perfil (1.8.0 a 1.12.x)', "'md2', 'mm', 'mp'])", "'md2'])");
+  s = cut(s, 'a regra do campo mm', /\n\s*&& \(!\('mm' in d\)[^\n]*/, '');
+  s = cut(s, 'a regra do campo mp', /\n\s*&& \(!\('mp' in d\)[^\n]*/, '');
+  return s;
+}
+// Regras da 1.7.0 (as que estavam no ar antes da 1.8.0): o perfil já tem a segunda palavra das medalhas (md2), mas a pct só vai até 100 (e, como todas as de antes, sem mm e mp)
 export function rules17x(rules) {
-  return cut(rules, 'o teto da pct (1.7.0)', 'd.pct >= 0 && d.pct <= 150', 'd.pct >= 0 && d.pct <= 100');
+  return cut(rules18x(rules), 'o teto da pct (1.7.0)', 'd.pct >= 0 && d.pct <= 150', 'd.pct >= 0 && d.pct <= 100');
 }
 // Regras da 1.5.0 e da 1.6.0 (as que estavam no ar antes da 1.7.0): o perfil tem as medalhas (md, 24 bits), mas não a segunda palavra (md2).
 // A pct também só vai até 100 (como em todas as regras de antes da 1.8.0)

@@ -1,6 +1,6 @@
-// Maré — testes de interface do desafio da turma (1.11.0 e 1.12.0): a linha em "Desafios", na Hoje, e o cartão da aba Amigos; a festa quando a turma vence (com as medalhas Remando juntos e Time da maré);
-// o "falta só você"; a segunda-feira de tolerância; quem entra na conta; a turma sozinha e a pausa; o que a Jornada mostra; e o leiaute em qualquer tela, em cada uma das seis regras. A conta em si
-// (as seis regras, quem entra, a grade da semana) está em tests/crew-challenge.test.js; aqui se confere o que aparece na tela e o que fica guardado. Qualquer erro de JavaScript na página reprova.
+// Maré — testes de interface do desafio da turma (1.11.0, 1.12.0 e 1.13.0): a linha em "Desafios", na Hoje, e o cartão da aba Amigos; a festa quando a turma vence (com as medalhas Remando juntos e Time da maré);
+// o "falta só você"; a segunda-feira de tolerância; quem entra na conta; a turma sozinha e a pausa; o que a Jornada mostra; o desafio do MÊS da turma (1.13.0: a linha "Deste mês" em Amigos); e o leiaute em qualquer tela, em cada regra da semana e do mês. A conta em si
+// (as regras da semana, quem entra, a grade da semana) está em tests/crew-challenge.test.js e a do mês em tests/crew-month.test.js; aqui se confere o que aparece na tela e o que fica guardado. Qualquer erro de JavaScript na página reprova.
 // O desafio da turma sai da DATA e da semana de cada amigo (a máscara wm do perfil, que o bit 0 é o dia de hoje), então cada teste fixa o relógio (page.clock.install: ele segue andando, mas parte do
 // meio-dia desse dia, em São Paulo) e monta a semana dos amigos à mão. A semana em que cada desafio cai é achada com o core.js, que sorteia como o app, e não escrita à mão.
 import { test, expect } from '@playwright/test';
@@ -388,6 +388,237 @@ test('sozinho, com amigos que sumiram ou estão em pausa, com o meu progresso em
   await p4.close();
 });
 
+/* ---------- o desafio do mês da turma (1.13.0) ---------- */
+// Uma linha a mais no cartão de Amigos ("Deste mês", depois da "Desta semana"); a Hoje segue só com a da semana. A conta vem do que cada amigo publica no perfil: mm (os dias deste mês em que bateu a meta, até o dia do
+// perfil) e mp (os do mês anterior). Quem ainda usa um app sem esses campos fica fora da conta do mês. A conta em si (as quatro regras, quem entra, a graça dos 7 primeiros dias) está em tests/crew-month.test.js; aqui se
+// confere o que aparece na tela, o que fica guardado e a festa. O mês da turma não dá medalha e não entra na conta "Desafios da turma vencidos" da Jornada (essa conta é das semanas, como as medalhas Remando juntos e Time da maré).
+const DEC17 = '2026-12-17'; // quinta-feira: dezembro tem 31 dias, o desafio é "Turma firme" (17 dias) e faltam 14 dias para fechar
+const monthRow = (pg) => pg.locator('.crw-c .crw').nth(1); // a linha do mês: a segunda do cartão, depois da semana
+// a Bia (20 dias do mês na meta) e o Caio (10): o Caio ainda não chegou a 17
+const MBIA = () => mk(UID.bia, 'Bia', 0b1111, { mm: 20, mp: 25 });
+const MCAIO = (mm) => mk(UID.caio, 'Caio', 0b1100, { mm: mm, mp: 12 });
+
+test('o desafio do mês da turma fica só na aba Amigos, depois do da semana, com o andamento e o prazo, e acompanha o perfil dos amigos ao vivo', async ({ page }) => {
+  test.setTimeout(60000);
+  // quinta-feira, 17/12/2026. Eu bati a meta em 3 dias do mês (14, 15 e 16); a Bia, em 20; o Caio, em 10. "Turma firme": 2 das 3 pessoas precisam de 17 dias, e só a Bia chegou lá
+  await openAt(page, DEC17, [MBIA(), MCAIO(10)], { rows: [HIT(3), HIT(2), HIT(1)], todayMl: 900, medals: except(['cw1']) });
+  // na Hoje segue só a linha da semana: o mês da turma não entra lá
+  const ch = page.locator('#tChallenges');
+  await expect(ch.locator('.crw')).toHaveCount(1);
+  await expect(ch.locator('.ch-i')).toHaveCount(3);
+  await expect(ch).not.toContainText('Deste mês');
+  await expect(ch).not.toContainText('Turma firme');
+  await tabF(page).click();
+  const card = page.locator('.crw-c');
+  await expect(card).toBeVisible();
+  await expect(card.locator('.crw')).toHaveCount(2);
+  await expect(card.locator('.crw').nth(0).locator('.m-k')).toHaveText('Desta semana');
+  const row = monthRow(page), bar = row.locator('[role="progressbar"]');
+  await expect(row.locator('.m-k')).toHaveText('Deste mês');
+  await expect(row.locator('.m-ico')).toHaveText('⚓');
+  await expect(row.locator('.m-t')).toHaveText('Turma firme');
+  await expect(row.locator('.m-d')).toHaveText('Pelo menos 2 das 3 pessoas batem a meta em pelo menos 17 dias deste mês');
+  await expect(row.locator('.ch-f span').nth(0)).toHaveText('1 de 2 pessoas');
+  await expect(row.locator('.ch-f span').nth(1)).toHaveText('Termina em 14 dias');
+  await expect(bar).toHaveAttribute('aria-label', 'Progresso do desafio do mês da turma');
+  await expect(bar).toHaveAttribute('aria-valuenow', '50');
+  await expect(bar).toHaveAttribute('aria-valuetext', '1 de 2 pessoas');
+  await expect(row).not.toHaveClass(/\b(done|wait)\b/);
+  await expect(card.locator('.card-h small')).toHaveText('3 pessoas'); // o cabeçalho segue contando as pessoas da semana
+  const ys = await card.locator('.crw').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
+  expect(ys[0], 'a semana vem antes do mês').toBeLessThan(ys[1]);
+  // o Caio abre o app e o perfil dele passa a dizer 18 dias: a conta fecha, e falta só eu bater mais um dia dos 4 que a vitória pede de mim
+  await page.evaluate((u) => window.__fake.person(u, { mm: 18 }), UID.caio);
+  await expect(row).toHaveClass(/\bwait\b/);
+  await expect(row.locator('.ch-f span').nth(0)).toHaveText('2 de 2 pessoas');
+  await expect(row.locator('.ch-f span').nth(1)).toHaveText('Falta você: mais 1 dia');
+  await expect(bar).toHaveAttribute('aria-valuenow', '100');
+  await page.waitForTimeout(800);
+  await expect(pop(page)).toHaveCount(0); // a turma cumpriu, mas a vitória pede que eu também bata a meta em 4 dias do mês
+  expect(Object.keys((await stored(page)).crewWon)).toEqual([]);
+});
+
+test('quem ainda usa um app sem os dias do mês fica fora da conta do mês, e sem ninguém para contar a linha do mês some', async ({ page }) => {
+  test.setTimeout(60000);
+  // a Bia já publica os dias do mês; o Caio, ainda no app de antes (sem mm nem mp), segue na conta da semana
+  await openAt(page, DEC17, [MBIA(), mk(UID.caio, 'Caio', 0b1100)], { rows: [HIT(3), HIT(2), HIT(1)], todayMl: 900, medals: except(['cw1']) });
+  await tabF(page).click();
+  const card = page.locator('.crw-c');
+  await expect(card.locator('.card-h small')).toHaveText('3 pessoas'); // a semana: eu, a Bia e o Caio
+  const row = monthRow(page);
+  await expect(row.locator('.m-d')).toHaveText('As 2 pessoas batem a meta em pelo menos 17 dias deste mês'); // o mês: só eu e a Bia
+  await expect(row.locator('.ch-f span').nth(0)).toHaveText('1 de 2 pessoas');
+  // a Bia também fica sem a conta do mês (app antigo): sobra só eu, não há turma do mês, e fica a linha da semana
+  await page.evaluate((u) => window.__fake.person(u, { mm: null, mp: null }), UID.bia);
+  await expect(card.locator('.crw')).toHaveCount(1);
+  await expect(card.locator('.crw .m-k')).toHaveText('Desta semana');
+  await expect(card).not.toContainText('Deste mês');
+});
+
+test('"Falta você" diz quantos dias do mês ainda faltam dos 4 que a vitória pede de mim', async ({ page }) => {
+  test.setTimeout(60000);
+  // a turma já fechou a conta: a Bia (20 dias) e o Caio (18) passaram dos 17
+  const friends = [MBIA(), MCAIO(18)];
+  await openAt(page, DEC17, friends, { rows: [HIT(1)], todayMl: 900, medals: except(['cw1']) }); // eu: 1 dia do mês na meta (o 16)
+  await tabF(page).click();
+  await expect(monthRow(page)).toHaveClass(/\bwait\b/);
+  await expect(monthRow(page).locator('.ch-f span').nth(1)).toHaveText('Falta você: mais 3 dias');
+  await expect(monthRow(page).locator('.ch-f span').nth(0)).toHaveText('2 de 2 pessoas');
+  const p2 = await another(page);
+  await openAt(p2, DEC17, friends, { rows: [HIT(2), HIT(1)], todayMl: 900, medals: except(['cw1']) }); // eu: 2 dias (15 e 16)
+  await tabF(p2).click();
+  await expect(monthRow(p2).locator('.ch-f span').nth(1)).toHaveText('Falta você: mais 2 dias');
+  await p2.close();
+});
+
+test('quando o dia que completa os 4 chega, a festa traz o desafio do mês e a vitória fica guardada com a chave do mês, sem medalha da turma e sem entrar na conta da Jornada', async ({ page }) => {
+  test.setTimeout(90000);
+  // 17/12/2026: a Bia (20 dias) e o Caio (18) já passaram dos 17; eu bati a meta em 3 dias do mês (14, 15 e 16) e hoje ainda não: 2.600 ml, faltam 200
+  await openAt(page, DEC17, [MBIA(), MCAIO(18)], { rows: [HIT(3), HIT(2), HIT(1)], todayMl: 2600, medals: except(['cw1']) });
+  await tabF(page).click();
+  const row = monthRow(page);
+  await expect(row).toHaveClass(/\bwait\b/);
+  await expect(row.locator('.ch-f span').nth(1)).toHaveText('Falta você: mais 1 dia'); // no singular
+  await page.waitForTimeout(800);
+  await expect(pop(page)).toHaveCount(0);
+  expect(Object.keys((await stored(page)).crewWon)).toEqual([]);
+  await tab(page, 'Hoje').click();
+  await expect(page.locator('#tChallenges .crw')).toHaveCount(1);
+  await cup(page, '250 ml').click(); // 2.850 ml: a meta de hoje, o 4º dia do mês
+  await expect(pop(page)).toContainText('Você bateu a meta!'); // a festa da meta vem primeiro
+  const won = pop(page).filter({ hasText: 'A turma venceu o mês!' });
+  await expect(won).toBeVisible({ timeout: 12000 });
+  await expect(won).toContainText('Desafio do mês da turma');
+  await expect(won).toContainText('Turma firme');
+  await expect(pop(page)).toHaveCount(0, { timeout: 12000 }); // e a festa acaba: sem medalha atrás
+  const st = await stored(page);
+  expect(Object.keys(st.crewWon), 'só este mês, pela chave AAAA-MM').toEqual(['2026-12']);
+  expect(st.crewWon['2026-12']).toBeGreaterThan(0);
+  expect(st.achievements.cw1, 'o mês não dá a medalha da turma').toBeUndefined();
+  expect(((await payload(page)).md2 || 0) & 8192, 'e a turma não vê medalha nova no meu perfil').toBe(0);
+  // na aba Amigos a linha fica vencida; depois de vencida, nada desfaz (a Bia "perde" dias e a linha continua)
+  await tabF(page).click();
+  await expect(row).toHaveClass(/\bdone\b/);
+  await expect(row).not.toHaveClass(/\bwait\b/);
+  await expect(row.locator('.m-k')).toHaveText('Deste mês · vencido ✓');
+  await expect(row.locator('.ch-f span').nth(0)).toHaveText('2 de 2 pessoas');
+  await expect(row.locator('.ch-f span').nth(1)).toHaveText('Vencido 🎉');
+  await expect(row.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '100');
+  await page.evaluate((u) => window.__fake.person(u, { mm: 5 }), UID.bia);
+  await page.waitForTimeout(500);
+  await expect(row).toHaveClass(/\bdone\b/);
+  await expect(pop(page)).toHaveCount(0);
+  // recarregar não repete a festa nem muda a hora guardada
+  await page.reload();
+  await page.waitForTimeout(2600);
+  await expect(pop(page)).toHaveCount(0);
+  expect((await stored(page)).crewWon['2026-12']).toBe(st.crewWon['2026-12']);
+  // a Jornada segue contando só as semanas da turma: nada de "Desafios da turma vencidos" e a medalha continua por conquistar
+  await tab(page, 'Jornada').click();
+  await expect(page.locator('.chl-j')).not.toContainText('Desafios da turma vencidos');
+  await expect(medal(page, 'Remando juntos')).toHaveClass(/\boff\b/);
+});
+
+// as quatro regras, cada uma no mês em que o app a sorteia (a data decide, igual para todo mundo); no dia 15, com a mesma turma: eu com 2 dias, a Bia com 20 e o Caio com 10
+// [dia, id, emoji, título, descrição, o andamento, o % da barra, o prazo]
+const MONTH_RULES = [
+  ['2026-12-15', 'mmost', '⚓', 'Turma firme', 'Pelo menos 2 das 3 pessoas batem a meta em pelo menos 17 dias deste mês', '1 de 2 pessoas', '50', 'Termina em 16 dias'],
+  ['2027-01-15', 'mnear', '🚢', 'Quase todos a bordo', 'Cada pessoa da turma bate a meta em pelo menos 14 dias deste mês', '1 de 3 pessoas', '33', 'Termina em 16 dias'],
+  ['2027-03-15', 'mtotal', '🌊', 'Maré do mês', 'Juntos, a turma bate a meta 54 vezes neste mês: 18 por pessoa, em média', '32 de 54 metas', '59', 'Termina em 16 dias'],
+  ['2027-04-15', 'mhalf', '💪', 'Ritmo forte', 'Pelo menos 2 das 3 pessoas batem a meta em pelo menos 20 dias deste mês', '1 de 2 pessoas', '50', 'Termina em 15 dias'],
+];
+for (const m of MONTH_RULES) {
+  test('o desafio do mês "' + m[1] + '" (' + m[3] + '): o texto, a conta, a barra e o prazo na aba Amigos', async ({ page }) => {
+    test.setTimeout(60000);
+    // a semana de hoje já vem vencida (crewWon), para só o mês estar em jogo
+    await openAt(page, m[0], [MBIA(), MCAIO(10)], { rows: [HIT(2), HIT(1)], todayMl: 900, crewWon: [0], medals: except(['cw1']) });
+    expect(C.crewMonthInfo(C.defaults(), [0, 0], m[0].slice(0, 7), m[0]).c.id, 'o mês sorteia essa regra').toBe(m[1]);
+    await tabF(page).click();
+    const row = monthRow(page);
+    await expect(row.locator('.m-k')).toHaveText('Deste mês');
+    await expect(row.locator('.m-ico')).toHaveText(m[2]);
+    await expect(row.locator('.m-t')).toHaveText(m[3]);
+    await expect(row.locator('.m-d')).toHaveText(m[4]);
+    await expect(row.locator('.ch-f span').nth(0)).toHaveText(m[5]);
+    await expect(row.locator('.ch-f span').nth(1)).toHaveText(m[7]);
+    await expect(row.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', m[6]);
+    await expect(row.locator('[role="progressbar"]')).toHaveAttribute('aria-valuetext', m[5]);
+    await expect(row).not.toHaveClass(/\b(done|wait)\b/);
+    await page.waitForTimeout(600);
+    await expect(pop(page)).toHaveCount(0);
+  });
+}
+
+test('o mês já vencido fica vencido: a linha diz "vencido", nenhuma festa repete e nada é regravado', async ({ page }) => {
+  test.setTimeout(60000);
+  // 17/12/2026: a turma venceu o mês (guardado há 1 minuto) e depois o Caio ficou com 10 dias no perfil: a conta de hoje não fecharia, mas a vitória não se desfaz
+  await openAt(page, DEC17, [MBIA(), MCAIO(10)], { rows: [HIT(3), HIT(2), HIT(1)], todayMl: 900, crewWonMonths: [0], medals: except(['cw1']) });
+  const before = (await stored(page)).crewWon;
+  expect(Object.keys(before)).toEqual(['2026-12']);
+  await tabF(page).click();
+  const row = monthRow(page);
+  await expect(row).toHaveClass(/\bdone\b/);
+  await expect(row.locator('.m-k')).toHaveText('Deste mês · vencido ✓');
+  await expect(row.locator('.m-t')).toHaveText('Turma firme');
+  await expect(row.locator('.ch-f span').nth(0)).toHaveText('2 de 2 pessoas');
+  await expect(row.locator('.ch-f span').nth(1)).toHaveText('Vencido 🎉');
+  await expect(row.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '100');
+  await page.waitForTimeout(1200);
+  await expect(pop(page)).toHaveCount(0);
+  expect((await stored(page)).crewWon).toEqual(before);
+});
+
+test('na primeira semana do mês seguinte ainda dá para fechar o mês que acabou: a festa diz "mês passado" e a vitória vai para o mês certo', async ({ page }) => {
+  test.setTimeout(75000);
+  // domingo, 3/1/2027. Em dezembro eu bati a meta em 4 dias (28 a 31); a Bia, em 20, e o Caio, em 18 (é o mp deles: o mês antes do dia do perfil). "Turma firme" de dezembro: 2 das 3 pessoas com 17 dias
+  const friends = [mk(UID.bia, 'Bia', 0, { mm: 1, mp: 20 }), mk(UID.caio, 'Caio', 0, { mm: 0, mp: 18 })];
+  await openAt(page, '2027-01-03', friends, { rows: [HIT(3), HIT(4), HIT(5), HIT(6)], todayMl: 900, medals: except(['cw1']) }); // a semana de hoje ("Quatro dias a bordo") não fecha: os amigos têm 0 dias nela
+  await expect(pop(page)).toContainText('Desafio do mês da turma');
+  await expect(pop(page)).toContainText('Turma firme');
+  await expect(pop(page)).toContainText('A turma venceu o mês passado!');
+  const st = await stored(page);
+  expect(Object.keys(st.crewWon), 'só dezembro, pela chave AAAA-MM').toEqual(['2026-12']);
+  expect(st.crewWon['2026-12']).toBeGreaterThan(0);
+  expect(st.achievements.cw1, 'sem medalha da turma').toBeUndefined();
+  await expect(pop(page)).toHaveCount(0, { timeout: 12000 });
+  // a aba Amigos mostra janeiro, o mês de hoje, que recomeça sem vitória e com outra regra
+  await tabF(page).click();
+  const row = monthRow(page);
+  await expect(row.locator('.m-k')).toHaveText('Deste mês');
+  await expect(row.locator('.m-t')).toHaveText('Quase todos a bordo');
+  await expect(row).not.toHaveClass(/\bdone\b/);
+  // recarregar não repete a festa nem muda a hora guardada
+  await page.reload();
+  await page.waitForTimeout(2600);
+  await expect(pop(page)).toHaveCount(0);
+  expect((await stored(page)).crewWon['2026-12']).toBe(st.crewWon['2026-12']);
+});
+
+test('dois meses fecham juntos na primeira semana do seguinte: uma festa só, que diz "2 meses", e as duas vitórias ficam guardadas', async ({ page }) => {
+  test.setTimeout(75000);
+  // domingo, 7/2/2027 (o último dia da graça de janeiro). Fevereiro: bati a meta em 7 dias (1 a 7) e os amigos já têm 28 ("Turma firme": 15 dias). Janeiro: bati em 14 dias (18 a 31) e a Bia e o Caio, em 31 (mp):
+  // "Quase todos a bordo" pede 14 dias de cada uma das 3 pessoas. A semana de hoje não fecha (os amigos têm 0 dias nela)
+  const friends = [mk(UID.bia, 'Bia', 0, { mm: 28, mp: 31 }), mk(UID.caio, 'Caio', 0, { mm: 28, mp: 31 })];
+  const rows = [];
+  for (let ago = 0; ago <= 20; ago++) rows.push(HIT(ago));
+  await openAt(page, '2027-02-07', friends, { rows: rows, medals: except(['cw1']) });
+  await expect(pop(page)).toContainText('Desafio do mês da turma');
+  await expect(pop(page)).toContainText('A turma venceu 2 meses!');
+  await expect(pop(page)).toContainText('Turma firme'); // a festa traz o desafio de fevereiro (o mês de hoje), não o de janeiro ("Quase todos a bordo")
+  await expect(pop(page)).not.toContainText('Quase todos a bordo');
+  const st = await stored(page);
+  expect(Object.keys(st.crewWon).sort(), 'janeiro e fevereiro, pelas chaves AAAA-MM').toEqual(['2027-01', '2027-02']);
+  expect(st.crewWon['2027-01']).toBeGreaterThan(0);
+  expect(st.crewWon['2027-02']).toBeGreaterThan(0);
+  expect(st.achievements.cw1, 'sem medalha da turma').toBeUndefined();
+  await expect(pop(page)).toHaveCount(0, { timeout: 12000 });
+  await tabF(page).click();
+  const row = monthRow(page);
+  await expect(row).toHaveClass(/\bdone\b/);
+  await expect(row.locator('.m-t')).toHaveText('Turma firme'); // fevereiro
+  await expect(row.locator('.m-k')).toHaveText('Deste mês · vencido ✓');
+});
+
 /* ---------- tamanho de tela ---------- */
 // A linha e o cartão têm de caber em qualquer largura (280 px incluída), com o texto mais comprido de cada um dos seis desafios (uma turma de 6 pessoas: números de dois algarismos), no tema claro e no escuro,
 // e na hora em que o aviso mais comprido aparece ("Falta só você bater a meta"). O domingo é o dia em que o prazo diz "Termina hoje".
@@ -447,4 +678,49 @@ for (const id of C.CREW_CHALLENGES.map((c) => c.id)) {
 test('layout: o aviso de pausa (a frase mais comprida do cartão) também cabe', async ({ page }, info) => {
   test.setTimeout(60000);
   await crewLook(page, info, 'ctotal', 'dark', { social: { share: false }, tag: 'pausa' });
+});
+
+/* ---------- tamanho de tela: a linha do mês (1.13.0) ---------- */
+// O cartão de Amigos com as duas linhas (semana e mês) tem de caber em qualquer largura (280 px incluída), no tema claro e no escuro, em cada uma das quatro regras do mês, no último dia do mês (o prazo diz "Termina hoje"), com
+// uma turma de 6 pessoas que já fechou a conta e eu sem nenhum dia na meta: é o aviso mais comprido ("Falta você: mais 4 dias") e os números de três algarismos da "Maré do mês" (108 metas).
+const nextYm = (ym) => (ym.slice(5) === '12' ? (+ym.slice(0, 4) + 1) + '-01' : ym.slice(0, 5) + String(+ym.slice(5) + 1).padStart(2, '0'));
+// o primeiro mês (a partir de dezembro de 2026) em que o desafio do mês da turma é o de id `id`
+const ymOf = (id) => {
+  let ym = '2026-12';
+  for (let i = 0; i < 40; i++, ym = nextYm(ym)) if (C.crewMonthInfo(C.defaults(), [0, 0], ym, ym + '-15').c.id === id) return ym;
+  throw new Error('nenhum mês de ' + id);
+};
+const SIX_M = [UID.bia, UID.caio, UID.duda, UID.edu, UID.fe].map((u, i) => mk(u, ['Bia', 'Caio', 'Duda', 'Edu', 'Fê'][i], 127, { mm: 31, mp: 31 })); // 5 amigos e eu: todos os amigos com o mês cheio
+async function monthLook(pg, info, id, scheme, extra) {
+  const ym = ymOf(id), last = C.monthEnd(ym + '-01'), done = !!(extra && extra.done), tag = id + ' ' + scheme + (done ? ' vencido' : '');
+  await pg.clock.install({ time: noon(last) });
+  await stubFriendsCloud(pg, { friends: SIX_M, code: 'ABCD2345' });
+  await seed(pg, { insignias: OCEAN, social: SOCIAL_ON, todayMl: 300, profile: { theme: scheme }, missions: [0], extras: [[0, 'e'], [0, 'h']], challenges: [['w', 0], ['m', 0]], crewWonMonths: done ? [0] : [] });
+  await pg.goto('/');
+  await expect(pg.locator('html')).toHaveAttribute('data-theme', scheme);
+  await pg.locator('#tabbar').getByRole('button', { name: /^Amigos/ }).click();
+  await expect(pg.locator('.crw-c .crw')).toHaveCount(2);
+  await pg.waitForTimeout(900); // as barras terminam de crescer
+  const row = monthRow(pg);
+  await expect(row.locator('.m-t')).toHaveText(C.CREW_MONTHLY.find((c) => c.id === id).t);
+  await expect(row.locator('.m-k')).toHaveText(done ? 'Deste mês · vencido ✓' : 'Deste mês');
+  await expect(row.locator('.ch-f span').nth(1)).toHaveText(done ? 'Vencido 🎉' : 'Falta você: mais 4 dias');
+  const x = await fits(pg, '.crw-c');
+  expect(x.over, 'rolagem lateral em Amigos (' + tag + ')').toBeLessThanOrEqual(0);
+  expect(x.bad, 'blocos fora do cartão em Amigos (' + tag + ')').toEqual([]);
+  await pg.locator('.crw-c').scrollIntoViewIfNeeded();
+  await pg.screenshot({ path: 'test-results/shots/' + info.project.name + ' - Amigos desafio do mês da turma ' + tag + '.png', fullPage: true });
+}
+for (const id of C.CREW_MONTHLY.map((c) => c.id)) {
+  test('layout: o desafio do mês da turma "' + id + '" (a linha do mês no cartão de Amigos) cabe em qualquer tela, no tema claro e no escuro', async ({ page }, info) => {
+    test.setTimeout(100000);
+    await monthLook(page, info, id, 'light');
+    const p2 = await another(page);
+    await monthLook(p2, info, id, 'dark');
+    await p2.close();
+  });
+}
+test('layout: a linha do mês já vencida ("Deste mês · vencido ✓", o rótulo mais comprido) também cabe', async ({ page }, info) => {
+  test.setTimeout(60000);
+  await monthLook(page, info, 'mtotal', 'dark', { done: true });
 });

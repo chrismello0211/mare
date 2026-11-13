@@ -4,7 +4,8 @@
 // rows [[dias atrás, [[hora, min, ml, bebida?], ...], meta?]] (dias com horários à escolha), profile, social, ui, last, medals (true = as 39 medalhas; ou uma lista
 // de ids, como ['first', 's7']; ou { id: instante em ms } para escolher a data de cada uma), reminders, missions [dias atrás, ...] (as missões cumpridas nesses dias, às 20h),
 // extras [[dias atrás, 'e' (leve) ou 'h' (ousada)], ...] (as missões extras cumpridas, às 20h), challenges [['w' (semana) ou 'm' (mês), quantas atrás], ...] (os desafios já vencidos: 0 = o desta semana ou deste mês),
-// crewWon [quantas semanas atrás, ...] (os desafios da turma já vencidos: 0 = o desta semana, 1 = o da semana passada).
+// crewWon [quantas semanas atrás, ...] (os desafios da turma já vencidos: 0 = o desta semana, 1 = o da semana passada),
+// crewWonMonths [quantos meses atrás, ...] (os desafios do MÊS da turma já vencidos, 1.13.0: 0 = o deste mês, 1 = o do mês passado; a chave é 'AAAA-MM').
 // Atenção: todayMl e entries entram "há 1 minuto", na hora de verdade. De madrugada, 500 ml assim já valem a medalha de antes das 9h; os testes que contam medalhas usam todayMl: 0.
 export async function seed(page, o) {
   await page.addInitScript((opt) => {
@@ -35,8 +36,9 @@ export async function seed(page, o) {
       if (x[0] === 'w') { const t = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7) - 7 * x[1]); chl[t.getFullYear() + '-' + p2(t.getMonth() + 1) + '-' + p2(t.getDate())] = now.getTime() - 60000 - 7 * 864e5 * x[1]; }
       else { const t = new Date(now.getFullYear(), now.getMonth() - x[1], 1); chl[t.getFullYear() + '-' + p2(t.getMonth() + 1)] = now.getTime() - 60000 - 30 * 864e5 * x[1]; }
     });
-    const crw = {}; // desafios da turma vencidos: a semana pela segunda-feira
+    const crw = {}; // desafios da turma vencidos: a semana pela segunda-feira, o mês por 'AAAA-MM'
     (opt.crewWon || []).forEach((n) => { const t = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7) - 7 * n); crw[t.getFullYear() + '-' + p2(t.getMonth() + 1) + '-' + p2(t.getDate())] = now.getTime() - 60000 - 7 * 864e5 * n; });
+    (opt.crewWonMonths || []).forEach((n) => { const t = new Date(now.getFullYear(), now.getMonth() - n, 1); crw[t.getFullYear() + '-' + p2(t.getMonth() + 1)] = now.getTime() - 60000 - 30 * 864e5 * n; });
     const ins = {};
     Object.keys(opt.insignias || {}).forEach((id) => { ins[id] = now.getTime() - 864e5 * (1 + opt.insignias[id]); }); // valor = há quantos dias
     const ach = {}, every = ['first', 'goal', 's3', 's7', 's14', 's30', 'early', 'sunset', 'mission', 'm10', 'weekend', 'd10', 's60', 's100', 'd30', 'd100', 'm30', 'early7', 'sunset5', 'thirds7', 'win25', 'back', 'weekends4', 'wwd', 'm1', 'use100', 'summer', 'weekends12', 'oceans', 'crew', 'trio', 'trio7', 'wk1', 'wk4', 'wk12', 'mo1', 'mo3', 'cw1', 'cw4'];

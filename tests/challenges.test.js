@@ -27,8 +27,8 @@ const dn = (k) => { const p = k.split('-'); return Math.round(Date.UTC(+p[0], +p
 /* ---------- as missões leve e ousada ---------- */
 describe('missões leve e ousada: as listas e o sorteio pela data', () => {
   it('as listas são um contrato (ids, famílias, emoji, texto); toda família tem uma missão em cada lista, para o sorteio nunca ficar sem opção', () => {
-    expect(C.MISSIONS_EASY.map((m) => m.id)).toEqual(['ehalf', 'e1l', 'e3', 'ehrs3', 'eaft', 'elunch', 'e34', 'e2am', 'ewake', 'eeve', 'e13', 'e2pm', 'esnack']);
-    expect(C.MISSIONS_HARD.map((m) => m.id)).toEqual(['hv17', 'hhalf', 'h8', 'hhours', 'hblocks', 'hbal', 'h2x3', 'h1l11', 'h10', 'hbook', 'h3x3', 'h23', 'hblocks2', 'hnight2']);
+    expect(C.MISSIONS_EASY.map((m) => m.id)).toEqual(['ehalf', 'e1l', 'e3', 'ehrs3', 'eaft', 'elunch', 'e34', 'e2am', 'ewake', 'eeve', 'e13', 'e2pm', 'esnack', 'ehalf16', 'e2eve', 'emid']);
+    expect(C.MISSIONS_HARD.map((m) => m.id)).toEqual(['hv17', 'hhalf', 'h8', 'hhours', 'hblocks', 'hbal', 'h2x3', 'h1l11', 'h10', 'hbook', 'h3x3', 'h23', 'hblocks2', 'hnight2', 'h13a', 'hhours8', 'hthree']);
     const all = [].concat(C.MISSIONS, C.MISSIONS_EASY, C.MISSIONS_HARD);
     expect(new Set(all.map((m) => m.id)).size).toBe(all.length); // ids únicos nas três listas
     all.forEach((m) => { expect(m.e && m.t && typeof m.p === 'function' && ['vol', 'cnt', 'spr'].indexOf(m.f) >= 0, m.id).toBeTruthy(); });
@@ -263,8 +263,8 @@ describe('semana e mês: as janelas', () => {
 describe('o sorteio: um desafio por semana e por mês, igual para todo mundo, sem repetir em seguida', () => {
   const S = base();
   it('os desafios da semana e do mês são uma lista fixa (um contrato), todos em dias, com meta possível dentro da janela', () => {
-    expect(C.WEEKLY.map((c) => c.id)).toEqual(['wgoal', 'wmorn', 'wsun', 'wthirds', 'wsix', 'wused', 'wmis', 'whalf', 'wtrio', 'wearly', 'wfirst', 'wspread', 'wlight', 'wbold', 'wblocks', 'weve', 'wlunch', 'w8']);
-    expect(C.MONTHLY.map((c) => c.id)).toEqual(['mgoal', 'mmorn', 'msun', 'mthirds', 'mmis', 'mtrio', 'mused', 'mearly', 'msix', 'mlate', 'mlight', 'mbold', 'mspread', 'mfirst', 'mhalf', 'meve']);
+    expect(C.WEEKLY.map((c) => c.id)).toEqual(['wgoal', 'wmorn', 'wsun', 'wthirds', 'wsix', 'wused', 'wmis', 'whalf', 'wtrio', 'wearly', 'wfirst', 'wspread', 'wlight', 'wbold', 'wblocks', 'weve', 'wlunch', 'w8', 'wlate', 'whalf13', 'wsnack', 'wbook']);
+    expect(C.MONTHLY.map((c) => c.id)).toEqual(['mgoal', 'mmorn', 'msun', 'mthirds', 'mmis', 'mtrio', 'mused', 'mearly', 'msix', 'mlate', 'mlight', 'mbold', 'mspread', 'mfirst', 'mhalf', 'meve', 'mblocks', 'mlunch', 'm8', 'mbook']);
     C.WEEKLY.forEach((c) => { expect(c.e && c.t && c.d && typeof c.day === 'function', c.id).toBeTruthy(); expect(c.need, c.id).toBeGreaterThan(0); expect(c.need, c.id).toBeLessThanOrEqual(7); });
     C.MONTHLY.forEach((c) => { expect(c.e && c.t && c.d && typeof c.day === 'function', c.id).toBeTruthy(); expect(c.need, c.id).toBeGreaterThan(7); expect(c.need, c.id).toBeLessThanOrEqual(28); }); // cabe até em fevereiro
     expect(new Set(C.WEEKLY.concat(C.MONTHLY).map((c) => c.id)).size).toBe(C.WEEKLY.length + C.MONTHLY.length);
@@ -292,8 +292,8 @@ describe('o sorteio: um desafio por semana e por mês, igual para todo mundo, se
   it('de uma semana para a outra o desafio nunca repete, em 600 semanas (inclusive na virada para a lista maior); a cada volta de cada época saem todos, uma vez cada', () => {
     let prev = '';
     const eps = epochsOf(C.WEEKLY, weekNo), cycles = {};
-    expect(eps.length).toBe(3); // a de sempre (9), a de 23/11/2026 em diante (14) e a de 7/12/2026 em diante (18)
-    expect([eps[0].pool.length, eps[1].pool.length, eps[2].pool.length]).toEqual([9, 14, 18]);
+    expect(eps.length).toBe(4); // a de sempre (9), a de 23/11/2026 em diante (14), a de 7/12/2026 em diante (18) e a de 21/12/2026 em diante (22)
+    expect([eps[0].pool.length, eps[1].pool.length, eps[2].pool.length, eps[3].pool.length]).toEqual([9, 14, 18, 22]);
     for (let i = 0; i < 600; i++) {
       const mon = C.addDays('2026-01-05', i * 7), id = C.weekGoal(S, mon).c.id, n = weekNo(mon), e = epochAt(eps, n), cy = e + ':' + Math.floor((n - eps[e].from) / eps[e].pool.length);
       expect(id, mon).not.toBe(prev);
@@ -303,12 +303,12 @@ describe('o sorteio: um desafio por semana e por mês, igual para todo mundo, se
     }
     let full = 0;
     Object.keys(cycles).forEach((cy) => { const e = +cy.split(':')[0]; if (cycles[cy].length === eps[e].pool.length) { full++; expect(cycles[cy].slice().sort(), 'volta ' + cy).toEqual(eps[e].pool.map((c) => c.id).sort()); } });
-    expect(full).toBeGreaterThan(28); // ~550 semanas da última época, em voltas de 18, mais as voltas inteiras de antes
+    expect(full).toBe(29); // 25 voltas inteiras de 22 semanas na última época (550 semanas) e 4 de 9 na primeira (46 semanas; a primeira volta já começa no meio); as épocas de 2 semanas não completam volta
   });
   it('de um mês para o outro nunca repete, em 200 meses (inclusive na virada para a lista maior); a cada volta de cada época saem todos', () => {
     let prev = '';
     const eps = epochsOf(C.MONTHLY, monthNo), cycles = {};
-    expect([eps[0].pool.length, eps[1].pool.length, eps[2].pool.length]).toEqual([7, 12, 16]);
+    expect([eps[0].pool.length, eps[1].pool.length, eps[2].pool.length, eps[3].pool.length]).toEqual([7, 12, 16, 20]);
     for (let i = 0; i < 200; i++) {
       const y = 2026 + Math.floor(i / 12), mo = i % 12, key = y + '-' + (mo < 9 ? '0' : '') + (mo + 1), id = C.monthGoal(S, key + '-10').c.id, n = monthNo(key), e = epochAt(eps, n), cy = e + ':' + Math.floor((n - eps[e].from) / eps[e].pool.length);
       expect(id, key).not.toBe(prev);
@@ -318,7 +318,7 @@ describe('o sorteio: um desafio por semana e por mês, igual para todo mundo, se
     }
     let full = 0;
     Object.keys(cycles).forEach((cy) => { const e = +cy.split(':')[0]; if (cycles[cy].length === eps[e].pool.length) { full++; expect(cycles[cy].slice().sort(), 'volta ' + cy).toEqual(eps[e].pool.map((c) => c.id).sort()); } });
-    expect(full).toBeGreaterThan(9); // ~188 meses da última época, em voltas de 16
+    expect(full).toBe(9); // 9 voltas inteiras de 20 meses na última época (187 meses); a primeira época (11 meses) começa e termina no meio de uma volta de 7 e as de 1 mês não completam volta
   });
   it('a ordem muda de uma volta para a outra (não é a mesma lista repetida) e o sorteio é o mesmo toda vez que se pergunta', () => {
     const run = (from) => { const o = []; for (let i = 0; i < 9; i++) o.push(C.weekGoal(S, C.addDays(from, i * 7)).c.id); return o.join(); };
@@ -975,17 +975,20 @@ describe('a leva da 1.12.0 não muda o passado: a foto das escolhas da 1.11.0', 
     expect(C.addDays(fx.crew.to, 7)).toBe(firstAfter(C.CREW_CHALLENGES, '2000-01-01'));
     expect(bad).toEqual([]);
   });
-  it('depois da estreia o sorteio muda de verdade: a primeira volta de cada lista maior traz todas as entradas, as novas também, cada uma uma vez só', () => {
+  it('depois da estreia o sorteio muda de verdade: as missões novas aparecem e, nas semanas da estreia (7 e 14/12), o desafio sai só da lista da época (a da 1.12.0, o começo da de hoje), sem repetir o anterior', () => {
     let newDays = 0;
     for (let i = 0, k = '2026-12-07'; i < 120; i++, k = C.addDays(k, 1)) { const t = C.missionsOf(k); if (C.MISSIONS_EASY.indexOf(t.easy) >= fx.easy.length || C.MISSIONS_HARD.indexOf(t.hard) >= fx.hard.length) newDays++; }
     expect(newDays).toBeGreaterThan(20);
-    const lap = (n, at) => { const out = []; for (let i = 0; i < n; i++) out.push(at(i)); return out.sort(); };
-    const ids = (l) => l.map((c) => c.id).sort();
-    // a época nova abre uma volta do zero: as 18 semanas (os 16 meses, as 6 semanas da turma) a partir da estreia trazem cada desafio da lista inteira uma vez
-    expect(lap(C.WEEKLY.length, (i) => C.weekGoal(S, C.addDays('2026-12-07', i * 7)).c.id)).toEqual(ids(C.WEEKLY));
-    expect(lap(C.MONTHLY.length, (i) => C.monthGoal(S, C.addDays('2027-01-10', i * 31)).c.id)).toEqual(ids(C.MONTHLY));
-    expect(lap(C.CREW_CHALLENGES.length, (i) => C.crewInfo(S, Z2, C.addDays('2026-12-07', i * 7), C.addDays('2026-12-07', i * 7)).c.id)).toEqual(ids(C.CREW_CHALLENGES));
-    // e seguem as voltas seguintes (36 semanas = 2 voltas): nenhum desafio sai duas vezes seguidas, também na virada da época
+    const ids = (l) => l.map((c) => c.id);
+    // a época da 1.12.0 vai de 7/12 até a véspera da estreia da 1.13.0 (21/12): as duas semanas (e janeiro de 2027, no mês) saem da lista de então, que é o começo da de hoje (18 semanas, 16 meses, 6 regras da turma)
+    ['2026-12-07', '2026-12-14'].forEach((m) => {
+      expect(ids(C.WEEKLY.slice(0, 18)), 'semana ' + m).toContain(C.weekGoal(S, m).c.id);
+      expect(ids(C.CREW_CHALLENGES.slice(0, 6)), 'turma ' + m).toContain(C.crewInfo(S, Z2, m, m).c.id);
+    });
+    expect(ids(C.MONTHLY.slice(0, 16))).toContain(C.monthGoal(S, '2027-01-10').c.id);
+    expect(C.weekGoal(S, '2026-12-14').c.id).not.toBe(C.weekGoal(S, '2026-12-07').c.id);
+    expect(C.crewInfo(S, Z2, '2026-12-14', '2026-12-14').c.id).not.toBe(C.crewInfo(S, Z2, '2026-12-07', '2026-12-07').c.id);
+    // e seguem as voltas seguintes (36 semanas): nenhum desafio sai duas vezes seguidas, também nas viradas de época (7/12 e 21/12)
     const w = []; for (let i = -1; i < 36; i++) w.push(C.weekGoal(S, C.addDays('2026-12-07', i * 7)).c.id);
     for (let i = 1; i < w.length; i++) expect(w[i], 'semana ' + i).not.toBe(w[i - 1]);
     const c = []; for (let i = -1; i < 36; i++) c.push(C.crewInfo(S, Z2, C.addDays('2026-12-07', i * 7), C.addDays('2026-12-07', i * 7)).c.id);
@@ -996,12 +999,13 @@ describe('a leva da 1.12.0 não muda o passado: a foto das escolhas da 1.11.0', 
 describe('a leva da 1.12.0: as datas de estreia', () => {
   const NEW = { easy: ['e13', 'e2pm', 'esnack'], hard: ['h23', 'hblocks2', 'hnight2'], weekly: ['wblocks', 'weve', 'wlunch', 'w8'], monthly: ['mspread', 'mfirst', 'mhalf', 'meve'], crew: ['cchain', 'cpairs'] };
   const LISTS = { easy: C.MISSIONS_EASY, hard: C.MISSIONS_HARD, weekly: C.WEEKLY, monthly: C.MONTHLY, crew: C.CREW_CHALLENGES };
-  const sizes = { easy: 13, hard: 14, weekly: 18, monthly: 16, crew: 6 };
-  it('as entradas novas são as últimas de cada lista (na ordem), e as listas têm o tamanho esperado', () => {
+  const sizes = { easy: 13, hard: 14, weekly: 18, monthly: 16, crew: 6 }; // o tamanho de cada lista com a leva da 1.12.0 (a da 1.13.0 vem depois, no fim de cada uma)
+  const before = { easy: 10, hard: 11, weekly: 14, monthly: 12, crew: 4 }; // e o de antes dela (a foto da 1.11.0)
+  it('as entradas novas ficam logo depois das da 1.11.0, na ordem, e as listas de hoje começam com as da 1.12.0 (a leva seguinte entra só no fim)', () => {
     Object.keys(NEW).forEach((x) => {
       const l = LISTS[x];
-      expect(l.length, x).toBe(sizes[x]);
-      expect(l.slice(l.length - NEW[x].length).map((m) => m.id), x).toEqual(NEW[x]);
+      expect(l.length, x).toBeGreaterThanOrEqual(sizes[x]);
+      expect(l.slice(before[x], sizes[x]).map((m) => m.id), x).toEqual(NEW[x]);
     });
   });
   it('as missões do dia estreiam em 7/12/2026, os desafios da semana e da turma na mesma segunda-feira e os do mês em 1/1/2027 (3 semanas depois da publicação)', () => {
@@ -1201,5 +1205,294 @@ describe('os desafios novos da 1.12.0: o limite de cada regra', () => {
     while (C.monthGoal(base(), q).c.id !== 'meve' && i++ < 40) q = C.addDays(q, 31);
     expect(C.monthGoal(base(), q).c.id).toBe('meve');
     expect(q >= '2027-01').toBe(true);
+  });
+});
+
+/* ---------- 1.13.0: mais uma leva, com data de estreia ---------- */
+describe('a leva da 1.13.0 não muda o passado: a foto das escolhas da 1.12.0', () => {
+  // tests/fixtures/picks-1.12.0.json foi gerado com o core.js da 1.12.0, ANTES de a leva da 1.13.0 entrar: as listas de então (id de cada carta), as missões leve (e) e ousada (h) de cada dia de 16/11 a 20/12/2026 (35 dias),
+  // o desafio de cada semana (w: de 23/11 a 14/12), o do mês (mo: dezembro de 2026 e janeiro de 2027) e o da turma de cada semana de 5/1 a 14/12/2026 (c). Cada letra é o índice (base 36) da carta na lista de então.
+  // picks-1.11.0.json e picks-1.10.0.json guardam o que veio antes.
+  const fx = JSON.parse(readFileSync(new URL('./fixtures/picks-1.12.0.json', import.meta.url), 'utf8'));
+  const S = base(), at = (s, i) => parseInt(s.charAt(i), 36), Z2 = [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]];
+  const dd = (n) => (n < 10 ? '0' : '') + n;
+  const ymAt = (y0, m0, i) => { const n = y0 * 12 + (m0 - 1) + i; return Math.floor(n / 12) + '-' + dd((n % 12) + 1); }; // o mês y0-m0 mais i meses
+  const firstAfter = (list, after) => list.filter((m) => m.since && m.since > after).map((m) => m.since).sort()[0];
+  it('as listas da foto são o começo das listas de hoje (entrada nova só entra no fim)', () => {
+    expect(C.MISSIONS_EASY.slice(0, fx.easy.length).map((m) => m.id)).toEqual(fx.easy);
+    expect(C.MISSIONS_HARD.slice(0, fx.hard.length).map((m) => m.id)).toEqual(fx.hard);
+    expect(C.WEEKLY.slice(0, fx.weekly.length).map((c) => c.id)).toEqual(fx.weekly);
+    expect(C.MONTHLY.slice(0, fx.monthly.length).map((c) => c.id)).toEqual(fx.monthly);
+    expect(C.CREW_CHALLENGES.slice(0, fx.crewIds.length).map((c) => c.id)).toEqual(fx.crewIds);
+    expect([fx.easy.length, fx.hard.length, fx.weekly.length, fx.monthly.length, fx.crewIds.length]).toEqual([13, 14, 18, 16, 6]);
+  });
+  it('as missões de cada dia, de 16/11/2026 até a véspera da estreia das novas (20/12), saem como na 1.12.0 (35 dias)', () => {
+    const bad = [];
+    let i = 0;
+    for (let k = fx.days.from; k <= fx.days.to; k = C.addDays(k, 1), i++) { const t = C.missionsOf(k); if (t.easy.id !== fx.easy[at(fx.days.e, i)] || t.hard.id !== fx.hard[at(fx.days.h, i)]) bad.push(k); }
+    expect(bad).toEqual([]);
+    expect([i, fx.days.e.length, fx.days.h.length]).toEqual([35, 35, 35]);
+    expect(C.addDays(fx.days.to, 1)).toBe(firstAfter(C.MISSIONS_EASY.concat(C.MISSIONS_HARD), fx.days.to)); // a foto vai até a véspera da primeira estreia da 1.13.0
+  });
+  it('o desafio de cada semana (23/11 a 14/12), o do mês (dezembro e janeiro) e o da turma de cada semana de 2026 (até 14/12) saem como na 1.12.0', () => {
+    const bad = [];
+    let i = 0;
+    for (let m = fx.weeks.from; m <= fx.weeks.to; m = C.addDays(m, 7), i++) if (C.weekGoal(S, m).c.id !== fx.weekly[at(fx.weeks.w, i)]) bad.push('semana ' + m);
+    expect(i).toBe(4);
+    expect(C.addDays(fx.weeks.to, 7)).toBe(firstAfter(C.WEEKLY, fx.weeks.to));
+    for (let d2 = 1; d2 <= 31; d2++) {
+      if (C.monthGoal(S, '2026-12-' + dd(d2)).c.id !== fx.monthly[at(fx.months.mo, 0)]) bad.push('mês 2026-12-' + dd(d2));
+      if (C.monthGoal(S, '2027-01-' + dd(d2)).c.id !== fx.monthly[at(fx.months.mo, 1)]) bad.push('mês 2027-01-' + dd(d2));
+    }
+    expect([fx.months.from, fx.months.to, fx.months.mo.length]).toEqual(['2026-12', '2027-01', 2]);
+    expect(firstAfter(C.MONTHLY, fx.months.to)).toBe('2027-02'); // janeiro de 2027 é o último mês da lista da 1.12.0
+    i = 0;
+    for (let m = fx.crew.from; m <= fx.crew.to; m = C.addDays(m, 7), i++) if (C.crewInfo(S, Z2, m, m).c.id !== fx.crewIds[at(fx.crew.c, i)]) bad.push('turma ' + m);
+    expect(i).toBe(50);
+    expect(C.addDays(fx.crew.to, 7)).toBe(firstAfter(C.CREW_CHALLENGES, fx.crew.to));
+    expect(bad).toEqual([]);
+  });
+  it('depois da estreia o sorteio muda de verdade: a primeira volta da época nova traz todas as entradas, as novas também, cada uma uma vez só', () => {
+    let newDays = 0;
+    for (let i = 0, k = '2026-12-21'; i < 120; i++, k = C.addDays(k, 1)) { const t = C.missionsOf(k); if (C.MISSIONS_EASY.indexOf(t.easy) >= fx.easy.length || C.MISSIONS_HARD.indexOf(t.hard) >= fx.hard.length) newDays++; }
+    expect(newDays).toBeGreaterThan(20);
+    const lap = (n, f) => { const out = []; for (let i = 0; i < n; i++) out.push(f(i)); return out.sort(); };
+    const ids = (l) => l.map((c) => c.id).sort();
+    // a época nova abre uma volta do zero: as 22 semanas (os 20 meses, as 10 semanas da turma) a partir da estreia trazem cada desafio da lista inteira uma vez
+    expect(lap(C.WEEKLY.length, (i) => C.weekGoal(S, C.addDays('2026-12-21', i * 7)).c.id)).toEqual(ids(C.WEEKLY));
+    expect(lap(C.MONTHLY.length, (i) => C.monthGoal(S, ymAt(2027, 2, i) + '-10').c.id)).toEqual(ids(C.MONTHLY));
+    expect(lap(C.CREW_CHALLENGES.length, (i) => C.crewInfo(S, Z2, C.addDays('2026-12-21', i * 7), C.addDays('2026-12-21', i * 7)).c.id)).toEqual(ids(C.CREW_CHALLENGES));
+    // e seguem as voltas seguintes: nenhum desafio sai duas vezes seguidas, também na virada da época (21/12 e fevereiro)
+    const w = []; for (let i = -1; i < 60; i++) w.push(C.weekGoal(S, C.addDays('2026-12-21', i * 7)).c.id);
+    for (let i = 1; i < w.length; i++) expect(w[i], 'semana ' + i).not.toBe(w[i - 1]);
+    const c = []; for (let i = -1; i < 60; i++) c.push(C.crewInfo(S, Z2, C.addDays('2026-12-21', i * 7), C.addDays('2026-12-21', i * 7)).c.id);
+    for (let i = 1; i < c.length; i++) expect(c[i], 'turma ' + i).not.toBe(c[i - 1]);
+    const mo = []; for (let i = -1; i < 40; i++) mo.push(C.monthGoal(S, ymAt(2027, 2, i) + '-10').c.id);
+    for (let i = 1; i < mo.length; i++) expect(mo[i], 'mês ' + i).not.toBe(mo[i - 1]);
+  });
+});
+
+describe('a leva da 1.13.0: as datas de estreia', () => {
+  const NEW = { easy: ['ehalf16', 'e2eve', 'emid'], hard: ['h13a', 'hhours8', 'hthree'], weekly: ['wlate', 'whalf13', 'wsnack', 'wbook'], monthly: ['mblocks', 'mlunch', 'm8', 'mbook'], crew: ['cgrow', 'cnear', 'cmid', 'crun'] };
+  const LISTS = { easy: C.MISSIONS_EASY, hard: C.MISSIONS_HARD, weekly: C.WEEKLY, monthly: C.MONTHLY, crew: C.CREW_CHALLENGES };
+  const sizes = { easy: 16, hard: 17, weekly: 22, monthly: 20, crew: 10 };
+  it('as entradas novas são as últimas de cada lista (na ordem), e as listas têm o tamanho esperado', () => {
+    Object.keys(NEW).forEach((x) => {
+      const l = LISTS[x];
+      expect(l.length, x).toBe(sizes[x]);
+      expect(l.slice(l.length - NEW[x].length).map((m) => m.id), x).toEqual(NEW[x]);
+    });
+    Object.keys(LISTS).forEach((x) => { expect(new Set(LISTS[x].map((m) => m.id)).size, 'ids únicos em ' + x).toBe(LISTS[x].length); });
+  });
+  it('as missões do dia, os desafios da semana e os da turma estreiam na segunda-feira 21/12/2026 e os do mês em 1/2/2027 (duas semanas depois das da 1.12.0, e mais de três depois da publicação)', () => {
+    ['easy', 'hard'].forEach((x) => NEW[x].forEach((id) => { expect(LISTS[x].filter((m) => m.id === id)[0].since, id).toBe('2026-12-21'); }));
+    ['weekly', 'crew'].forEach((x) => NEW[x].forEach((id) => { const s = LISTS[x].filter((m) => m.id === id)[0].since; expect(s, id).toBe('2026-12-21'); expect(C.keyToDate(s).getDay(), id + ' estreia numa segunda-feira').toBe(1); }));
+    NEW.monthly.forEach((id) => { expect(C.MONTHLY.filter((m) => m.id === id)[0].since, id).toBe('2027-02'); });
+    expect('2026-12-21' >= C.addDays('2026-11-12', 21)).toBe(true); // a 1.13.0 foi feita em 12/11/2026
+    expect('2026-12-21' > '2026-12-07' && '2027-02' > '2027-01').toBe(true); // depois das datas da 1.12.0
+  });
+  it('todas as listas seguem em ordem: sem data primeiro, depois as datas, da mais antiga para a mais nova (também a da turma, que agora tem três épocas depois da primeira)', () => {
+    Object.keys(LISTS).forEach((x) => {
+      const l = LISTS[x], flags = l.map((c) => (c.since ? 1 : 0)), sn = l.filter((c) => c.since).map((c) => c.since);
+      expect(flags, x).toEqual(flags.slice().sort());
+      expect(sn, x).toEqual(sn.slice().sort());
+    });
+    expect(Array.from(new Set(C.CREW_CHALLENGES.map((c) => c.since || ''))).sort()).toEqual(['', '2026-12-07', '2026-12-21']);
+    expect(C.CREW_CHALLENGES.filter((c) => !c.since).map((c) => c.id)).toEqual(['ctotal', 'ccrowd', 'call', 'cweek']); // a primeira época da turma segue sendo a da 1.11.0, inteira
+  });
+  it('um dia antes da estreia só existem as listas da 1.12.0; no dia da estreia as novas já podem sair (as 6 missões novas saem em 300 dias, e cada desafio novo da semana, do mês e da turma na primeira volta)', () => {
+    const S = base(), Z2 = [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]], seen = {};
+    for (let i = 0, k = '2026-11-16'; i < 35; i++, k = C.addDays(k, 1)) { const t = C.missionsOf(k); expect(NEW.easy.indexOf(t.easy.id) < 0 && NEW.hard.indexOf(t.hard.id) < 0, k).toBe(true); }
+    for (let i = 0, m = '2026-11-23'; i < 4; i++, m = C.addDays(m, 7)) { expect(NEW.weekly.indexOf(C.weekGoal(S, m).c.id), 'semana ' + m).toBe(-1); expect(NEW.crew.indexOf(C.crewInfo(S, Z2, m, m).c.id), 'turma ' + m).toBe(-1); }
+    expect(NEW.monthly.indexOf(C.monthGoal(S, '2027-01-31').c.id)).toBe(-1);
+    expect(NEW.monthly.indexOf(C.monthGoal(S, '2026-12-01').c.id)).toBe(-1);
+    for (let i = 0, k = '2026-12-21'; i < 300; i++, k = C.addDays(k, 1)) { const t = C.missionsOf(k); seen[t.easy.id] = 1; seen[t.hard.id] = 1; }
+    NEW.easy.concat(NEW.hard).forEach((id) => { expect(seen[id], id).toBe(1); });
+    const wk = {}, cr = {}, mo = {};
+    for (let i = 0; i < 22; i++) wk[C.weekGoal(S, C.addDays('2026-12-21', i * 7)).c.id] = 1;
+    for (let i = 0; i < 10; i++) cr[C.crewInfo(S, Z2, C.addDays('2026-12-21', i * 7), C.addDays('2026-12-21', i * 7)).c.id] = 1;
+    for (let i = 0; i < 20; i++) { const n = 2027 * 12 + 1 + i; mo[C.monthGoal(S, Math.floor(n / 12) + '-' + ((n % 12) + 1 < 10 ? '0' : '') + ((n % 12) + 1) + '-10').c.id] = 1; }
+    NEW.weekly.forEach((id) => { expect(wk[id], id).toBe(1); });
+    NEW.crew.forEach((id) => { expect(cr[id], id).toBe(1); });
+    NEW.monthly.forEach((id) => { expect(mo[id], id).toBe(1); });
+  });
+  it('a virada de época: a primeira semana, o primeiro mês e a primeira semana da turma da lista maior nunca repetem o desafio do tempo anterior', () => {
+    const S = base(), Z2 = [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]];
+    expect(C.weekGoal(S, '2026-12-21').c.id).not.toBe(C.weekGoal(S, '2026-12-14').c.id);
+    expect(C.monthGoal(S, '2027-02-10').c.id).not.toBe(C.monthGoal(S, '2027-01-10').c.id);
+    expect(C.crewInfo(S, Z2, '2026-12-21', '2026-12-21').c.id).not.toBe(C.crewInfo(S, Z2, '2026-12-14', '2026-12-14').c.id);
+  });
+});
+
+describe('as missões novas da 1.13.0: o andamento de cada uma, nos limites', () => {
+  const E = {}, H = {};
+  C.MISSIONS_EASY.forEach((m) => { E[m.id] = m; });
+  C.MISSIONS_HARD.forEach((m) => { H[m.id] = m; });
+  const k = '2026-06-10';
+  const one = (h, m, dk, ml) => es(k, [[h, m, ml || 100, dk]]);
+  const hrs = (n, from) => { const l = []; for (let i = 0; i < n; i++) l.push([(from || 6) + i, 0, 100]); return l; }; // n gotas, cada uma numa hora diferente
+  it('Chegue à metade da meta antes das 16h: 15h59 conta, 16h00 não; 1.000 de 2.000 ml fecha e 999 não; segue a meta do dia (450 de 900, 250 de 500) e os outros líquidos só com "somar"', () => {
+    expect(E.ehalf16.p(es(k, [[15, 59, 1000]]), 2000)).toBeGreaterThanOrEqual(1);
+    expect(E.ehalf16.p(es(k, [[16, 0, 1000]]), 2000)).toBe(0);
+    expect(E.ehalf16.p(es(k, [[8, 0, 999]]), 2000)).toBeLessThan(1);
+    expect(E.ehalf16.p(es(k, [[8, 0, 450]]), 900)).toBeCloseTo(1);
+    expect(E.ehalf16.p(es(k, [[8, 0, 250]]), 500)).toBeGreaterThanOrEqual(1); // meta mínima: a metade são 250 ml, nunca mais do que a meta
+    expect(E.ehalf16.p(es(k, [[8, 0, 249]]), 500)).toBeLessThan(1);
+    expect(E.ehalf16.p(es(k, [[8, 0, 500], [9, 0, 800, 'coffee']]), 2000)).toBeCloseTo(0.5); // o café sem "somar" não conta
+    C.setMix(true);
+    expect(E.ehalf16.p(es(k, [[8, 0, 600], [9, 0, 500, 'coffee']]), 2000)).toBeGreaterThanOrEqual(1);
+    expect(E.ehalf16.p([], 2000)).toBe(0);
+  });
+  it('Beba água 2 vezes à noite, depois das 18h: 17h59 não conta, 18h00 e 23h59 contam; são goles (dois na mesma hora valem dois); chá não', () => {
+    expect(E.e2eve.p(es(k, [[18, 0, 100], [23, 59, 100]]), 2000)).toBe(1);
+    expect(E.e2eve.p(es(k, [[17, 59, 100], [18, 0, 100]]), 2000)).toBeCloseTo(0.5); // 17h59 ainda é de tarde
+    expect(E.e2eve.p(es(k, [[18, 0, 100], [18, 1, 100]]), 2000)).toBe(1); // dois goles na mesma hora valem dois
+    expect(E.e2eve.p(es(k, [[18, 0, 100], [20, 0, 300, 'tea']]), 2000)).toBeCloseTo(0.5);
+    expect(E.e2eve.p(es(k, [[18, 0, 100], [20, 0, 300, 'sparkling']]), 2000)).toBe(1);
+    expect(E.e2eve.p(es(k, [[18, 0, 100], [19, 0, 100], [20, 0, 100]]), 2000)).toBeGreaterThan(1);
+    expect(E.e2eve.p(es(k, [[8, 0, 100], [9, 0, 100]]), 2000)).toBe(0); // de manhã não vale
+    expect(E.e2eve.p([], 2000)).toBe(0);
+  });
+  it('Beba água no meio da manhã, entre 9h e 11h: 8h59 não conta, 9h00 e 10h59 contam, 11h00 não; café não', () => {
+    expect(E.emid.p(one(8, 59), 2000)).toBe(0); expect(E.emid.p(one(9, 0), 2000)).toBe(1);
+    expect(E.emid.p(one(10, 59), 2000)).toBe(1); expect(E.emid.p(one(11, 0), 2000)).toBe(0);
+    expect(E.emid.p(one(10, 0, 'coffee'), 2000)).toBe(0);
+    expect(E.emid.p(es(k, [[9, 0, 100], [10, 0, 100]]), 2000)).toBe(1); // vale uma vez, por mais goles que haja
+    expect(E.emid.p([], 2000)).toBe(0);
+  });
+  it('Chegue a um terço da meta antes das 10h: 9h59 conta, 10h00 não; 667 de 2.000 ml fecha e 666 não; segue a meta do dia (300 de 900; 167 de 500) e os outros líquidos só com "somar"', () => {
+    expect(H.h13a.p(es(k, [[9, 59, 667]]), 2000)).toBeGreaterThanOrEqual(1);
+    expect(H.h13a.p(es(k, [[10, 0, 667]]), 2000)).toBe(0);
+    expect(H.h13a.p(es(k, [[8, 0, 666]]), 2000)).toBeLessThan(1);
+    expect(H.h13a.p(es(k, [[8, 0, 300]]), 900)).toBeCloseTo(1);
+    expect(H.h13a.p(es(k, [[8, 0, 167]]), 500)).toBeGreaterThanOrEqual(1); // meta mínima de 500 ml: um terço são 166,7 e 167 ml já fecham
+    expect(H.h13a.p(es(k, [[8, 0, 166]]), 500)).toBeLessThan(1);
+    expect(H.h13a.p(es(k, [[8, 0, 400], [9, 0, 400, 'coffee']]), 2000)).toBeCloseTo(0.6); // o café sem "somar" não conta (400 de 666,7)
+    C.setMix(true);
+    expect(H.h13a.p(es(k, [[8, 0, 400], [9, 0, 400, 'coffee']]), 2000)).toBeGreaterThanOrEqual(1);
+    expect(H.h13a.p([], 2000)).toBe(0);
+  });
+  it('Beba água em 8 horários diferentes: 8 fecham e 7 não; vale de 0h a 23h, a mesma hora vale uma vez e o chá não conta', () => {
+    expect(H.hhours8.p(es(k, hrs(8)), 2000)).toBe(1);
+    expect(H.hhours8.p(es(k, hrs(7)), 2000)).toBeCloseTo(7 / 8);
+    expect(H.hhours8.p(es(k, hrs(9)), 2000)).toBeGreaterThan(1);
+    expect(H.hhours8.p(es(k, [[0, 0, 100], [1, 0, 100], [2, 0, 100], [3, 0, 100], [4, 0, 100], [5, 0, 100], [6, 0, 100], [23, 59, 100]]), 2000)).toBe(1); // 0h e 23h contam
+    expect(H.hhours8.p(es(k, hrs(7).concat([[6, 15, 100], [6, 30, 100]])), 2000)).toBeCloseTo(7 / 8); // dois goles na mesma hora são um horário
+    expect(H.hhours8.p(es(k, hrs(7).concat([[20, 0, 300, 'tea']])), 2000)).toBeCloseTo(7 / 8);
+    expect(H.hhours8.p(es(k, [[8, 59, 100], [9, 0, 100]]), 2000)).toBeCloseTo(2 / 8); // 8h59 e 9h00 são horas diferentes
+    expect(H.hhours8.p([], 2000)).toBe(0);
+  });
+  it('Beba água antes das 10h, no almoço e depois das 18h: três janelas (0h–10h, 11h–15h e 18h–24h), uma gota em cada; 10h00, 10h59, 15h00 e 17h59 ficam de fora', () => {
+    expect(H.hthree.p(es(k, [[9, 59, 100], [11, 0, 100], [18, 0, 100]]), 2000)).toBe(1);
+    expect(H.hthree.p(es(k, [[0, 0, 100], [14, 59, 100], [23, 59, 100]]), 2000)).toBe(1); // o primeiro e o último minuto de cada janela
+    expect(H.hthree.p(es(k, [[10, 0, 100], [10, 59, 100], [15, 0, 100], [17, 59, 100]]), 2000)).toBe(0); // entre as janelas não vale
+    expect(H.hthree.p(es(k, [[8, 0, 100], [12, 0, 100]]), 2000)).toBeCloseTo(2 / 3);
+    expect(H.hthree.p(es(k, [[8, 0, 100], [8, 30, 100], [9, 0, 100]]), 2000)).toBeCloseTo(1 / 3); // muita água numa janela só vale uma
+    expect(H.hthree.p(es(k, [[9, 0, 300, 'tea'], [12, 0, 100], [19, 0, 100]]), 2000)).toBeCloseTo(2 / 3); // chá não é água
+    expect(H.hthree.p([], 2000)).toBe(0);
+  });
+  it('as seis fecham com o dia na meta exata e nenhum ml a mais (ninguém precisa beber mais do que a meta para cumprir uma missão), com entradas de água em horários de gente de verdade', () => {
+    const day = es(k, [[8, 0, 500], [9, 30, 400], [11, 0, 300], [12, 0, 200], [13, 0, 150], [15, 30, 100], [18, 0, 100], [19, 0, 150], [20, 0, 100]]); // soma 2.000
+    expect(day.reduce((s, e) => s + e.ml, 0)).toBe(2000);
+    ['ehalf16', 'e2eve', 'emid'].forEach((id) => { expect(E[id].p(day, 2000), id).toBeGreaterThanOrEqual(1); });
+    ['h13a', 'hhours8', 'hthree'].forEach((id) => { expect(H[id].p(day, 2000), id).toBeGreaterThanOrEqual(1); });
+    // e com a meta mínima de 500 ml (Ajustes aceita de 500): as de quantidade fecham ao chegar na meta
+    expect(E.ehalf16.p(es(k, [[8, 0, 500]]), 500)).toBeGreaterThanOrEqual(1);
+    expect(H.h13a.p(es(k, [[8, 0, 500]]), 500)).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('os desafios novos da 1.13.0: o limite de cada regra', () => {
+  const week2 = (S, id, today) => C.challengeState(S, W(id), MON, SUN, today || SUN);
+  const month = (S, id, today) => C.challengeState(S, M(id), '2026-06-01', '2026-06-30', today || '2026-06-30');
+  const w1 = (id, list, g) => week2(stateWith({ [d(0)]: dayOf(d(0), g || 2000, list) }), id).have; // 1 se o dia (a segunda) conta
+  const m1 = (id, list, g) => month(stateWith({ '2026-06-05': dayOf('2026-06-05', g || 2000, list) }), id).have;
+  const four = [[8, 0, 100], [11, 0, 100], [14, 0, 100], [17, 0, 100]];
+  it('Meta antes das 20h (semana: 5 dias): a meta batida às 19h59 conta e às 20h00 não; 1.999 ml não fecha; vale a meta do dia; chá não entra', () => {
+    expect(w1('wlate', [[19, 59, 2000]])).toBe(1); expect(w1('wlate', [[20, 0, 2000]])).toBe(0);
+    expect(w1('wlate', [[19, 59, 1999]])).toBe(0);
+    expect(w1('wlate', [[10, 0, 1000], [19, 59, 1000]])).toBe(1); expect(w1('wlate', [[10, 0, 1000], [20, 0, 1000]])).toBe(0);
+    expect(w1('wlate', [[19, 0, 1500]], 1500)).toBe(1); expect(w1('wlate', [[10, 0, 1500], [19, 0, 500, 'tea']])).toBe(0);
+    expect(w1('wlate', [])).toBe(0); expect(week2(base(), 'wlate').have).toBe(0);
+    expect(W('wlate').need).toBe(5);
+  });
+  it('Metade até as 13h (semana: 3 dias): a metade da meta do próprio dia antes das 13h (12h59 conta, 13h00 não; 999 de 2.000 não, 1.000 sim; meta de 1.500: 750)', () => {
+    expect(w1('whalf13', [[12, 59, 1000]])).toBe(1); expect(w1('whalf13', [[13, 0, 1000]])).toBe(0);
+    expect(w1('whalf13', [[8, 0, 999]])).toBe(0); expect(w1('whalf13', [[8, 0, 1000]])).toBe(1);
+    expect(w1('whalf13', [[8, 0, 750]], 1500)).toBe(1); expect(w1('whalf13', [[8, 0, 749]], 1500)).toBe(0);
+    expect(w1('whalf13', [[8, 0, 600], [9, 0, 900, 'coffee']])).toBe(0);
+    expect(w1('whalf13', [])).toBe(0);
+    expect(W('whalf13').need).toBe(3);
+  });
+  it('Água no lanche (semana: 5 dias): água entre 15h e 17h (14h59 e 17h00 não contam, 15h00 e 16h59 contam; café não)', () => {
+    expect(w1('wsnack', [[14, 59, 100]])).toBe(0); expect(w1('wsnack', [[15, 0, 100]])).toBe(1);
+    expect(w1('wsnack', [[16, 59, 100]])).toBe(1); expect(w1('wsnack', [[17, 0, 100]])).toBe(0);
+    expect(w1('wsnack', [[16, 0, 200, 'coffee']])).toBe(0); expect(w1('wsnack', [])).toBe(0);
+    expect(W('wsnack').need).toBe(5);
+  });
+  it('Começo e fim do dia (semana: 4 dias; mês: 15): água antes das 10h e depois das 18h no mesmo dia (9h59 e 18h00 contam; 10h00 e 17h59 não; só um dos lados não fecha; chá não)', () => {
+    [['wbook', w1], ['mbook', m1]].forEach((p) => {
+      const id = p[0], f = p[1];
+      expect(f(id, [[9, 59, 100], [18, 0, 100]]), id).toBe(1); expect(f(id, [[0, 0, 100], [23, 59, 100]]), id).toBe(1);
+      expect(f(id, [[10, 0, 100], [18, 0, 100]]), id).toBe(0); expect(f(id, [[9, 59, 100], [17, 59, 100]]), id).toBe(0);
+      expect(f(id, [[8, 0, 100], [9, 0, 100]]), id).toBe(0); expect(f(id, [[19, 0, 100], [20, 0, 100]]), id).toBe(0); // só um dos lados
+      expect(f(id, [[9, 0, 100], [20, 0, 300, 'tea']]), id).toBe(0); expect(f(id, [[9, 0, 300, 'coffee'], [20, 0, 100]]), id).toBe(0);
+      expect(f(id, []), id).toBe(0);
+    });
+    expect(week2(base(), 'wbook').have).toBe(0);
+    expect([W('wbook').need, M('mbook').need]).toEqual([4, 15]);
+  });
+  it('Água a cada 3 horas (mês: 12 dias): as mesmas quatro janelas de 3 h entre 8h e 20h da semana; 7h59 e 20h00 ficam de fora', () => {
+    expect(m1('mblocks', four)).toBe(1);
+    expect(m1('mblocks', four.slice(0, 3))).toBe(0);
+    expect(m1('mblocks', [[10, 59, 100], [13, 59, 100], [16, 59, 100], [19, 59, 100]])).toBe(1); // o último minuto de cada janela
+    expect(m1('mblocks', [[10, 59, 100], [11, 0, 100], [14, 0, 100]])).toBe(0);
+    expect(m1('mblocks', [[7, 59, 100], [11, 0, 100], [14, 0, 100], [17, 0, 100]])).toBe(0);
+    expect(m1('mblocks', [[8, 0, 100], [11, 0, 100], [14, 0, 100], [20, 0, 100]])).toBe(0);
+    expect(m1('mblocks', [[8, 0, 100], [11, 0, 100], [14, 0, 100], [17, 0, 300, 'tea']])).toBe(0);
+    expect(m1('mblocks', [])).toBe(0);
+    expect(month(base(), 'mblocks').have).toBe(0);
+    expect(M('mblocks').need).toBe(12);
+  });
+  it('Água no almoço (mês: 20 dias): água entre 11h e 15h (10h59 e 15h00 não contam, 11h00 e 14h59 contam; café não)', () => {
+    expect(m1('mlunch', [[10, 59, 100]])).toBe(0); expect(m1('mlunch', [[11, 0, 100]])).toBe(1);
+    expect(m1('mlunch', [[14, 59, 100]])).toBe(1); expect(m1('mlunch', [[15, 0, 100]])).toBe(0);
+    expect(m1('mlunch', [[12, 30, 200, 'coffee']])).toBe(0); expect(m1('mlunch', [])).toBe(0);
+    expect(M('mlunch').need).toBe(20);
+  });
+  it('Oito goles por dia (mês: 12 dias): 8 registros de água (7 não; chá e café não contam; goles de qualquer tamanho valem um)', () => {
+    const n = (c, extra) => { const l = []; for (let i = 0; i < c; i++) l.push([8, i * 3, 10]); return l.concat(extra || []); };
+    expect(m1('m8', n(8))).toBe(1); expect(m1('m8', n(7))).toBe(0);
+    expect(m1('m8', n(7, [[20, 0, 300, 'tea']]))).toBe(0); expect(m1('m8', n(7, [[20, 0, 300, 'sparkling']]))).toBe(1);
+    expect(m1('m8', n(12))).toBe(1);
+    expect(M('m8').need).toBe(12);
+  });
+  it('as regras novas só olham fatos que o dia já tem: um dia com a meta exata e nada a mais fecha todas (ninguém precisa de mais água do que a meta)', () => {
+    const S = base(), k = d(0);
+    S.days[k] = dayOf(k, 2000, [[8, 0, 250], [9, 30, 250], [11, 0, 250], [12, 30, 250], [14, 0, 250], [16, 0, 250], [18, 0, 250], [19, 30, 250]]); // 2.000 ml, 8 goles
+    expect(S.days[k].entries.reduce((s, e) => s + e.ml, 0)).toBe(2000);
+    ['wlate', 'whalf13', 'wsnack', 'wbook'].forEach((id) => { expect(week2(S, id, k).have, id).toBe(1); });
+    ['mblocks', 'mlunch', 'm8', 'mbook'].forEach((id) => { expect(C.challengeState(S, M(id), '2026-06-01', '2026-06-30', k).have, id).toBe(1); });
+  });
+  it('cada desafio novo aparece na semana (ou no mês) certa, depois da estreia, mostra o andamento e fecha em challengesDue', () => {
+    let mon = '2026-12-21', n = 0;
+    while (C.weekGoal(base(), mon).c.id !== 'wsnack' && n++ < 60) mon = C.addDays(mon, 7);
+    expect(C.weekGoal(base(), mon).c.id).toBe('wsnack');
+    expect(mon >= '2026-12-21').toBe(true);
+    const S = base(), snack = (k) => dayOf(k, 2000, [[16, 0, 200]]);
+    S.days[mon] = snack(mon);
+    expect(C.weekGoal(S, C.addDays(mon, 2))).toMatchObject({ have: 1, need: 5, done: false, pct: 20, over: false });
+    expect(C.challengesDue(S, C.addDays(mon, 2)).filter((x) => x.kind === 'w')).toEqual([]);
+    for (let i = 1; i < 5; i++) S.days[C.addDays(mon, i)] = snack(C.addDays(mon, i));
+    expect(C.challengesDue(S, C.addDays(mon, 4)).filter((x) => x.kind === 'w').map((x) => x.key + ':' + x.c.id)).toEqual([mon + ':wsnack']);
+    let y = 2027, mo = 2, i = 0;
+    const key = () => y + '-' + (mo < 10 ? '0' : '') + mo;
+    while (C.monthGoal(base(), key() + '-10').c.id !== 'm8' && i++ < 40) { mo++; if (mo > 12) { mo = 1; y++; } }
+    expect(C.monthGoal(base(), key() + '-10').c.id).toBe('m8');
+    const T = base(), gulps = (k) => { const l = []; for (let j = 0; j < 8; j++) l.push([8, j * 3, 10]); return dayOf(k, 2000, l); };
+    for (let j = 1; j <= 11; j++) T.days[key() + '-' + (j < 10 ? '0' : '') + j] = gulps(key() + '-' + (j < 10 ? '0' : '') + j);
+    expect(C.challengesDue(T, key() + '-20').filter((x) => x.kind === 'm')).toEqual([]);
+    T.days[key() + '-12'] = gulps(key() + '-12');
+    expect(C.challengesDue(T, key() + '-20').filter((x) => x.kind === 'm').map((x) => x.key + ':' + x.c.id)).toEqual([key() + ':m8']);
   });
 });

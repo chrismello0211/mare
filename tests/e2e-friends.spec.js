@@ -55,7 +55,7 @@ test.describe('entrada', () => {
     await expect(page.locator('.see')).toContainText('A sua meta do dia em ml');
     await expect(page.locator('.see')).toContainText('as medalhas que você conquistou'); // 1.5.0: as medalhas fazem parte do que a turma vê
     await expect(page.locator('.see')).toContainText('a porcentagem da meta de hoje (até 150%, ou só até 100% se você preferir)'); // 1.8.0: a % vai até 150; 1.9.0: a pessoa pode limitar a 100, e a tela de entrada avisa
-    await expect(page.getByText('os últimos 7 dias e as medalhas. Desligado, seus amigos veem só o apelido e as insígnias.')).toBeVisible(); // e a chave do progresso diz isso
+    await expect(page.getByText('os últimos 7 dias, os dias do mês e as medalhas. Desligado, seus amigos veem só o apelido e as insígnias.')).toBeVisible(); // e a chave do progresso diz isso
     await expect(page.locator('#frNick')).toHaveValue('Ana'); // o primeiro nome vira o apelido de partida
     await expect(page.getByRole('switch', { name: /Mostrar meu progresso/ })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByRole('button', { name: 'Ativar amigos' })).toBeEnabled();
@@ -1062,7 +1062,7 @@ test.describe('painéis', () => {
     await expect(sheet(page)).toContainText('3 de 39');
     expect('md2' in (await payload(page)), 'sem medalha da segunda palavra, o perfil segue no formato de antes (sem md2)').toBe(false);
     await expect(sheet(page)).toContainText('as medalhas, a porcentagem da meta de hoje'); // o aviso do que a turma vê já cita as medalhas
-    await expect(sheet(page).getByText('os últimos 7 dias e as medalhas.', { exact: false }).first()).toBeVisible(); // e a chave do progresso também
+    await expect(sheet(page).getByText('os últimos 7 dias, os dias do mês e as medalhas.', { exact: false }).first()).toBeVisible(); // e a chave do progresso também
     await sheet(page).getByRole('switch', { name: /Mostrar meu progresso/ }).click(); // pausa
     await expect(sheet(page)).toContainText('Progresso do dia em pausa');
     await expect(sheet(page).locator('.mchips')).toHaveCount(0);
@@ -1262,8 +1262,11 @@ test.describe('em outras telas', () => {
     const bits = (ids) => ids.reduce((m, id, i) => (got[id] ? m + Math.pow(2, i) : m), 0);
     const want = bits(['first', 'goal', 's3', 's7', 's14', 's30', 'early', 'sunset', 'mission', 'm10', 'weekend', 'd10', 's60', 's100', 'd30', 'd100', 'm30', 'early7', 'sunset5', 'thirds7', 'win25', 'back', 'weekends4', 'wwd']);
     const want2 = bits(['m1', 'use100', 'summer', 'weekends12', 'oceans', 'crew', 'trio', 'trio7', 'wk1', 'wk4', 'wk12', 'mo1', 'mo3', 'cw1', 'cw4']);
-    expect(Object.keys(p).sort(), 'os campos do perfil (md2 só quando há medalha da segunda palavra)').toEqual(['day', 'gl', 'ins', 'mc', 'md', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm'].concat(want2 ? ['md2'] : []).sort());
+    expect(Object.keys(p).sort(), 'os campos do perfil (md2 só quando há medalha da segunda palavra)').toEqual(['day', 'gl', 'ins', 'mc', 'md', 'met', 'mm', 'mp', 'nm', 'pct', 'sh', 'st', 'v', 'wm'].concat(want2 ? ['md2'] : []).sort());
     expect(p.wm, 'os 6 dias na meta (hoje + 5 anteriores)').toBe(63);
+    // os mesmos 6 dias contados por mês (1.13.0): os que caem no mês de hoje vão em mm e os que caem no mês anterior, em mp (nunca quais dias, só quantos): em qualquer data a soma é 6
+    expect(p.mm + p.mp, 'os 6 dias na meta, repartidos entre este mês e o anterior').toBe(6);
+    expect(p.mm, 'hoje é um deles').toBeGreaterThanOrEqual(1);
     expect(p.md, 'as medalhas do aparelho viram a máscara md').toBe(want);
     expect(p.md2 || 0, 'e as da segunda palavra, a máscara md2').toBe(want2);
     expect(p.gl, 'sem o "sim" da pessoa, a meta em ml não sai').toBeNull();
@@ -1877,7 +1880,7 @@ test.describe('"Mostrar quanto passei da meta" (1.9.0)', () => {
     { uid: UID.duda, prof: { nm: 'Duda', mc: 'cavalo', ins: ['concha'], pct: 100, met: true, st: 1 } },
     { uid: UID.fe, prof: { nm: 'Fê', mc: 'baiacu', ins: ['concha'], pct: 60, st: 0 } },
   ];
-  const KEYS = ['day', 'gl', 'ins', 'mc', 'md', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']; // os campos de sempre: a chave nunca vira campo do perfil
+  const KEYS = ['day', 'gl', 'ins', 'mc', 'md', 'met', 'mm', 'mp', 'nm', 'pct', 'sh', 'st', 'v', 'wm']; // os campos de sempre (mm e mp, da 1.13.0, são só contagens de dias do mês): a chave nunca vira campo do perfil
   const SW = 'Mostrar aos amigos quanto passei da meta';
   const SHARE = 'Mostrar meu progresso do dia aos amigos';
   const mine = (page) => rank(page).locator('li.rk-r.me .rk-v b, li.pd.me .pd-s b').first(); // o número grande da minha linha (ou do meu lugar no pódio)

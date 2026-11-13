@@ -55,7 +55,9 @@ service cloud.firestore {
                            1.7.0 era de 0 a 100), sequência, quais dos
                            últimos 7 dias bateram a meta ("wm", 7 bits), quais medalhas a pessoa tem ("md", uma máscara de até 24
                            bits, na ordem de ACHIEVEMENTS em public/js/core.js; 1.5.0; "md2", a segunda palavra, até 31 bits, com as de índice
-                           24 em diante; 1.7.0) e, SÓ se a pessoa deixar, a meta do dia em ml ("gl").
+                           24 em diante; 1.7.0), quantos dias do mês do perfil (do dia 1 até "day") bateram a meta ("mm", de 0 a 31) e quantos
+                           dias do mês anterior ("mp", de 0 a 31; 1.13.0: só contas, nunca quais dias; servem ao desafio do mês da turma) e, SÓ se
+                           a pessoa deixar, a meta do dia em ml ("gl").
                            Só o dono escreve; só o dono e amigos aprovados leem. Sem volumes bebidos, peso, localização e
                            sem horários: nenhum documento público leva carimbo de hora (nem "u"), para quem tem o convite ou é
                            amigo não ficar sabendo quando a pessoa abre o app.
@@ -104,7 +106,7 @@ service cloud.firestore {
         && insAt(l, 18) && insAt(l, 19) && insAt(l, 20) && insAt(l, 21) && insAt(l, 22) && insAt(l, 23);
     }
     function validProfile(d) {
-      return d.keys().hasOnly(['v', 'nm', 'mc', 'ins', 'pct', 'met', 'st', 'day', 'sh', 'gl', 'wm', 'md', 'md2'])
+      return d.keys().hasOnly(['v', 'nm', 'mc', 'ins', 'pct', 'met', 'st', 'day', 'sh', 'gl', 'wm', 'md', 'md2', 'mm', 'mp'])
         && d.keys().hasAll(['v', 'nm', 'mc', 'ins', 'met', 'st', 'day', 'sh'])
         && d.v == 1 && isName(d.nm) && isMascot(d.mc)
         && insOk(d.ins)
@@ -113,6 +115,8 @@ service cloud.firestore {
         && (!('wm' in d) || d.wm == null || (d.wm is int && d.wm >= 0 && d.wm <= 127))
         && (!('md' in d) || d.md == null || (d.md is int && d.md >= 0 && d.md <= 16777215))
         && (!('md2' in d) || d.md2 == null || (d.md2 is int && d.md2 >= 0 && d.md2 <= 2147483647))
+        && (!('mm' in d) || d.mm == null || (d.mm is int && d.mm >= 0 && d.mm <= 31))
+        && (!('mp' in d) || d.mp == null || (d.mp is int && d.mp >= 0 && d.mp <= 31))
         && d.met is bool && d.st is int && d.st >= 0 && d.st <= 9999
         && isDay(d.day) && d.sh is bool;
     }

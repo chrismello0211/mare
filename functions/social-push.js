@@ -130,13 +130,15 @@ export function messageOf(ev, name) {
   }
   return { title: title, body: body, tag: 'mare-amigo-' + ev.kind + '-' + ev.from, url: URL_FRIENDS };
 }
-// Resumo da semana da turma (domingo, 19h). w = { hits, total, mine }: quantas vezes a turma bateu a meta nos últimos 7 dias, de quantas
-// possíveis, e quantos dos 7 dias a própria pessoa bateu (null se não mostra o progresso). Texto sempre positivo: sem placar nem nomes.
+// Resumo da semana da turma (domingo, 19h). w = { hits, total, mine, won? }: quantas vezes a turma bateu a meta nos últimos 7 dias, de quantas
+// possíveis, quantos dos 7 dias a própria pessoa bateu (null se não mostra o progresso) e, desde a 1.13.0, o título do desafio da semana quando a turma o venceu
+// (won; sem ele, o texto é o de sempre). Texto sempre positivo: sem placar nem nomes. A frase do desafio é UMA frase a mais no mesmo aviso, nunca um aviso novo.
 export function weekMessage(w) {
   const hits = Math.max(0, Math.floor(+w.hits) || 0), total = Math.max(0, Math.floor(+w.total) || 0);
   const mine = w.mine == null ? 0 : Math.max(0, Math.min(7, Math.floor(+w.mine) || 0));
-  const body = total > 0 && hits >= total ? 'Semana perfeita! Todo mundo bateu a meta todos os dias.'
-    : 'A turma bateu a meta ' + (hits === 1 ? '1 vez' : hits + ' vezes') + ' nos últimos 7 dias.' + (mine ? ' Você bateu em ' + plural(mine, 'dia', 'dias') + '.' : '') + ' Toque para ver a turma.';
+  const won = typeof w.won === 'string' ? w.won.trim().slice(0, 60) : '', win = won ? ' A turma venceu o desafio da semana: ' + won + '.' : '';
+  const body = total > 0 && hits >= total ? 'Semana perfeita! Todo mundo bateu a meta todos os dias.' + win
+    : 'A turma bateu a meta ' + (hits === 1 ? '1 vez' : hits + ' vezes') + ' nos últimos 7 dias.' + (mine ? ' Você bateu em ' + plural(mine, 'dia', 'dias') + '.' : '') + win + ' Toque para ver a turma.';
   return { title: 'Resumo da semana da turma' + NB + '🌊', body: body, tag: 'mare-turma-semana', url: URL_FRIENDS };
 }
 // Vários avisos que esperaram a pessoa acordar viram UM só: "Novidades da turma" com a conta de cada coisa. items: [{ k, n? }] (k = o tipo;

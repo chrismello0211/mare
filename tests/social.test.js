@@ -192,9 +192,9 @@ describe('o que vai para a nuvem (profilePayload)', () => {
   it('só os campos combinados, nos tipos que as regras do servidor aceitam', () => {
     const S = state({ days: { [T]: dayWith(1234) } });
     const p = SO.profilePayload(S, T);
-    expect(Object.keys(p).sort()).toEqual(['day', 'gl', 'ins', 'md', 'mc', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm'].sort());
-    expect(p).toEqual({ v: 1, nm: 'Chris', mc: 'estrela', ins: ['concha', 'estrela'], pct: 61, met: false, st: 0, day: T, sh: true, gl: null, wm: 0, md: 0 }); // meta em ml: só com o "sim"; md2 só aparece com medalha da 2ª palavra
-    expect(Number.isInteger(p.pct) && Number.isInteger(p.st) && Number.isInteger(p.wm) && Number.isInteger(p.md)).toBe(true);
+    expect(Object.keys(p).sort()).toEqual(['day', 'gl', 'ins', 'md', 'mc', 'met', 'mm', 'mp', 'nm', 'pct', 'sh', 'st', 'v', 'wm'].sort());
+    expect(p).toEqual({ v: 1, nm: 'Chris', mc: 'estrela', ins: ['concha', 'estrela'], pct: 61, met: false, st: 0, day: T, sh: true, gl: null, wm: 0, md: 0, mm: 0, mp: 0 }); // meta em ml: só com o "sim"; md2 só aparece com medalha da 2ª palavra; mm e mp (1.13.0) são só a conta de dias do mês
+    expect(Number.isInteger(p.pct) && Number.isInteger(p.st) && Number.isInteger(p.wm) && Number.isInteger(p.md) && Number.isInteger(p.mm) && Number.isInteger(p.mp)).toBe(true);
   });
   it('as medalhas vão como uma máscara de bits na ordem de ACHIEVEMENTS (md): o bit i é a medalha i', () => {
     const S = state({ days: { [T]: dayWith(500) } });
@@ -246,7 +246,9 @@ describe('o que vai para a nuvem (profilePayload)', () => {
     expect(C.MEDAL_MAX2).toBe(31);
     expect(rules).toContain('d.md >= 0 && d.md <= ' + SO.MD_MAX);
     expect(rules).toContain('d.md2 >= 0 && d.md2 <= ' + SO.MD2_MAX);
-    expect(rules).toMatch(/hasOnly\(\['v', 'nm', 'mc', 'ins', 'pct', 'met', 'st', 'day', 'sh', 'gl', 'wm', 'md', 'md2'\]\)/);
+    expect(rules).toMatch(/hasOnly\(\['v', 'nm', 'mc', 'ins', 'pct', 'met', 'st', 'day', 'sh', 'gl', 'wm', 'md', 'md2', 'mm', 'mp'\]\)/);
+    expect(rules).toContain('d.mm is int && d.mm >= 0 && d.mm <= 31'); // 1.13.0: os dias do mês do perfil e do mês anterior (de 0 a 31)
+    expect(rules).toContain('d.mp is int && d.mp >= 0 && d.mp <= 31');
     expect(C.ACHIEVEMENTS.length).toBeLessThanOrEqual(C.MEDAL_CAP); // medalha nova: se passar de 55, é preciso uma 3ª palavra (HANDOFF: "Como acrescentar uma medalha")
     // os bits que um perfil pode levar são todos os que as regras aceitam: o maior perfil possível cabe
     const S = state({ days: { [T]: dayWith(500) } });
@@ -416,7 +418,8 @@ describe('o que chega da nuvem (cleanFriend, cleanRequest)', () => {
   it('um perfil bom passa inteiro', () => {
     const f = SO.cleanFriend(BRU, prof(), pair(), ANA);
     expect(f).toMatchObject({ uid: BRU, nm: 'Bruno', mc: 'polvo', ins: ['concha', 'polvo'], pct: 40, met: false, st: 3, day: T, sh: true, since: 2000, mine: null, theirs: null });
-    expect(Object.keys(f).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'md', 'md2', 'met', 'mine', 'nm', 'pct', 'sh', 'since', 'st', 'theirs', 'uid', 'wm']); // nenhum horário de atividade do amigo
+    expect(Object.keys(f).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'md', 'md2', 'met', 'mine', 'mm', 'mp', 'nm', 'pct', 'sh', 'since', 'st', 'theirs', 'uid', 'wm']); // nenhum horário de atividade do amigo
+    expect(f.mm).toBeNull(); expect(f.mp).toBeNull(); // perfil de uma versão sem a conta do mês: "não sei", nunca "0 dias"
     expect(f.md).toBeNull(); // perfil de uma versão sem medalhas: "não sei", nunca "nenhuma"
     expect(f.md2).toBe(0); // sem a 2ª palavra: nenhuma medalha da 1.7.0 (é o normal até o amigo ter a primeira)
   });

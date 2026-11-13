@@ -144,10 +144,10 @@ const stamp = (v) => { const n = +v; return isFinite(n) && n > 0 ? n : 0; };
 // aparelho zerava o andamento das medalhas que vêm deles (a medalha já conquistada volta por "ach", mas "3 de 4 semanas vencidas" recomeçava do zero). Agora vão junto, num campo
 // "pg" do MESMO documento dos ajustes (o recipiente só confere {v, u, j} e o tamanho de j: as regras do Firestore não mudam). Forma curta, para caber muito histórico em poucos caracteres:
 //   w, c = as semanas vencidas (desafio da semana, desafio da turma): cada uma é um número, dia-da-segunda-feira × 8 + os dias até a vitória (0 a 7: na segunda-feira a turma ainda fecha a semana que passou);
-//   m    = os meses vencidos: (ano × 12 + mês − 1) × 32 + o dia do mês da vitória − 1;
+//   m, cm = os meses vencidos (desafio do mês; e, desde a 1.13.0, o desafio do mês da turma): (ano × 12 + mês − 1) × 32 + o dia do mês da vitória − 1;
 //   d, f = os dias com missão: d é o último dia (AAAA-MM-DD) e f um texto com um dígito por dia, do mais antigo ao d: 1 = a missão do dia, 2 = a leve, 4 = a ousada (somados).
 // Só os mais recentes vão (PG_MAX); a medalha já conquistada não depende disso. Na volta, cada coisa entra com o instante do meio-dia do dia certo (o app só olha o DIA e se existe).
-export const PG_MAX = { w: 52, m: 24, c: 52, d: 400 };
+export const PG_MAX = { w: 52, m: 24, c: 52, d: 400, cm: 24 };
 const DAY0 = 17167; // 1/1/2017 (em dias desde 1970): nada do Maré é mais antigo
 const dn = (k) => Math.round(Date.UTC(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10)) / 864e5);
 const dkey = (n) => new Date(n * 864e5).toISOString().slice(0, 10);
@@ -170,12 +170,12 @@ export function pgSnapshot(S, keep) {
   keep = keep == null ? 1 : Math.min(1, keep);
   if (!(keep > 0)) return null;
   const take = (list, max) => { list.sort((a, b) => a - b); const m = Math.ceil(max * keep); return list.length > m ? list.slice(list.length - m) : list; };
-  const w = [], m = [], c = [], flag = {}, ch = S.challenges || {}, cw = S.crewWon || {}, mi = S.missions || {}, ex = S.extras || {};
+  const w = [], m = [], c = [], cm = [], flag = {}, ch = S.challenges || {}, cw = S.crewWon || {}, mi = S.missions || {}, ex = S.extras || {};
   Object.keys(ch).forEach((k) => {
     const t = stamp(ch[k]), v = !t ? -1 : k.length === 10 ? weekCode(k, t) : k.length === 7 ? monthCode(k, t) : -1;
     if (v >= 0) (k.length === 10 ? w : m).push(v);
   });
-  Object.keys(cw).forEach((k) => { const t = stamp(cw[k]), v = t && k.length === 10 ? weekCode(k, t) : -1; if (v >= 0) c.push(v); });
+  Object.keys(cw).forEach((k) => { const t = stamp(cw[k]), v = !t ? -1 : k.length === 10 ? weekCode(k, t) : k.length === 7 ? monthCode(k, t) : -1; if (v >= 0) (k.length === 10 ? c : cm).push(v); });
   Object.keys(mi).forEach((k) => { if (stamp(mi[k]) && realDay(k)) flag[k] = (flag[k] || 0) | 1; });
   Object.keys(ex).forEach((k) => {
     const d = k.slice(0, 10), s = k.slice(10);
@@ -185,6 +185,7 @@ export function pgSnapshot(S, keep) {
   if (w.length) out.w = take(w, PG_MAX.w);
   if (m.length) out.m = take(m, PG_MAX.m);
   if (c.length) out.c = take(c, PG_MAX.c);
+  if (cm.length) out.cm = take(cm, PG_MAX.cm);
   if (days.length) {
     const last = days[days.length - 1], ln = dn(last), from = ln - Math.ceil(PG_MAX.d * keep) + 1, within = days.filter((k) => dn(k) >= from);
     let f = '';
@@ -207,12 +208,14 @@ export function cleanPg(raw, now) {
       if (isMon(n) && n >= DAY0 && win <= top) out[x[1]][dkey(n)] = at(win);
     });
   });
-  list(o.m, PG_MAX.m * 4).forEach((v) => {
-    if (!whole(v)) return;
-    const ix = Math.floor(v / 32), off = v - ix * 32, y = Math.floor(ix / 12), mo = ix - y * 12 + 1, dim = new Date(Date.UTC(y, mo, 0)).getUTCDate();
-    if (y < 2017 || y > 2200) return;
-    const win = dn(y + '-' + (mo < 10 ? '0' : '') + mo + '-01') + Math.min(off, dim - 1);
-    if (win <= top) out.ch[y + '-' + (mo < 10 ? '0' : '') + mo] = at(win);
+  [['m', 'ch'], ['cm', 'cw']].forEach((x) => {
+    list(o[x[0]], PG_MAX[x[0]] * 4).forEach((v) => {
+      if (!whole(v)) return;
+      const ix = Math.floor(v / 32), off = v - ix * 32, y = Math.floor(ix / 12), mo = ix - y * 12 + 1, dim = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+      if (y < 2017 || y > 2200) return;
+      const win = dn(y + '-' + (mo < 10 ? '0' : '') + mo + '-01') + Math.min(off, dim - 1);
+      if (win <= top) out[x[1]][y + '-' + (mo < 10 ? '0' : '') + mo] = at(win);
+    });
   });
   if (typeof o.d === 'string' && realDay(o.d) && typeof o.f === 'string' && /^[0-7]{1,800}$/.test(o.f) && dn(o.d) <= top) {
     const last = dn(o.d), len = o.f.length;

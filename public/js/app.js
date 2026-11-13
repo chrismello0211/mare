@@ -15,11 +15,11 @@ import { TODAY_PARTS, todayView, historyView, journeyView, settingsView, onboard
   insigniaSheet, unlockSheet, newsSheet, fmtW } from './views.js';
 import { friendsView, friendSheet, profileSheet, codeSheet, aboutSheet, friendsSig, crewSig, inviteInfo, alertsOn, alertsNote, hitOn, weekOn, hitNote, weekNote } from './friends-view.js';
 import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inviteLink, inviteText, fmtCode, profilePayload, liveOf, myLive, turma,
-  waveFor, seenWaves, arrivals, joinedText, rankId, errText, crewDue } from './social.js';
+  waveFor, seenWaves, arrivals, joinedText, rankId, errText, crewDue, crewMonthDue } from './social.js';
 import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs, achAhead, pgAhead, mergePg } from './account.js';
 import { createSheet, signinSheet, resetSheet, resetDoneSheet, deleteSheet } from './account-view.js';
 
-export const APP_VERSION = '1.12.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.13.0'; // aumente a cada deploy, junto com VERSION no sw.js
 
 // Os cartões de novidades: só o mais novo (tip_news20, da 1.11.0) aparece; os de antes (1.2, 1.5, 1.6, 1.7, 1.9 e 1.10) já não voltam, mas ficam marcados como vistos
 // sempre que a pessoa vê o de agora, abre o painel, começa do zero ou chega por uma conta.
@@ -904,6 +904,7 @@ function announceSocial(prev, st) {
 // menos CREW_MIN pessoas (você e mais 2): é a única medalha que o histórico não mostra, então só nasce aqui (e viaja pela conta, em ach).
 function crewCheck(st) {
   crewWeekCheck(st);
+  crewMonthCheck(st);
   if (!S.social.on || !st || !st.ready || !st.friends.length) return;
   const k = today(), daily = S.ui.crewAt !== k, medal = !S.achievements.crew;
   if (!daily && !medal) return;
@@ -939,6 +940,18 @@ function crewWeekCheck(st) {
   save();
   socTouch(); // a turma passa a ver as medalhas novas no perfil
   if (tab === 'journey' && !typing()) render(true);
+}
+// O desafio do mês da turma (1.13.0): o mesmo, para o mês de calendário, a partir da conta de cada amigo (os dias do mês em que bateu a meta). A vitória fica guardada em S.crewWon com a chave do mês (AAAA-MM) e vira festa; as
+// medalhas só olham as segundas-feiras desse mapa, então o mês não traz medalha (nada a anunciar à turma). Nos 7 primeiros dias do mês seguinte ainda dá para fechar o mês que acabou de terminar.
+function crewMonthCheck(st) {
+  if (!S.social.on || !st || !st.ready || !st.friends.length) return;
+  const due = crewMonthDue(S, st.friends, today());
+  if (!due.length) return;
+  due.forEach((x) => { S.crewWon[x.key] = Date.now(); });
+  const x = due[0];
+  if (!popBusy()) confetti();
+  pop(x.c.e, 'Desafio do mês da turma', x.c.t, due.length > 1 ? 'A turma venceu 2 meses!' : x.past ? 'A turma venceu o mês passado!' : 'A turma venceu o mês!');
+  save();
 }
 // Os acenos de agora viram "vistos" quando a aba Amigos está aberta (a bolinha da aba some)
 function markWavesSeen() {

@@ -213,7 +213,10 @@ async function weekCrew(list, wm, user) {
   await team(list, over);
   for (const u of list) await E.phone(u, 1, Object.assign({}, user && user[u]));
 }
-const BODY = (hits, mine) => 'A turma bateu a meta ' + (hits === 1 ? '1 vez' : hits + ' vezes') + ' nos últimos 7 dias.' + (mine ? ' Você bateu em ' + (mine === 1 ? '1 dia' : mine + ' dias') + '.' : '') + ' Toque para ver a turma.';
+// Desde a 1.13.0, quando a turma venceu o desafio da semana, o aviso ganha UMA frase a mais (WON), logo depois da conta e antes do convite. A semana de 19/10/2026 é a do "Todos a bordo" (cada
+// pessoa bate a meta em pelo menos 3 dias) e a de 26/10/2026, a da "Turma cheia"; quem sorteia o desafio é o motor do app (functions/core.js), e tests/crew-challenge.test.js trava essas escolhas.
+const WON = (t) => ' A turma venceu o desafio da semana: ' + t + '.';
+const BODY = (hits, mine, won) => 'A turma bateu a meta ' + (hits === 1 ? '1 vez' : hits + ' vezes') + ' nos últimos 7 dias.' + (mine ? ' Você bateu em ' + (mine === 1 ? '1 dia' : mine + ' dias') + '.' : '') + (won ? WON(won) : '') + ' Toque para ver a turma.';
 const TITLE = 'Resumo da semana da turma' + NB + '🌊';
 
 E.suite('sendWeekly: "resumo da semana da turma" (domingo, 19h, no relógio de cada um)', () => {
@@ -228,7 +231,7 @@ E.suite('sendWeekly: "resumo da semana da turma" (domingo, 19h, no relógio de c
     expect(E.titles(BIA)).toEqual([TITLE]);
     expect([CAIO, DUDA, EDU].map((u) => E.sentTo(u).length)).toEqual([0, 0, 0]);
     expect(E.lastTo(ANA)).toMatchObject({ webpush: { headers: { Urgency: 'high', TTL: '43200' } },
-      data: { kind: 'friend', ev: 'week', tag: 'mare-turma-semana', url: './?tab=friends', title: TITLE, body: BODY(15, 3) } }); // 5 pessoas × 3 dias; ela bateu 3
+      data: { kind: 'friend', ev: 'week', tag: 'mare-turma-semana', url: './?tab=friends', title: TITLE, body: BODY(15, 3, 'Todos a bordo') } }); // 5 pessoas × 3 dias; ela bateu 3; as 5 têm 3 dias: a turma venceu
     expect(E.logs.find((l) => l.m === 'resumo da semana')).toMatchObject({ seen: 2, sent: 2 });
   });
 
@@ -259,7 +262,49 @@ E.suite('sendWeekly: "resumo da semana da turma" (domingo, 19h, no relógio de c
     await weekCrew([ANA, BIA, CAIO], { [ANA]: 127, [BIA]: 127, [CAIO]: 127 }, { [ANA]: E.AWAKE });
     E.clock.t = SUN;
     await sendWeekly(E.deps());
-    expect(E.lastTo(ANA).data.body).toBe('Semana perfeita! Todo mundo bateu a meta todos os dias.');
+    expect(E.lastTo(ANA).data.body).toBe('Semana perfeita! Todo mundo bateu a meta todos os dias.' + WON('Todos a bordo')); // 7 dias por pessoa também fecha o "Todos a bordo"
+  });
+
+  test('a frase do desafio da turma (1.13.0): só quando a turma venceu a semana, no mesmo aviso e com o título do desafio; um dia a menos de uma pessoa e ela some', async () => {
+    // a semana de 19/10/2026 é a do "Todos a bordo": cada pessoa da turma bate a meta em pelo menos 3 dias
+    await weekCrew([ANA, BIA, CAIO], { [ANA]: 7, [BIA]: 7, [CAIO]: 3 }, { [ANA]: E.AWAKE });
+    E.clock.t = SUN;
+    await sendWeekly(E.deps());
+    expect(E.lastTo(ANA).data.body).toBe(BODY(8, 3)); // Caio tem só 2 dias: a turma ainda não venceu, e o aviso é o de sempre
+    await E.adb.doc('pushlog/' + ANA).delete();
+    await E.adb.doc('profiles/' + CAIO).update({ wm: 7 }); // o terceiro dia de Caio
+    await sendWeekly(E.deps());
+    expect(E.lastTo(ANA).data.body).toBe(BODY(9, 3, 'Todos a bordo'));
+    expect(E.sentTo(ANA)).toHaveLength(2); // um aviso por rodada: a vitória é só uma frase dentro do resumo, nunca um aviso à parte
+    expect(E.sentTo(ANA).map((m) => m.data.tag)).toEqual(['mare-turma-semana', 'mare-turma-semana']);
+  });
+
+  test('a frase espera por mim: com os outros em dia e eu sem nenhum dia na meta, o aviso é o de sempre (o app diz "falta você"); com os meus 3 dias, ela sai', async () => {
+    await weekCrew([ANA, BIA, CAIO], { [ANA]: 0, [BIA]: 127, [CAIO]: 127 }, { [ANA]: E.AWAKE });
+    E.clock.t = SUN;
+    await sendWeekly(E.deps());
+    expect(E.lastTo(ANA).data.body).toBe(BODY(14, 0)); // sem "você bateu" e sem a vitória
+    await E.adb.doc('pushlog/' + ANA).delete();
+    await E.adb.doc('profiles/' + ANA).update({ wm: 7 }); // três dias meus: agora cada pessoa tem 3 ou mais
+    await sendWeekly(E.deps());
+    expect(E.lastTo(ANA).data.body).toBe(BODY(17, 3, 'Todos a bordo'));
+  });
+
+  test('a frase do desafio não lê nada a mais do Firestore: só os perfis da turma que o resumo já lia (no máximo os da turma, uma vez por pessoa que recebe), e nenhum de fora dela', async () => {
+    const four = [ANA, BIA, CAIO, DUDA];
+    await weekCrew(four, { [ANA]: 7, [BIA]: 7, [CAIO]: 7, [DUDA]: 7 }, { [ANA]: E.AWAKE, [BIA]: E.AWAKE, [CAIO]: E.AWAKE, [DUDA]: E.AWAKE });
+    E.clock.t = SUN;
+    const paths = [];
+    const db = new Proxy(E.adb, { get(t, k) {
+      if (k === 'doc') return (path) => { paths.push(path); return t.doc(path); };
+      const v = t[k];
+      return typeof v === 'function' ? v.bind(t) : v;
+    } });
+    expect(await sendWeekly(E.deps({ db: db }))).toMatchObject({ seen: 4, sent: 4 });
+    four.forEach((u) => expect(E.lastTo(u).data.body).toBe(BODY(12, 3, 'Todos a bordo')));
+    const reads = paths.filter((x) => x.indexOf('profiles/') === 0), crew = four.map((u) => 'profiles/' + u);
+    expect(Array.from(new Set(reads)).sort()).toEqual(crew.slice().sort()); // todo perfil da turma foi lido, e só eles
+    expect(reads.length).toBeLessThanOrEqual(four.length * four.length); // quatro pessoas recebem, cada uma pede os perfis da turma uma vez (a conta da vitória usa os mesmos, sem ler outra vez)
   });
 
   test('nada a contar, nada enviado: sem amigos, ninguém mais mostra os 7 dias, ou a turma não bateu a meta nenhuma vez', async () => {
@@ -325,7 +370,8 @@ E.suite('sendWeekly: "resumo da semana da turma" (domingo, 19h, no relógio de c
     for (const u of [ANA, BIA]) await E.phone(u, 1, Object.assign({ tz: 'America/New_York' }, E.AWAKE));
     E.clock.t = Date.UTC(2026, 10, 2, 0, 30, 0); // segunda, 02/11, 00:30 em Greenwich = domingo, 01/11, 19:30 em Nova York
     expect((await sendWeekly(E.deps())).sent).toBe(2);
-    expect(E.lastTo(ANA).data.body).toBe('Semana perfeita! Todo mundo bateu a meta todos os dias.'); // com o dia de Greenwich (02/11) seriam só 6 dos 7 dias
+    // com o dia de Greenwich (02/11) seriam só 6 dos 7 dias; e a vitória é a do desafio da semana DELA (a de 26/10, a da "Turma cheia"), não a da segunda-feira de Greenwich, que nem fecha
+    expect(E.lastTo(ANA).data.body).toBe('Semana perfeita! Todo mundo bateu a meta todos os dias.' + WON('Turma cheia'));
   });
 
   test('as zonas vão ao Firestore em grupos de no máximo 30 ("in" não aceita mais), e todas entram na conta', async () => {

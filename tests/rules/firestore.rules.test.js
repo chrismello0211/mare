@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { pairId as pid, PCT_MAX } from '../../public/js/social.js'; // o MESMO cálculo que o app usa: se divergir das regras, os testes quebram
-import { rules17x } from '../helpers/old-rules.js';
+import { rules17x, rules18x } from '../helpers/old-rules.js';
 
 const hp = (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080').split(':');
 const RULES = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../firestore.rules'), 'utf8');
@@ -18,7 +18,7 @@ const ANA = U('ana'), BRU = U('bruno'), CAI = U('caio'); // em ordem alfabética
 const ok = assertSucceeds, no = assertFails;
 const without = (o, ...ks) => { const c = Object.assign({}, o); ks.forEach((k) => { delete c[k]; }); return c; };
 
-let env, env17;
+let env, env17, env18;
 // Cada as()/anon() abre um login de teste com conexões próprias, que a biblioteca só encerra no fim de toda a bateria: anota e encerra ao fim de cada teste
 const ctxs = [];
 function track(e) {
@@ -31,9 +31,10 @@ function track(e) {
 beforeAll(async () => {
   env = track(await initializeTestEnvironment({ projectId: 'demo-mare-rules', firestore: { host: hp[0], port: +hp[1], rules: RULES } }));
   env17 = track(await initializeTestEnvironment({ projectId: 'demo-mare-rules-17x', firestore: { host: hp[0], port: +hp[1], rules: rules17x(RULES) } })); // as regras da 1.7.0 (pct só até 100)
+  env18 = track(await initializeTestEnvironment({ projectId: 'demo-mare-rules-18x', firestore: { host: hp[0], port: +hp[1], rules: rules18x(RULES) } })); // as regras da 1.8.0 a 1.12.x (sem mm e mp)
 });
-afterAll(async () => { if (env) await env.cleanup(); if (env17) await env17.cleanup(); });
-beforeEach(async () => { await env.clearFirestore(); await env17.clearFirestore(); });
+afterAll(async () => { if (env) await env.cleanup(); if (env17) await env17.cleanup(); if (env18) await env18.cleanup(); });
+beforeEach(async () => { await env.clearFirestore(); await env17.clearFirestore(); await env18.clearFirestore(); });
 afterEach(() => { ctxs.splice(0).forEach((c) => { try { c.cleanup(); } catch (e) { /* já encerrado */ } }); });
 
 const as = (u) => env.authenticatedContext(u).firestore();
@@ -94,7 +95,7 @@ describe('profiles: o perfil que os amigos veem', () => {
     expect(PCT_MAX).toBe(150); // o teto do app e o das regras são o mesmo número
     for (const n of [0, 1, 99, 100, 101, 118, 149, 150]) await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ pct: n, met: n >= 100 })), 'pct ' + n);
     for (const n of [151, 152, 200, 1000, 100000, -1, 50.5, 118.5, '118', true, [118], { n: 118 }]) await no(setDoc(doc(as(ANA), 'profiles', ANA), prof({ pct: n })), 'pct ' + JSON.stringify(n));
-    await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ pct: 118, met: true, gl: 2000, wm: 127, md: 5, md2: 3 }))); // com todos os campos opcionais juntos
+    await ok(setDoc(doc(as(ANA), 'profiles', ANA), prof({ pct: 118, met: true, gl: 2000, wm: 127, md: 5, md2: 3, mm: 17, mp: 30 }))); // com todos os campos opcionais juntos
   });
   test('com as regras da 1.7.0 (as de antes da 1.8.0) a pct só vai até 100: 101 em diante é recusado, e é por isso que o app novo tem a segunda forma (pct 100)', async () => {
     const as17 = (u) => env17.authenticatedContext(u).firestore();
@@ -260,6 +261,49 @@ describe('profiles: o perfil que os amigos veem', () => {
     const t = (await ok(getDoc(doc(as(ANA), 'profiles', BRU)))).data();
     if ('md2' in t) throw new Error('sem a escolha da pessoa, as medalhas novas não podem ficar no perfil');
     if (t.md !== 2049) throw new Error('tirar o md2 não pode mexer no md');
+  });
+  test('os dias do mês (mm) e do mês anterior (mp, 1.13.0): inteiro de 0 a 31, null ou ausente; qualquer outra coisa é recusada, e nenhum campo a mais passa', async () => {
+    const good = [['sem mm nem mp', prof({ md: 5 })], ['mm 0', prof({ mm: 0 })], ['mm 1', prof({ mm: 1 })], ['mm 17', prof({ mm: 17 })], ['mm 31 (o maior mês)', prof({ mm: 31 })],
+      ['mp 0', prof({ mp: 0 })], ['mp 28 (fevereiro)', prof({ mp: 28 })], ['mp 31', prof({ mp: 31 })], ['mm e mp juntos', prof({ mm: 12, mp: 30 })], ['mm null', prof({ mm: null })],
+      ['mp null', prof({ mp: null })], ['só mm', prof({ mm: 9 })], ['só mp', prof({ mp: 9 })],
+      ['todos os campos opcionais juntos', prof({ pct: 150, met: true, gl: 2500, wm: 85, md: 4095, md2: 33, mm: 31, mp: 31 })],
+      ['em pausa: sem pct, gl, wm, md, md2, mm nem mp', prof({ sh: false, pct: null, gl: null, wm: null, md: null, md2: null, mm: null, mp: null })]];
+    for (const [nome, d] of good) await ok(setDoc(doc(as(ANA), 'profiles', ANA), d), nome);
+    const bad = [['mm 32 (um dia a mais que o maior mês)', prof({ mm: 32 })], ['mm 100', prof({ mm: 100 })], ['mm enorme', prof({ mm: 1e15 })], ['mm negativo', prof({ mm: -1 })],
+      ['mm decimal', prof({ mm: 3.5 })], ['mm texto', prof({ mm: '7' })], ['mm booleano', prof({ mm: true })], ['mm lista', prof({ mm: [1] })], ['mm mapa', prof({ mm: { d: 1 } })],
+      ['mm NaN', prof({ mm: NaN })], ['mm infinito', prof({ mm: Infinity })], ['mp 32', prof({ mp: 32 })], ['mp negativo', prof({ mp: -1 })], ['mp decimal', prof({ mp: 0.5 })],
+      ['mp texto', prof({ mp: '7' })], ['mp booleano', prof({ mp: false })], ['mp lista', prof({ mp: [] })], ['mp mapa', prof({ mp: {} })], ['mp NaN', prof({ mp: NaN })],
+      ['mp infinito', prof({ mp: -Infinity })], ['mm certo e mp errado', prof({ mm: 10, mp: 32 })], ['mm errado e mp certo', prof({ mm: 32, mp: 10 })],
+      ['mq (um campo que não existe)', prof({ mm: 1, mp: 1, mq: 1 })], ['mm com outro nome', prof({ mx: 1 })], ['os dias de cada mês (a lista nunca vai ao perfil)', prof({ mm: 1, mp: 1, ml: [1, 2, 3] })],
+      ['md acima dos 24 bits, mesmo com mm e mp certos', prof({ md: 16777216, mm: 1, mp: 1 })]];
+    for (const [nome, d] of bad) await no(setDoc(doc(as(ANA), 'profiles', ANA), d), nome);
+  });
+  test('os dias do mês no perfil: o amigo lê mm e mp; quem não é amigo não; o dono muda ou tira quando quiser; o amigo não mexe', async () => {
+    await seedPair();
+    await ok(setDoc(doc(as(BRU), 'profiles', BRU), prof({ nm: 'Bruno', mc: 'polvo', gl: 2400, wm: 93, md: 2049, md2: 33, mm: 9, mp: 28 })));
+    const s = await ok(getDoc(doc(as(ANA), 'profiles', BRU)));
+    const keys = Object.keys(s.data()).sort().join();
+    if (keys !== 'day,gl,ins,mc,md,md2,met,mm,mp,nm,pct,sh,st,v,wm') throw new Error('o perfil com os dias do mês deveria ter exatamente os campos combinados: ' + keys);
+    if (s.data().mm !== 9 || s.data().mp !== 28) throw new Error('o amigo deveria ler os dois números de dias do mês');
+    await no(getDoc(doc(as(CAI), 'profiles', BRU))); // um terceiro continua de fora
+    await ok(updateDoc(doc(as(BRU), 'profiles', BRU), { mm: 10 })); // bateu a meta mais um dia
+    await ok(updateDoc(doc(as(BRU), 'profiles', BRU), { mm: 0, mp: 31 })); // virou o mês: o mês de ontem passa a ser o anterior
+    await no(updateDoc(doc(as(BRU), 'profiles', BRU), { mm: 32 }));
+    await no(updateDoc(doc(as(BRU), 'profiles', BRU), { mp: -1 }));
+    await no(updateDoc(doc(as(BRU), 'profiles', BRU), { mm: '5' }));
+    await no(updateDoc(doc(as(ANA), 'profiles', BRU), { mm: 0 })); // o amigo não escreve no perfil do outro
+    await no(updateDoc(doc(as(CAI), 'profiles', BRU), { mp: 0 }));
+    await ok(updateDoc(doc(as(BRU), 'profiles', BRU), { mm: deleteField(), mp: deleteField() })); // progresso em pausa (ou app de antes da 1.13.0): os campos somem
+    const t = (await ok(getDoc(doc(as(ANA), 'profiles', BRU)))).data();
+    if ('mm' in t || 'mp' in t) throw new Error('sem a escolha da pessoa, os dias do mês não podem ficar no perfil');
+    if (t.md !== 2049 || t.md2 !== 33 || t.wm !== 93) throw new Error('tirar mm e mp não pode mexer no resto do perfil');
+  });
+  test('com as regras da 1.8.0 a 1.12.x (as de antes da 1.13.0) o perfil não pode ter mm nem mp: é recusado, e é por isso que o app novo tem a segunda forma (sem os dois)', async () => {
+    const as18 = (u) => env18.authenticatedContext(u).firestore();
+    for (const d of [prof({ mm: 5 }), prof({ mp: 5 }), prof({ mm: 0, mp: 0 }), prof({ pct: 118, met: true, gl: 2000, wm: 127, md: 5, md2: 3, mm: 17, mp: 30 })]) await no(setDoc(doc(as18(ANA), 'profiles', ANA), d), JSON.stringify(d));
+    await ok(setDoc(doc(as18(ANA), 'profiles', ANA), prof({ pct: 118, met: true, gl: 2000, wm: 127, md: 5, md2: 3 }))); // fora mm e mp, essas regras são as de agora (pct até 150 inclusive)
+    for (const n of [101, 118, 150]) await ok(setDoc(doc(as18(ANA), 'profiles', ANA), prof({ pct: n, met: true })), 'pct ' + n);
+    await no(setDoc(doc(as18(ANA), 'profiles', ANA), prof({ pct: 151, met: true })));
   });
   test('ser amigo de alguém não dá acesso ao perfil dos amigos dele', async () => {
     await seedPair(); // ANA e BRU

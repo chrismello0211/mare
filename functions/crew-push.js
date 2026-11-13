@@ -2,10 +2,13 @@
 //   notifyHit    "um amigo bateu a meta de hoje": roda quando o perfil de alguém muda (gatilho onProfile). OPCIONAL: só avisa quem ligou
 //                "Avisar quando um amigo bater a meta" em Ajustes (users/{uid}.social.hit = true). Por padrão ninguém recebe, de propósito.
 //   sendWeekly   "Resumo da semana da turma": roda de hora em hora (weeklyCrew) e avisa quem está no domingo, entre 19:00 e 19:59 no relógio
-//                dele, e não desligou o resumo (users/{uid}.social.week; sem o campo vale ligado).
+//                dele, e não desligou o resumo (users/{uid}.social.week; sem o campo vale ligado). Desde a 1.13.0, quando a turma venceu o
+//                desafio da semana, o mesmo aviso ganha UMA frase a mais (a conta é a do app: crewWonOf, abaixo; nunca é um push novo).
 // Os dois passam por route() (friend-push.js): limite contra repetição, horário de silêncio e FCM. Só o texto e a conta saem daqui.
 // A conta da semana é a mesma do app (weekOf em public/js/social.js; tests/crew.test.js compara as duas em milhares de perfis sorteados).
+// O desafio da turma usa o MESMO motor do app: functions/core.js é uma cópia idêntica de public/js/core.js (npm run sync:functions; o teste reprova se divergirem).
 import { tokensOf, wantsKind, messageOf, weekMessage } from './social-push.js';
+import { crewInfo, weekStart } from './core.js';
 import { route } from './friend-push.js';
 import { friendsOf } from './network.js';
 import { local, isWeeklyHour } from './clock.js';
@@ -40,6 +43,26 @@ export function weekOf(p, today) {
   let n = 0;
   for (let i = shift; i < WEEK; i++) if ((m >> (i - shift)) & 1) n++;
   return { n: n, known: true };
+}
+// Os 7 dias de p vistos de today, um a um, como weekOf do app (public/js/social.js): days[i] = bateu a meta no dia (today − i). known como em weekOf acima; away = os dias desde o perfil (a conta do desafio da turma
+// só inclui quem apareceu nos últimos 3 dias, como crewPeople do app). Fica à parte de weekOf para este continuar devolvendo só { n, known }.
+export function weekDays(p, today) {
+  const days = [false, false, false, false, false, false, false], q = obj(p);
+  if (!q || q.wm == null || q.sh === false || typeof q.day !== 'string' || !DAY_RE.test(q.day) || daysBetween(today, q.day) > 2) return { known: false, days: days, away: 99 };
+  const m = int(q.wm, 0, 127), shift = daysBetween(q.day, today);
+  for (let i = shift; i < WEEK; i++) if ((m >> (i - shift)) & 1) days[i] = true;
+  return { known: true, days: days, away: shift };
+}
+// O desafio da turma da semana de today, visto por me (1.13.0): o título dele se a turma venceu, senão ''. A conta é a de crewGoal (public/js/social.js): eu primeiro (sem a minha semana, ou seja,
+// em pausa, fico de fora), mais os amigos que mostram a semana e apareceram nos últimos 3 dias; a grade é a da semana de segunda a domingo; a vitória pede a conta fechada e eu com a meta batida em algum dia.
+// O servidor não vê S.crewWon (as vitórias já guardadas no aparelho): vale só o que os perfis dizem agora, então, no pior caso, a frase deixa de aparecer (nunca aparece uma vitória que o app não dá).
+export function crewWonOf(profiles, me, ids, today) {
+  const mon = weekStart(today), idx = daysBetween(mon, today), mine = weekDays(profiles.get(me), today);
+  if (!mine.known) return '';
+  const rows = [mine].concat(ids.filter((id) => id !== me).map((id) => weekDays(profiles.get(id), today)).filter((w) => w.known && w.away <= 3));
+  const grid = rows.map((w) => { const r = []; for (let j = 0; j < WEEK; j++) { const rel = idx - j; r.push(rel >= 0 && rel < WEEK && w.days[rel] ? 1 : 0); } return r; });
+  const g = crewInfo({}, grid, mon, today);
+  return g && g.done ? g.c.t : '';
 }
 // A semana da turma vista por uma pessoa: profiles = Map uid → perfil; ids = ela e os amigos; today = o dia dela. Devolve { hits, total, mine }
 // (acertos da turma, de quantos possíveis, e os dela) ou null se não há o que contar: ninguém mais mostra os 7 dias, ou ninguém bateu a meta.
@@ -109,8 +132,8 @@ export async function sendWeekly(d) {
           if (!friends.length) return 0;
           const ids = [doc.id].concat(friends), need = ids.filter((u) => !profiles.has(u));
           if (need.length) { const have = await docsOf(d.db, 'profiles', need); need.forEach((u) => { profiles.set(u, have.get(u) || null); }); }
-          const w = weekOfCrew(profiles, doc.id, ids, local(now, doc.data().tz).day);
-          return w ? await route({ kind: 'week', from: 'crew', to: doc.id }, weekMessage(w), d) : 0;
+          const day = local(now, doc.data().tz).day, w = weekOfCrew(profiles, doc.id, ids, day);
+          return w ? await route({ kind: 'week', from: 'crew', to: doc.id }, weekMessage(Object.assign({}, w, { won: crewWonOf(profiles, doc.id, ids, day) })), d) : 0;
         } catch (e) { d.log.error('resumo da semana falhou', { err: e && e.message }); return 0; }
       }));
       out.sent += got.reduce((s, x) => s + x, 0);
