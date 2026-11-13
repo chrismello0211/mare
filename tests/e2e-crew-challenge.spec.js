@@ -1,6 +1,6 @@
-// Maré — testes de interface do desafio da turma (1.11.0): a linha em "Desafios", na Hoje, e o cartão da aba Amigos; a festa quando a turma vence (com as medalhas Remando juntos e Time da maré);
-// o "falta só você"; a segunda-feira de tolerância; quem entra na conta; a turma sozinha e a pausa; o que a Jornada mostra; e o leiaute em qualquer tela. A conta em si (as quatro regras, quem entra,
-// a grade da semana) está em tests/crew-challenge.test.js; aqui se confere o que aparece na tela e o que fica guardado. Qualquer erro de JavaScript na página reprova.
+// Maré — testes de interface do desafio da turma (1.11.0 e 1.12.0): a linha em "Desafios", na Hoje, e o cartão da aba Amigos; a festa quando a turma vence (com as medalhas Remando juntos e Time da maré);
+// o "falta só você"; a segunda-feira de tolerância; quem entra na conta; a turma sozinha e a pausa; o que a Jornada mostra; e o leiaute em qualquer tela, em cada uma das seis regras. A conta em si
+// (as seis regras, quem entra, a grade da semana) está em tests/crew-challenge.test.js; aqui se confere o que aparece na tela e o que fica guardado. Qualquer erro de JavaScript na página reprova.
 // O desafio da turma sai da DATA e da semana de cada amigo (a máscara wm do perfil, que o bit 0 é o dia de hoje), então cada teste fixa o relógio (page.clock.install: ele segue andando, mas parte do
 // meio-dia desse dia, em São Paulo) e monta a semana dos amigos à mão. A semana em que cada desafio cai é achada com o core.js, que sorteia como o app, e não escrita à mão.
 import { test, expect } from '@playwright/test';
@@ -52,6 +52,8 @@ async function openAt(page, k, friends, opt) {
 const MON_CROWD = monOf('ccrowd'), THU_CROWD = C.addDays(MON_CROWD, 3); // "Turma cheia": em 3 dias, 3 pessoas ou mais batem a meta no mesmo dia
 const MON_TOTAL = monOf('ctotal'), THU_TOTAL = C.addDays(MON_TOTAL, 3); // "Maré da semana": 4 metas por pessoa
 const MON_WEEKEND = monOf('cweek'); // "Fim de semana da turma"
+const MON_CHAIN = monOf('cchain'), THU_CHAIN = C.addDays(MON_CHAIN, 3); // "Corrente da turma" (1.12.0): 3 dias seguidos com a maior parte da turma na meta
+const MON_PAIRS = monOf('cpairs'), THU_PAIRS = C.addDays(MON_PAIRS, 3); // "Dois dias seguidos" (1.12.0): quase todos têm 2 dias seguidos na meta
 
 /* ---------- a linha na Hoje e o cartão em Amigos ---------- */
 test('o desafio da turma aparece na Hoje, depois dos da semana e do mês, e na aba Amigos, entre o resumo e o ranking, com o andamento e o prazo', async ({ page }) => {
@@ -198,6 +200,70 @@ test('a turma já fechou a conta e falta só eu bater a meta: a linha avisa, e o
   expect(st.achievements.cw1).toBeGreaterThan(0);
 });
 
+/* ---------- as duas regras da 1.12.0 ---------- */
+test('Corrente da turma: a linha conta os dias seguidos (2 de 3) e o prazo, na Hoje e em Amigos; quando o 3º dia seguido fecha, a festa traz o desafio e a vitória fica guardada', async ({ page }) => {
+  test.setTimeout(75000);
+  // quinta-feira de uma semana de "Corrente da turma", com 3 pessoas (a maior parte é 2 de 3): eu e a Bia batemos a meta na segunda e na terça; o Caio, de segunda a quarta
+  await openAt(page, THU_CHAIN, [mk(UID.bia, 'Bia', 0b1100), mk(UID.caio, 'Caio', 0b1110)], { rows: [HIT(3), HIT(2)], todayMl: 900, medals: except(['cw1']) });
+  const crw = page.locator('#tChallenges .crw');
+  await expect(crw).toHaveCount(1);
+  await expect(crw.locator('.m-ico')).toHaveText('🔗');
+  await expect(crw.locator('.m-k')).toHaveText('Desafio da turma');
+  await expect(crw.locator('.m-t')).toHaveText('Corrente da turma');
+  await expect(crw.locator('.m-d')).toHaveText('Em 3 dias seguidos desta semana, pelo menos 2 das 3 pessoas batem a meta, em cada dia');
+  await expect(crw.locator('.ch-f span').nth(0)).toHaveText('2 de 3 dias seguidos'); // segunda e terça valeram; na quarta só o Caio bateu
+  await expect(crw.locator('.ch-f span').nth(1)).toHaveText('Termina em 3 dias');
+  await expect(crw.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '67');
+  await expect(crw.locator('[role="progressbar"]')).toHaveAttribute('aria-valuetext', '2 de 3 dias seguidos');
+  await expect(crw).not.toHaveClass(/\b(done|wait)\b/);
+  await tabF(page).click();
+  await expect(page.locator('.crw-c .crw .m-t')).toHaveText('Corrente da turma');
+  await expect(page.locator('.crw-c .crw .ch-f span').nth(0)).toHaveText('2 de 3 dias seguidos');
+  await tab(page, 'Hoje').click();
+  await page.waitForTimeout(800);
+  await expect(pop(page)).toHaveCount(0);
+  expect(Object.keys((await stored(page)).crewWon)).toEqual([]);
+  // a Bia abre o app e bate a meta na quarta: segunda, terça e quarta, com a maior parte da turma em cada dia
+  await page.evaluate((u) => window.__fake.person(u, { wm: 0b1110 }), UID.bia);
+  await expect(pop(page)).toContainText('Desafio da turma');
+  await expect(pop(page)).toContainText('Corrente da turma');
+  await expect(pop(page)).toContainText('A turma venceu a semana!');
+  await expect(crw).toHaveClass(/\bdone\b/);
+  await expect(crw.locator('.ch-f span').nth(0)).toHaveText('3 de 3 dias seguidos');
+  await expect(crw.locator('.ch-f span').nth(1)).toHaveText('Vencido 🎉');
+  await expect(pop(page)).toContainText('Remando juntos', { timeout: 9000 });
+  const st = await stored(page);
+  expect(Object.keys(st.crewWon), 'só esta semana, pela segunda-feira').toEqual([MON_CHAIN]);
+  expect(st.crewWon[MON_CHAIN]).toBeGreaterThan(0);
+  expect(st.achievements.cw1, 'Remando juntos').toBeGreaterThan(0);
+});
+
+test('Dois dias seguidos: a linha conta quantas pessoas já têm o par (2 de 3, numa turma de 4); quando a terceira fecha o dela, a turma vence', async ({ page }) => {
+  test.setTimeout(75000);
+  // quinta-feira de uma semana de "Dois dias seguidos", com 4 pessoas (bastam 3 de 4): eu bati a meta na segunda e na terça, a Bia na terça e na quarta, o Caio só hoje e a Duda nenhum dia
+  await openAt(page, THU_PAIRS, [mk(UID.bia, 'Bia', 0b0110), mk(UID.caio, 'Caio', 0b0001), mk(UID.duda, 'Duda', 0)], { rows: [HIT(3), HIT(2)], todayMl: 900, medals: except(['cw1']) });
+  const crw = page.locator('#tChallenges .crw');
+  await expect(crw).toHaveCount(1);
+  await expect(crw.locator('.m-ico')).toHaveText('🔥');
+  await expect(crw.locator('.m-t')).toHaveText('Dois dias seguidos');
+  await expect(crw.locator('.m-d')).toHaveText('Pelo menos 3 das 4 pessoas têm 2 dias seguidos na meta nesta semana');
+  await expect(crw.locator('.ch-f span').nth(0)).toHaveText('2 de 3 pessoas');
+  await expect(crw.locator('.ch-f span').nth(1)).toHaveText('Termina em 3 dias');
+  await expect(crw.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '67');
+  await expect(crw).not.toHaveClass(/\b(done|wait)\b/);
+  await page.waitForTimeout(800);
+  await expect(pop(page)).toHaveCount(0);
+  // o Caio também bateu a meta na quarta: agora ele tem o par (quarta e quinta)
+  await page.evaluate((u) => window.__fake.person(u, { wm: 0b0011 }), UID.caio);
+  await expect(pop(page)).toContainText('Dois dias seguidos');
+  await expect(pop(page)).toContainText('A turma venceu a semana!');
+  await expect(crw).toHaveClass(/\bdone\b/);
+  await expect(crw.locator('.ch-f span').nth(0)).toHaveText('3 de 3 pessoas');
+  const st = await stored(page);
+  expect(Object.keys(st.crewWon)).toEqual([MON_PAIRS]);
+  expect(st.crewWon[MON_PAIRS]).toBeGreaterThan(0);
+});
+
 test('a quarta vitória da turma traz o Time da maré, com as três anteriores já guardadas', async ({ page }) => {
   test.setTimeout(75000);
   await openAt(page, THU_CROWD, [mk(UID.bia, 'Bia', 0b1111), mk(UID.caio, 'Caio', 0b1100)], { rows: [HIT(3), HIT(2), HIT(1)], todayMl: 900, crewWon: [1, 2, 3], medals: except(['cw4']) }); // Remando juntos já veio das 3 vitórias
@@ -323,7 +389,7 @@ test('sozinho, com amigos que sumiram ou estão em pausa, com o meu progresso em
 });
 
 /* ---------- tamanho de tela ---------- */
-// A linha e o cartão têm de caber em qualquer largura (280 px incluída), com o texto mais comprido de cada um dos quatro desafios (uma turma de 6 pessoas: números de dois algarismos), no tema claro e no escuro,
+// A linha e o cartão têm de caber em qualquer largura (280 px incluída), com o texto mais comprido de cada um dos seis desafios (uma turma de 6 pessoas: números de dois algarismos), no tema claro e no escuro,
 // e na hora em que o aviso mais comprido aparece ("Falta só você bater a meta"). O domingo é o dia em que o prazo diz "Termina hoje".
 const SIX = [UID.bia, UID.caio, UID.duda, UID.edu, UID.fe].map((u, i) => mk(u, ['Bia', 'Caio', 'Duda', 'Edu', 'Fê'][i], 127)); // 5 amigos e eu: 6 pessoas, todos os amigos com a semana cheia
 // confere um bloco: nada passa da largura da tela, e o que está dentro do cartão não vaza dele
@@ -367,19 +433,18 @@ async function crewLook(pg, info, id, scheme, extra) {
   await pg.screenshot({ path: 'test-results/shots/' + info.project.name + ' - Amigos desafio da turma ' + tag + '.png', fullPage: true });
 }
 
-test('layout: o desafio da turma (a linha da Hoje e o cartão de Amigos) cabe em qualquer tela, nos quatro desafios, no tema claro e no escuro', async ({ page }, info) => {
-  test.setTimeout(150000);
-  let first = true;
-  for (const id of ['ctotal', 'ccrowd', 'call', 'cweek']) {
-    for (const scheme of ['light', 'dark']) {
-      const pg = first ? page : await another(page);
-      first = false;
-      await crewLook(pg, info, id, scheme);
-      if (pg !== page) await pg.close();
-    }
-  }
-  // o aviso de pausa (a frase mais comprida do cartão) também cabe
-  const p2 = await another(page);
-  await crewLook(p2, info, 'ctotal', 'dark', { social: { share: false }, tag: 'pausa' });
-  await p2.close();
+// um teste por desafio da lista (assim uma entrada nova de uma leva futura já entra aqui sozinha), cada um no tema claro e no escuro
+for (const id of C.CREW_CHALLENGES.map((c) => c.id)) {
+  test('layout: o desafio da turma "' + id + '" (a linha da Hoje e o cartão de Amigos) cabe em qualquer tela, no tema claro e no escuro', async ({ page }, info) => {
+    test.setTimeout(100000);
+    await crewLook(page, info, id, 'light');
+    const p2 = await another(page);
+    await crewLook(p2, info, id, 'dark');
+    await p2.close();
+  });
+}
+
+test('layout: o aviso de pausa (a frase mais comprida do cartão) também cabe', async ({ page }, info) => {
+  test.setTimeout(60000);
+  await crewLook(page, info, 'ctotal', 'dark', { social: { share: false }, tag: 'pausa' });
 });

@@ -19,7 +19,7 @@ import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inv
 import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs, achAhead, pgAhead, mergePg } from './account.js';
 import { createSheet, signinSheet, resetSheet, resetDoneSheet, deleteSheet } from './account-view.js';
 
-export const APP_VERSION = '1.11.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.12.0'; // aumente a cada deploy, junto com VERSION no sw.js
 
 // Os cartões de novidades: só o mais novo (tip_news20, da 1.11.0) aparece; os de antes (1.2, 1.5, 1.6, 1.7, 1.9 e 1.10) já não voltam, mas ficam marcados como vistos
 // sempre que a pessoa vê o de agora, abre o painel, começa do zero ou chega por uma conta.

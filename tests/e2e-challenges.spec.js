@@ -48,6 +48,10 @@ const SEMANA = dayWhere((k) => sunday(k) && weekId(k) === 'wused');
 // um dia em que a missão do dia é "Beba água 6 vezes", a leve é de volume (metade da meta ou 1 L) e a ousada é "em que parte do dia": com 650 ml em 6 registros só a do dia fecha
 const SOZINHA = dayWhere((k) => { const t = C.missionsOf(k); return t.main.id === 'six' && ['ehalf', 'e1l'].indexOf(t.easy.id) >= 0 && t.hard.f === 'spr'; });
 const MES = dayWhere((k) => k.slice(8) === '28' && monthId(k) === 'mused' && ['wmorn', 'wthirds', 'wsix', 'wmis', 'wtrio'].indexOf(weekId(k)) >= 0, '2026-06-28', 1500);
+// 1.12.0: um dia em que a leve é "Chegue a 1 L hoje", um em que a do dia é "Beba 500 ml antes das 10h" (para ver a barra parar em 99% antes da conta fechar) e, depois da estreia das novas (7/12/2026), um em que a leve é "Beba água 2 vezes à tarde"
+const MIL = dayWhere((k) => C.missionsOf(k).easy.id === 'e1l');
+const ANTES10 = dayWhere((k) => C.missionsOf(k).main.id === 'am500');
+const TARDE2 = dayWhere((k) => C.missionsOf(k).easy.id === 'e2pm', '2026-12-07');
 
 /* ---------- Hoje: os cartões ---------- */
 test('hoje: a missão do dia fica como era, e logo abaixo vêm as missões extras (leve e ousada) e os desafios da semana e do mês', async ({ page }) => {
@@ -452,6 +456,80 @@ test('a missão do dia sozinha comemora como sempre ("Missão cumprida", "Amanh�
   expect(Object.keys(st.extras), 'nenhuma extra fechou com 650 ml').toEqual([]);
   await expect(page.locator('#tExtras .card-h small')).toHaveText('0 de 2');
   await expect(page.locator('#tMission .mission')).toHaveClass(/done/);
+});
+
+test('uma missão só fica "cumprida" quando a conta fecha de verdade: com 996 ml de 1 L a barra para em 99% e nada é guardado, até o gole que falta (1.12.0)', async ({ page }) => {
+  test.setTimeout(60000);
+  await open(page, MIL, { medals: true, todayMl: 996 }); // um registro de 996 ml às 11h59: 99,6% de "Chegue a 1 L hoje"
+  const leve = page.locator('#tExtras .ex-i').nth(0), bar = leve.locator('.bar');
+  await expect(leve.locator('.m-t')).toHaveText('Chegue a 1 L hoje');
+  await expect(leve.locator('.m-k')).toHaveText('Missão leve'); // antes arredondava para 100% e dizia "cumprida" sem a missão estar guardada
+  await expect(leve).not.toHaveClass(/done/);
+  await expect(bar.locator('i')).toHaveAttribute('data-w', '99');
+  await expect(bar).toHaveAttribute('aria-valuenow', '99');
+  await expect(page.locator('#tExtras .card-h small')).toHaveText('0 de 2');
+  await page.waitForTimeout(800);
+  await expect(pop(page)).toHaveCount(0);
+  expect((await stored(page)).extras[MIL + ':e'], 'nada guardado').toBeUndefined();
+  await cup(page, '150 ml').click(); // 1.146 ml: agora fecha
+  await expect(pop(page)).toContainText('Missão leve cumprida');
+  await expect(leve).toHaveClass(/done/);
+  await expect(leve.locator('.m-k')).toHaveText('Missão leve cumprida ✓');
+  await expect(bar.locator('i')).toHaveAttribute('data-w', '100');
+  await expect(page.locator('#tExtras .card-h small')).toHaveText('1 de 2');
+  expect((await stored(page)).extras[MIL + ':e']).toBeGreaterThan(0);
+});
+
+test('a missão do dia também: 499 ml de 500 antes das 10h param em 99% e a missão segue em aberto, sem festa e sem nada guardado (1.12.0)', async ({ page }) => {
+  test.setTimeout(60000);
+  await open(page, ANTES10, { medals: true, rows: [[0, [[9, 0, 499]]]] }); // hoje, às 9h, 499 ml
+  const m = page.locator('#tMission .mission');
+  await expect(m.locator('.m-t')).toHaveText('Beba 500 ml antes das 10h');
+  await expect(m.locator('.m-k')).toHaveText('Missão do dia');
+  await expect(m).not.toHaveClass(/done/);
+  await expect(m.locator('.bar i')).toHaveAttribute('data-w', '99');
+  await expect(m.locator('.bar')).toHaveAttribute('aria-valuenow', '99');
+  await page.waitForTimeout(1200);
+  await expect(pop(page)).toHaveCount(0);
+  await expect(m).not.toHaveClass(/done/);
+  expect((await stored(page)).missions[ANTES10], 'nada guardado').toBeUndefined();
+});
+
+test('uma missão nova da 1.12.0 de ponta a ponta: "Beba água 2 vezes à tarde" só estreia em 7/12/2026, avança a cada gole da tarde e comemora ao fechar, uma vez só', async ({ page }) => {
+  test.setTimeout(60000);
+  expect(TARDE2 >= '2026-12-07').toBe(true);
+  await open(page, TARDE2, { medals: true });
+  const leve = page.locator('#tExtras .ex-i').nth(0), bar = leve.locator('.bar');
+  await expect(leve.locator('.m-t')).toHaveText('Beba água 2 vezes à tarde');
+  await expect(leve.locator('.m-k')).toHaveText('Missão leve');
+  await expect(bar.locator('i')).toHaveAttribute('data-w', '0');
+  await cup(page, '250 ml').click(); // o relógio parte do meio-dia: o primeiro gole já é da tarde
+  await expect(bar.locator('i')).toHaveAttribute('data-w', '50');
+  await page.waitForTimeout(700);
+  await expect(pop(page)).toHaveCount(0);
+  await cup(page, '250 ml').click();
+  await expect(pop(page)).toContainText('Missão leve cumprida');
+  await expect(pop(page)).toContainText('Beba água 2 vezes à tarde');
+  await expect(leve).toHaveClass(/done/);
+  expect((await stored(page)).extras[TARDE2 + ':e']).toBeGreaterThan(0);
+  await expect(pop(page)).toHaveCount(0, { timeout: 8000 });
+  await cup(page, '250 ml').click(); // um gole a mais não comemora de novo
+  await page.waitForTimeout(900);
+  await expect(pop(page)).toHaveCount(0);
+});
+
+test('missão cumprida fica cumprida: guardada, a missão segue assim mesmo sem registro nenhum no dia (apagar um registro não a desfaz), na do dia e na leve', async ({ page }) => {
+  await open(page, LEVE3, { medals: true, missions: [0], extras: [[0, 'e']] });
+  const m = page.locator('#tMission .mission'), ex = page.locator('#tExtras .ex-i');
+  await expect(m).toHaveClass(/done/);
+  await expect(m.locator('.m-k')).toHaveText('Missão cumprida ✓');
+  await expect(m.locator('.bar i')).toHaveAttribute('data-w', '100');
+  await expect(ex.nth(0)).toHaveClass(/done/);
+  await expect(ex.nth(0).locator('.m-k')).toHaveText('Missão leve cumprida ✓');
+  await expect(ex.nth(0).locator('.bar i')).toHaveAttribute('data-w', '100');
+  await expect(ex.nth(1)).not.toHaveClass(/done/);
+  await expect(ex.nth(1).locator('.bar i')).toHaveAttribute('data-w', '0');
+  await expect(page.locator('#tExtras .card-h small')).toHaveText('1 de 2');
 });
 
 test('as duas extras sem a missão do dia não fazem o "Dia cheio"; com ela, fazem', async ({ page }) => {

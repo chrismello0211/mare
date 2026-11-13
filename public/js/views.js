@@ -103,8 +103,9 @@ function tipsHTML() {
 }
 let lastMP = { k: '', p: 0 }; // a barra da missão cresce a partir do valor anterior, não do zero
 function missionHTML() {
-  const k = today(), m = missionFor(k), raw = Math.round(missionProgress(k, S.days[k], goalNow()) * 100);
-  const done = !!S.missions[k] || raw >= 100, p = done ? 100 : raw, from = lastMP.k === k ? lastMP.p : 0;
+  // "Cumprida" só quando a conta fecha de verdade (progresso >= 1, a mesma regra que guarda a missão no app.js): 99,6% arredondava para 100 e a tela dizia "cumprida" antes de a missão ser guardada (1.12.0)
+  const k = today(), m = missionFor(k), pr = missionProgress(k, S.days[k], goalNow());
+  const done = !!S.missions[k] || pr >= 1, p = done ? 100 : Math.min(99, Math.round(pr * 100)), from = lastMP.k === k ? lastMP.p : 0;
   lastMP = { k: k, p: p };
   return '<section class="card mission' + (done ? ' done' : '') + '"><div class="m-ico" aria-hidden="true">' + m.e + '</div><div class="m-body">' +
     '<span class="m-k">' + (done ? 'Missão cumprida ✓' : 'Missão do dia') + '</span><span class="m-t">' + m.t + '</span>' +
@@ -121,7 +122,7 @@ function extrasHTML() {
   const k = today(), t = missionsOf(k), goal = goalNow(), day = S.days[k], ex = S.extras || {};
   let n = 0;
   const rows = [['e', 'Leve', t.easy], ['h', 'Ousada', t.hard]].map((x) => {
-    const m = x[2], raw = Math.round(tierProgress(m, day, goal) * 100), done = !!ex[extraKey(k, x[0])] || raw >= 100, p = done ? 100 : raw;
+    const m = x[2], pr = tierProgress(m, day, goal), done = !!ex[extraKey(k, x[0])] || pr >= 1, p = done ? 100 : Math.min(99, Math.round(pr * 100)); // como na missão do dia: "cumprida" só com a conta fechada
     if (done) n++;
     return '<li class="ex-i' + (done ? ' done' : '') + '"><div class="m-ico" aria-hidden="true">' + m.e + '</div><div class="m-body"><span class="m-k">Missão ' + x[1].toLowerCase() +
       (done ? ' cumprida\u00a0✓' : '') + '</span><span class="m-t">' + m.t + '</span>' + xbar(k + ':' + x[0], p, 'Progresso da missão ' + x[1].toLowerCase()) + '</div></li>';

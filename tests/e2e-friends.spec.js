@@ -1252,14 +1252,20 @@ test.describe('em outras telas', () => {
 
   test('o que sai do aparelho acompanha o dia: % da meta e sequência, sem volumes', async ({ page }) => {
     await open(page, { friends: CREW }, { todayMl: 2800, history: [5, 2800] });
-    const p = await page.evaluate(() => window.__fake.hooks.payload());
+    // o perfil e as medalhas que o aparelho guardou, lidos de uma vez só: uma medalha que chegasse entre as duas leituras daria um falso erro
+    const { p, got } = await page.evaluate(() => ({ p: window.__fake.hooks.payload(), got: JSON.parse(localStorage.getItem('mare:v1')).achievements }));
     expect(p).toMatchObject({ pct: 100, met: true, sh: true });
     expect(p.st).toBeGreaterThanOrEqual(5);
-    expect(Object.keys(p).sort()).toEqual(['day', 'gl', 'ins', 'mc', 'md', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm']);
+    // cada medalha é um bit, na ordem combinada com a nuvem: as 24 primeiras vão em md; as da 1.7.0 em diante, em md2, que só existe quando há alguma.
+    // Com esta turma e estes dias, a turma pode vencer o desafio da semana já numa terça ("Remando juntos", bit 13 de md2), conforme a semana e o desafio sorteado:
+    // por isso md2 é conferido como o md (sai do que o aparelho guardou), em vez de suposto ausente, e o teste vale em qualquer data
+    const bits = (ids) => ids.reduce((m, id, i) => (got[id] ? m + Math.pow(2, i) : m), 0);
+    const want = bits(['first', 'goal', 's3', 's7', 's14', 's30', 'early', 'sunset', 'mission', 'm10', 'weekend', 'd10', 's60', 's100', 'd30', 'd100', 'm30', 'early7', 'sunset5', 'thirds7', 'win25', 'back', 'weekends4', 'wwd']);
+    const want2 = bits(['m1', 'use100', 'summer', 'weekends12', 'oceans', 'crew', 'trio', 'trio7', 'wk1', 'wk4', 'wk12', 'mo1', 'mo3', 'cw1', 'cw4']);
+    expect(Object.keys(p).sort(), 'os campos do perfil (md2 só quando há medalha da segunda palavra)').toEqual(['day', 'gl', 'ins', 'mc', 'md', 'met', 'nm', 'pct', 'sh', 'st', 'v', 'wm'].concat(want2 ? ['md2'] : []).sort());
     expect(p.wm, 'os 6 dias na meta (hoje + 5 anteriores)').toBe(63);
-    const got = (await stored(page)).achievements; // as medalhas que o aparelho guardou, na ordem combinada com a nuvem (cada uma é um bit)
-    const want = ['first', 'goal', 's3', 's7', 's14', 's30', 'early', 'sunset', 'mission', 'm10', 'weekend', 'd10', 's60', 's100', 'd30', 'd100', 'm30', 'early7', 'sunset5', 'thirds7', 'win25', 'back', 'weekends4', 'wwd'].reduce((m, id, i) => (got[id] ? m + Math.pow(2, i) : m), 0);
     expect(p.md, 'as medalhas do aparelho viram a máscara md').toBe(want);
+    expect(p.md2 || 0, 'e as da segunda palavra, a máscara md2').toBe(want2);
     expect(p.gl, 'sem o "sim" da pessoa, a meta em ml não sai').toBeNull();
     expect(JSON.stringify(p)).not.toMatch(/2800|ml/);
   });
