@@ -521,7 +521,7 @@ describe('initCloud: os ajustes da conta', () => {
     expect(nPrefs()).toBe(2);
     expect(Object.keys(ACC.prefsParse(await readDoc(env, PREFS)).prefs.ach).sort()).toEqual(['first', 's7']);
   });
-  test('com as 39 medalhas e o pior caso de nome, apelido e recados, o documento passa nas regras de verdade (até 4000 letras)', async () => {
+  test('com as 41 medalhas e o pior caso de nome, apelido e recados, o documento passa nas regras de verdade (até 4000 letras)', async () => {
     const all = {}; C.ACHIEVEMENTS.forEach((x, i) => { all[x.id] = Date.now() - (40 - i) * 864e5 - i * 777; });
     const a = await boot({ user: ACCT, profile: { name: 'ç'.repeat(30) }, social: { nick: '🐠'.repeat(20) }, ach: all });
     for (let i = 0; i < 60; i++) a.S.ui['tip_' + 'x'.repeat(20) + i] = 1;
@@ -529,7 +529,7 @@ describe('initCloud: os ajustes da conta', () => {
     const d = await until(() => readDoc(env, PREFS), 'os ajustes na nuvem');
     expect(d.j.length).toBeLessThanOrEqual(4000);
     const back = ACC.prefsParse(d).prefs;
-    expect(Object.keys(back.ach)).toHaveLength(39);
+    expect(Object.keys(back.ach)).toHaveLength(41);
     expect(Object.keys(back.ui).length).toBeGreaterThan(40); // nada foi solto: coube tudo
     expect('pg' in JSON.parse(d.j), 'sem missão extra nem desafio guardados, o documento não ganha o campo pg').toBe(false);
   });
@@ -580,7 +580,7 @@ describe('initCloud: os ajustes da conta', () => {
     hidden(); await sleep(600);
     expect(nPrefs()).toBe(0); // a nuvem já tinha tudo: nada para devolver
   });
-  test('o rastro no máximo (52 semanas, 24 meses, 52 vitórias da turma e 400 dias) com as 39 medalhas e o pior caso de nome, apelido e recados: o documento passa nas regras de verdade, e o que sai primeiro são os recados', async () => {
+  test('o rastro no máximo (52 semanas, 24 meses, 52 vitórias da turma e 400 dias) com as 41 medalhas e o pior caso de nome, apelido e recados: o documento passa nas regras de verdade, e o que sai primeiro são os recados', async () => {
     const all = {}; C.ACHIEVEMENTS.forEach((x, i) => { all[x.id] = Date.now() - (40 - i) * 864e5 - i * 777; });
     const a = await boot({ user: ACCT, profile: { name: 'ç'.repeat(30) }, social: { nick: '🐠'.repeat(20) }, ach: all, trace: traceOf({ weeks: 52, months: 24, crew: 52, days: 400 }) });
     for (let i = 0; i < 60; i++) a.S.ui['tip_' + 'x'.repeat(20) + i] = 1;
@@ -588,7 +588,7 @@ describe('initCloud: os ajustes da conta', () => {
     const d = await until(() => readDoc(env, PREFS), 'os ajustes na nuvem');
     expect(d.j.length).toBeLessThanOrEqual(4000); // o limite das regras (validPrefs)
     const back = ACC.prefsParse(d).prefs;
-    expect(Object.keys(back.ach)).toHaveLength(39); // as datas das medalhas são o último recurso: ficam todas
+    expect(Object.keys(back.ach)).toHaveLength(41); // as datas das medalhas são o último recurso: ficam todas
     expect(Object.keys(back.pg.ch)).toHaveLength(76); // 52 semanas e 24 meses
     expect(Object.keys(back.pg.cw)).toHaveLength(52);
     expect(Object.keys(back.pg.mi)).toHaveLength(400);

@@ -459,11 +459,67 @@ describe('1.2.0: a turma única, a meta batida e o resumo da semana', () => {
     expect(P.weekMessage({ hits: 3, total: 14, mine: 1, won: 'x'.repeat(100) }).body).not.toContain('x'.repeat(61));
   });
   it('weekMessage com a vitória: o título de cada um dos desafios da turma sai inteiro (nenhum passa de 60 letras)', () => {
-    expect(C.CREW_CHALLENGES.length).toBe(10);
+    expect(C.CREW_CHALLENGES.length).toBe(12);
     C.CREW_CHALLENGES.forEach((c) => {
       expect(c.t.length).toBeLessThanOrEqual(60);
       expect(P.weekMessage({ hits: 12, total: 21, mine: 3, won: c.t }).body).toContain('A turma venceu o desafio da semana: ' + c.t + '. Toque para ver a turma.');
     });
+  });
+  it('weekMessage com a vitória do MÊS (1.14.0): só o mês, ou o mês e a semana numa frase só; sempre UMA frase no mesmo aviso, antes do convite, nunca um aviso novo', () => {
+    const base = { hits: 23, total: 35, mine: 5 }, head = 'A turma bateu a meta 23 vezes nos últimos 7 dias. Você bateu em 5 dias.';
+    expect(P.weekMessage(Object.assign({}, base, { monthWon: 'Turma firme', month: 'dezembro' })).body).toBe(head + ' A turma venceu o desafio do mês de dezembro: Turma firme. Toque para ver a turma.');
+    expect(P.weekMessage(Object.assign({}, base, { won: 'Maré da semana', monthWon: 'Turma firme', month: 'dezembro' })).body)
+      .toBe(head + ' A turma venceu o desafio da semana (Maré da semana) e o do mês de dezembro (Turma firme). Toque para ver a turma.');
+    // sem o nome do mês, a frase diz "do mês passado" (e nada fica pela metade)
+    expect(P.weekMessage(Object.assign({}, base, { monthWon: 'Turma firme' })).body).toBe(head + ' A turma venceu o desafio do mês passado: Turma firme. Toque para ver a turma.');
+    expect(P.weekMessage(Object.assign({}, base, { won: 'Maré da semana', monthWon: 'Turma firme' })).body)
+      .toBe(head + ' A turma venceu o desafio da semana (Maré da semana) e o do mês passado (Turma firme). Toque para ver a turma.');
+    // só a semana continua exatamente como na 1.13.0, mesmo com o nome de um mês (sem o título do mês, o nome não aparece)
+    expect(P.weekMessage(Object.assign({}, base, { won: 'Maré da semana', month: 'dezembro' })).body).toBe(head + ' A turma venceu o desafio da semana: Maré da semana. Toque para ver a turma.');
+    expect(P.weekMessage(Object.assign({}, base, { month: 'dezembro' }))).toEqual(P.weekMessage(base));
+    // semana perfeita: as frases vão no fim, e o aviso continua sem o convite
+    expect(P.weekMessage({ hits: 21, total: 21, mine: 7, monthWon: 'Quase todos a bordo', month: 'janeiro' }).body).toBe('Semana perfeita! Todo mundo bateu a meta todos os dias. A turma venceu o desafio do mês de janeiro: Quase todos a bordo.');
+    expect(P.weekMessage({ hits: 21, total: 21, mine: 7, won: 'Corrente da turma', monthWon: 'Maré do mês', month: 'março' }).body)
+      .toBe('Semana perfeita! Todo mundo bateu a meta todos os dias. A turma venceu o desafio da semana (Corrente da turma) e o do mês de março (Maré do mês).');
+    // o título, a etiqueta (um aviso só, no mesmo lugar da tela) e o destino não mudam, e a mensagem não ganha nenhum campo novo
+    const a = P.weekMessage(base), b = P.weekMessage(Object.assign({}, base, { won: 'Maré cheia', monthWon: 'Ritmo forte', month: 'abril' }));
+    expect([b.title, b.tag, b.url]).toEqual([a.title, a.tag, a.url]);
+    expect(Object.keys(b).sort()).toEqual(['body', 'tag', 'title', 'url']);
+    expect(b.body).toBe(a.body.replace(' Toque para ver a turma.', ' A turma venceu o desafio da semana (Maré cheia) e o do mês de abril (Ritmo forte). Toque para ver a turma.'));
+    expect(b.body).not.toMatch(/ranking| (último|última|perdeu|menos) |\d+ ?ml|undefined|null|NaN/);
+  });
+  it('weekMessage: o mês sem texto (ou que não é texto) não muda nada; os espaços das pontas saem, o título é cortado em 60 letras e o nome do mês em 12', () => {
+    const plain = P.weekMessage({ hits: 23, total: 35, mine: 5, won: 'Maré da semana' });
+    [undefined, null, '', '   ', '\n\t', 0, 5, true, {}, [], ['Turma firme'], { t: 'x' }].forEach((v) => expect(P.weekMessage({ hits: 23, total: 35, mine: 5, won: 'Maré da semana', monthWon: v, month: 'dezembro' })).toEqual(plain));
+    // o nome do mês que não é texto (ou vem vazio) cai no "mês passado"; nunca aparece "undefined", "null" nem "[object Object]"
+    [undefined, null, '', '   ', 7, true, {}, [], ['dezembro']].forEach((v) => {
+      const body = P.weekMessage({ hits: 3, total: 14, mine: 1, monthWon: 'Turma firme', month: v }).body;
+      expect(body).toContain('desafio do mês passado: Turma firme. Toque');
+      expect(body).not.toMatch(/undefined|null|\[object/);
+    });
+    expect(P.weekMessage({ hits: 3, total: 14, mine: 1, monthWon: '  Turma firme \n', month: '  dezembro\t' }).body).toContain('desafio do mês de dezembro: Turma firme. Toque');
+    expect(P.weekMessage({ hits: 3, total: 14, mine: 1, monthWon: '  ' + 'x'.repeat(100) + '  ', month: 'dezembro' }).body).toContain('desafio do mês de dezembro: ' + 'x'.repeat(60) + '. Toque');
+    expect(P.weekMessage({ hits: 3, total: 14, mine: 1, monthWon: 'x'.repeat(100), month: 'dezembro' }).body).not.toContain('x'.repeat(61));
+    expect(P.weekMessage({ hits: 3, total: 14, mine: 1, monthWon: 'Turma firme', month: 'y'.repeat(40) }).body).toContain('desafio do mês de ' + 'y'.repeat(12) + ': Turma firme');
+    expect(P.weekMessage({ hits: 3, total: 14, mine: 1, monthWon: 'Turma firme', month: 'y'.repeat(40) }).body).not.toContain('y'.repeat(13));
+  });
+  it('weekMessage com a vitória do mês: cada um dos 4 desafios mensais da turma sai inteiro (nenhum título passa de 60 letras), com cada nome de mês', () => {
+    expect(C.CREW_MONTHLY.length).toBe(4);
+    C.CREW_MONTHLY.forEach((c) => {
+      expect(c.t.length).toBeLessThanOrEqual(60);
+      C.MONTH_NAMES.forEach((m) => {
+        expect(m.length).toBeLessThanOrEqual(12);
+        expect(P.weekMessage({ hits: 12, total: 21, mine: 3, monthWon: c.t, month: m }).body).toContain('A turma venceu o desafio do mês de ' + m + ': ' + c.t + '. Toque para ver a turma.');
+        expect(P.weekMessage({ hits: 12, total: 21, mine: 3, won: 'Todos a bordo', monthWon: c.t, month: m }).body).toContain('A turma venceu o desafio da semana (Todos a bordo) e o do mês de ' + m + ' (' + c.t + '). Toque para ver a turma.');
+      });
+    });
+  });
+  it('weekMessage com as duas frases: o aviso mais comprido (turma de 31, as duas vitórias, os maiores títulos) continua curto o bastante para o aviso do celular', () => {
+    const longest = (l) => l.map((c) => c.t).sort((x, y) => y.length - x.length)[0];
+    const body = P.weekMessage({ hits: 217, total: 217, mine: 7, won: longest(C.CREW_CHALLENGES), monthWon: longest(C.CREW_MONTHLY), month: 'fevereiro' }).body;
+    expect(body.length).toBeLessThanOrEqual(190); // a semana perfeita é a mais curta; a mais longa abaixo:
+    const worst = P.weekMessage({ hits: 216, total: 217, mine: 7, won: longest(C.CREW_CHALLENGES), monthWon: longest(C.CREW_MONTHLY), month: 'fevereiro' }).body;
+    expect(worst.length).toBeLessThanOrEqual(260); // o texto de um aviso de celular se corta em 3 ou 4 linhas, mas o aviso nunca vira um parágrafo
   });
   it('weekMessage nunca quebra com números estranhos', () => {
     [{}, { hits: 'x', total: NaN, mine: 'y' }, { hits: -4, total: -1, mine: 99 }, { hits: 1e9, total: 1e9, mine: 7.9 }].forEach((w) => {

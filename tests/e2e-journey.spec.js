@@ -1,4 +1,4 @@
-// Maré — testes de interface da Jornada (1.6.0 a 1.11.0): as 39 medalhas (por grupo, com quanto falta), "Mais perto de conquistar", "Seus padrões" em gráficos e "Seus meses".
+// Maré — testes de interface da Jornada (1.6.0 a 1.14.0): as 41 medalhas (por grupo, com quanto falta), "Mais perto de conquistar", "Seus padrões" em gráficos e "Seus meses".
 // (as missões extras, os desafios da semana e do mês e a seção "Desafios" da Jornada têm o seu próprio arquivo: e2e-challenges.spec.js)
 // Cada teste roda em todos os aparelhos do playwright.config.js. Qualquer erro de JavaScript na página reprova.
 // Os históricos são montados com tests/helpers/seed.js (history = um registro às 10h por dia; rows = dias com horários à escolha). Como a data do teste
@@ -24,22 +24,22 @@ const NOON = (page, ago) => page.evaluate((n) => { const d = new Date(); d.setDa
 const OCEAN = { concha: 6 }; // com a concha guardada, quem tem uma estrela-do-mar (10 L) a ganha em silêncio, sem o painel "Nova insígnia!"
 const REEF5 = { concha: 40, estrela: 38, baiacu: 30, tartaruga: 20, cavalo: 10 };
 
-test('jornada: as 39 medalhas vêm em 7 grupos, e as que faltam mostram quanto já foi', async ({ page }) => {
+test('jornada: as 41 medalhas vêm em 7 grupos, e as que faltam mostram quanto já foi', async ({ page }) => {
   await seed(page, { history: [5, 2800], insignias: OCEAN }); // 5 dias seguidos na meta, às 10h
   await page.goto('/');
   await tab(page, 'Jornada').click();
   await expect(page.locator('.mg-h h3')).toHaveText(['Começos e missões', 'Sequências', 'Metas batidas', 'Rotina do dia', 'Fins de semana e datas', 'Desafios', 'Com a turma']);
-  await expect(page.locator('.medals .medal')).toHaveCount(39);
+  await expect(page.locator('.medals .medal')).toHaveCount(41);
   const won = await page.locator('.medals .medal:not(.off)').count(); // o número do título é o das medalhas conquistadas que estão na tela
   expect(won).toBeGreaterThanOrEqual(5);
-  await expect(page.locator('.card-h.out', { has: page.locator('h2', { hasText: /^Medalhas$/ }) }).locator('small')).toHaveText(won + ' de 39');
+  await expect(page.locator('.card-h.out', { has: page.locator('h2', { hasText: /^Medalhas$/ }) }).locator('small')).toHaveText(won + ' de 41');
   // a contagem de cada grupo (os grupos que não dependem do dia da semana em que o teste roda)
   await expect(page.locator('.mg-h').nth(0)).toContainText('2 de 7'); // Primeira gota e Na mosca
   await expect(page.locator('.mg-h').nth(1)).toContainText('1 de 6'); // Pegando o ritmo
   await expect(page.locator('.mg-h').nth(2)).toContainText('0 de 5');
   await expect(page.locator('.mg-h').nth(3)).toContainText('2 de 5'); // Antes do pôr do sol e Relógio da maré
   await expect(page.locator('.mg-h').nth(5)).toContainText('0 de 7'); // Desafios: nenhum trio de missões nem desafio vencido ainda
-  await expect(page.locator('.mg-h').nth(6)).toContainText('0 de 3'); // Turma completa, Remando juntos e Time da maré
+  await expect(page.locator('.mg-h').nth(6)).toContainText('0 de 5'); // Turma completa, Remando juntos, Time da maré, Navegando juntos e Frota da maré
   // as duas da 1.11.0: a primeira é "tudo ou nada" (sem barra), a segunda mostra quantas vitórias da turma já houve
   await expect(medal(page, 'Remando juntos')).toHaveClass(/off/);
   await expect(medal(page, 'Remando juntos').locator('.mprog')).toHaveCount(0);
@@ -48,6 +48,14 @@ test('jornada: as 39 medalhas vêm em 7 grupos, e as que faltam mostram quanto j
   await expect(medal(page, 'Time da maré')).toContainText('A turma venceu o desafio da semana, 4 vezes');
   await expect(medal(page, 'Time da maré')).toContainText('0 de 4 desafios');
   await expect(medal(page, 'Time da maré').locator('.mprog i')).toHaveAttribute('data-w', '0');
+  // as duas da 1.14.0 (o desafio do mês da turma): a primeira é "tudo ou nada" (sem barra), a segunda mostra quantos meses a turma já venceu
+  await expect(medal(page, 'Navegando juntos')).toHaveClass(/off/);
+  await expect(medal(page, 'Navegando juntos').locator('.mprog')).toHaveCount(0);
+  await expect(medal(page, 'Navegando juntos')).toContainText('A turma venceu o desafio do mês');
+  await expect(medal(page, 'Frota da maré')).toHaveClass(/off/);
+  await expect(medal(page, 'Frota da maré')).toContainText('A turma venceu o desafio do mês, 3 vezes');
+  await expect(medal(page, 'Frota da maré')).toContainText('0 de 3 desafios');
+  await expect(medal(page, 'Frota da maré').locator('.mprog i')).toHaveAttribute('data-w', '0');
   // conquistada: sem barra e com a data
   await expect(medal(page, 'Pegando o ritmo')).not.toHaveClass(/off/);
   await expect(medal(page, 'Pegando o ritmo').locator('em')).toBeVisible();
@@ -103,7 +111,7 @@ test('"Mais perto de conquistar" aponta a medalha mais adiantada, no desenho da 
   await seed(p2, {});
   await p2.goto('/');
   await p2.locator('#tabbar').getByRole('button', { name: 'Jornada', exact: true }).click();
-  await expect(p2.locator('.medals .medal')).toHaveCount(39);
+  await expect(p2.locator('.medals .medal')).toHaveCount(41);
   await expect(p2.locator('.mission.near')).toHaveCount(0);
   await expect(p2.locator('.card-h.out + .mg-h')).toHaveCount(1);
   await p2.close();
@@ -497,7 +505,7 @@ test('medalha nova ao vivo: bater a meta depois de 3 dias sem bater comemora "Vo
   await expect(medal(page, 'Volta por cima').locator('em')).toBeVisible();
 });
 
-test('layout: a Jornada com 39 medalhas, os gráficos e o seu mês cabe em qualquer tela, no tema claro e no escuro', async ({ page }, info) => {
+test('layout: a Jornada com 41 medalhas, os gráficos e o seu mês cabe em qualquer tela, no tema claro e no escuro', async ({ page }, info) => {
   // 100 dias (mais de dois meses de uso, em qualquer dia do ano) com horários variados (cedo, tarde, noite), alguns dias de meta e outros não. O calendário mostra até 90 dias para trás: com menos, o dia 1 de um mês pode cair
   // num quadradinho vazio de antes do primeiro uso (sem data), e o teste não acharia a coluna em que o mês começa (aconteceu em 12/11/2026, quando o dia 1 de setembro caía 2 dias antes do 70º dia)
   const rows = [];
@@ -506,11 +514,12 @@ test('layout: a Jornada com 39 medalhas, os gráficos e o seu mês cabe em qualq
     await pg.locator('#tabbar').getByRole('button', { name: 'Jornada', exact: true }).click();
     await pg.waitForTimeout(900); // as barras terminam de crescer
     await expect(pg.locator('html')).toHaveAttribute('data-theme', scheme);
+    await expect(pg.locator('.chl-j .ins p')).toContainText('Desafios da turma vencidos: 12 semanas e 3 meses.'); // a frase mais comprida da turma (1.14.0), com as semanas e os meses
     const over = await pg.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(over, 'rolagem lateral (' + scheme + ')').toBeLessThanOrEqual(0);
     const out = await pg.evaluate(() => {
       const w = window.innerWidth, bad = [];
-      document.querySelectorAll('.medals .medal, .mission.near, .rh, .wk-plot.sm, .rh-leg span, .mg-h, .mo-b, .mo-v, .hm, .hm-g, .hm .hm-c, .hm + .legend').forEach((e) => {
+      document.querySelectorAll('.medals .medal, .mission.near, .chl-j .ins p, .rh, .wk-plot.sm, .rh-leg span, .mg-h, .mo-b, .mo-v, .hm, .hm-g, .hm .hm-c, .hm + .legend').forEach((e) => {
         const r = e.getBoundingClientRect();
         if (r.left < -0.5 || r.right > w + 0.5) bad.push(e.className + ' ' + Math.round(r.left) + '–' + Math.round(r.right));
       });
@@ -550,12 +559,13 @@ test('layout: a Jornada com 39 medalhas, os gráficos e o seu mês cabe em qualq
     expect(h.w, 'quadradinho do calendário').toBeGreaterThanOrEqual(9);
     expect(Math.abs(h.w - h.h), 'quadradinho quadrado').toBeLessThanOrEqual(1);
   };
-  await seed(page, { rows: rows, todayMl: 900, profile: { theme: 'light' }, insignias: REEF5 });
+  const crew = { crewWon: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], crewWonMonths: [0, 1, 2] }; // 12 semanas e 3 meses da turma vencidos (a frase da Jornada mais comprida que se espera)
+  await seed(page, Object.assign({ rows: rows, todayMl: 900, profile: { theme: 'light' }, insignias: REEF5 }, crew));
   await page.goto('/');
   await look(page, 'light');
   const p2 = await page.context().newPage();
   p2.on('pageerror', (e) => { errors.push(e.message); });
-  await seed(p2, { rows: rows, todayMl: 900, profile: { theme: 'dark' }, insignias: REEF5 });
+  await seed(p2, Object.assign({ rows: rows, todayMl: 900, profile: { theme: 'dark' }, insignias: REEF5 }, crew));
   await p2.goto('/');
   await look(p2, 'dark');
   await p2.close();

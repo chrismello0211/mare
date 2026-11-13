@@ -1,7 +1,7 @@
 // Maré — estado de partida dos testes de interface (usado por e2e.spec.js e e2e-friends.spec.js).
 // Estado pronto, pulando o onboarding. É montado dentro do navegador para usar o fuso do aparelho emulado.
 // Opções: todayMl, entries [[ml, bebida]], history [dias, ml por dia] (para ter litros acumulados), insignias { id: há quantos dias },
-// rows [[dias atrás, [[hora, min, ml, bebida?], ...], meta?]] (dias com horários à escolha), profile, social, ui, last, medals (true = as 39 medalhas; ou uma lista
+// rows [[dias atrás, [[hora, min, ml, bebida?], ...], meta?]] (dias com horários à escolha), profile, social, ui, last, medals (true = as 41 medalhas; ou uma lista
 // de ids, como ['first', 's7']; ou { id: instante em ms } para escolher a data de cada uma), reminders, missions [dias atrás, ...] (as missões cumpridas nesses dias, às 20h),
 // extras [[dias atrás, 'e' (leve) ou 'h' (ousada)], ...] (as missões extras cumpridas, às 20h), challenges [['w' (semana) ou 'm' (mês), quantas atrás], ...] (os desafios já vencidos: 0 = o desta semana ou deste mês),
 // crewWon [quantas semanas atrás, ...] (os desafios da turma já vencidos: 0 = o desta semana, 1 = o da semana passada),
@@ -41,7 +41,7 @@ export async function seed(page, o) {
     (opt.crewWonMonths || []).forEach((n) => { const t = new Date(now.getFullYear(), now.getMonth() - n, 1); crw[t.getFullYear() + '-' + p2(t.getMonth() + 1)] = now.getTime() - 60000 - 30 * 864e5 * n; });
     const ins = {};
     Object.keys(opt.insignias || {}).forEach((id) => { ins[id] = now.getTime() - 864e5 * (1 + opt.insignias[id]); }); // valor = há quantos dias
-    const ach = {}, every = ['first', 'goal', 's3', 's7', 's14', 's30', 'early', 'sunset', 'mission', 'm10', 'weekend', 'd10', 's60', 's100', 'd30', 'd100', 'm30', 'early7', 'sunset5', 'thirds7', 'win25', 'back', 'weekends4', 'wwd', 'm1', 'use100', 'summer', 'weekends12', 'oceans', 'crew', 'trio', 'trio7', 'wk1', 'wk4', 'wk12', 'mo1', 'mo3', 'cw1', 'cw4'];
+    const ach = {}, every = ['first', 'goal', 's3', 's7', 's14', 's30', 'early', 'sunset', 'mission', 'm10', 'weekend', 'd10', 's60', 's100', 'd30', 'd100', 'm30', 'early7', 'sunset5', 'thirds7', 'win25', 'back', 'weekends4', 'wwd', 'm1', 'use100', 'summer', 'weekends12', 'oceans', 'crew', 'trio', 'trio7', 'wk1', 'wk4', 'wk12', 'mo1', 'mo3', 'cw1', 'cw4', 'cm1', 'cm3'];
     if (opt.medals && typeof opt.medals === 'object' && !Array.isArray(opt.medals)) Object.keys(opt.medals).forEach((id) => { ach[id] = opt.medals[id]; }); // { id: instante em ms }
     else (opt.medals === true ? every : Array.isArray(opt.medals) ? opt.medals : []).forEach((id) => { ach[id] = 1; });
     localStorage.setItem('mare:v1', JSON.stringify({

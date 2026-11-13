@@ -19,7 +19,7 @@ import { CACHE_KEY, cleanState, cleanNick, codeFromURL, normCode, validCode, inv
 import { cleanEmail, emailShort, createProblem, signInProblem, resetProblem, authText, isBadLogin, ACCT_KEY, MARK_KEY, cleanAcct, restorePlan, applyPlan, applyPrefs, achAhead, pgAhead, mergePg } from './account.js';
 import { createSheet, signinSheet, resetSheet, resetDoneSheet, deleteSheet } from './account-view.js';
 
-export const APP_VERSION = '1.13.0'; // aumente a cada deploy, junto com VERSION no sw.js
+export const APP_VERSION = '1.14.0'; // aumente a cada deploy, junto com VERSION no sw.js
 
 // Os cartões de novidades: só o mais novo (tip_news20, da 1.11.0) aparece; os de antes (1.2, 1.5, 1.6, 1.7, 1.9 e 1.10) já não voltam, mas ficam marcados como vistos
 // sempre que a pessoa vê o de agora, abre o painel, começa do zero ou chega por uma conta.
@@ -941,8 +941,9 @@ function crewWeekCheck(st) {
   socTouch(); // a turma passa a ver as medalhas novas no perfil
   if (tab === 'journey' && !typing()) render(true);
 }
-// O desafio do mês da turma (1.13.0): o mesmo, para o mês de calendário, a partir da conta de cada amigo (os dias do mês em que bateu a meta). A vitória fica guardada em S.crewWon com a chave do mês (AAAA-MM) e vira festa; as
-// medalhas só olham as segundas-feiras desse mapa, então o mês não traz medalha (nada a anunciar à turma). Nos 7 primeiros dias do mês seguinte ainda dá para fechar o mês que acabou de terminar.
+// O desafio do mês da turma (1.13.0): o mesmo, para o mês de calendário, a partir da conta de cada amigo (os dias do mês em que bateu a meta). A vitória fica guardada em S.crewWon com a chave do mês (AAAA-MM) e vira festa. Desde a 1.14.0 o mês também
+// traz medalhas (cm1 e cm3, que contam as chaves de 7 caracteres desse mapa; as das semanas seguem contando só as segundas-feiras), com o mesmo cartão e a mesma volta ao perfil da turma do desafio da semana. Nos 7 primeiros dias do mês seguinte ainda dá para
+// fechar o mês que acabou de terminar.
 function crewMonthCheck(st) {
   if (!S.social.on || !st || !st.ready || !st.friends.length) return;
   const due = crewMonthDue(S, st.friends, today());
@@ -951,7 +952,10 @@ function crewMonthCheck(st) {
   const x = due[0];
   if (!popBusy()) confetti();
   pop(x.c.e, 'Desafio do mês da turma', x.c.t, due.length > 1 ? 'A turma venceu 2 meses!' : x.past ? 'A turma venceu o mês passado!' : 'A turma venceu o mês!');
+  newAchievements(S).forEach((a) => { S.achievements[a.id] = Date.now(); pop(a.e, 'Nova medalha', a.t, a.d); });
   save();
+  socTouch(); // a turma passa a ver as medalhas novas no perfil
+  if (tab === 'journey' && !typing()) render(true);
 }
 // Os acenos de agora viram "vistos" quando a aba Amigos está aberta (a bolinha da aba some)
 function markWavesSeen() {

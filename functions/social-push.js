@@ -130,13 +130,19 @@ export function messageOf(ev, name) {
   }
   return { title: title, body: body, tag: 'mare-amigo-' + ev.kind + '-' + ev.from, url: URL_FRIENDS };
 }
-// Resumo da semana da turma (domingo, 19h). w = { hits, total, mine, won? }: quantas vezes a turma bateu a meta nos últimos 7 dias, de quantas
+// Resumo da semana da turma (domingo, 19h). w = { hits, total, mine, won?, monthWon?, month? }: quantas vezes a turma bateu a meta nos últimos 7 dias, de quantas
 // possíveis, quantos dos 7 dias a própria pessoa bateu (null se não mostra o progresso) e, desde a 1.13.0, o título do desafio da semana quando a turma o venceu
-// (won; sem ele, o texto é o de sempre). Texto sempre positivo: sem placar nem nomes. A frase do desafio é UMA frase a mais no mesmo aviso, nunca um aviso novo.
+// (won; sem ele, o texto é o de sempre). Desde a 1.14.0, no primeiro domingo depois de um mês fechar, também o título do desafio do MÊS que a turma venceu (monthWon) e o nome desse mês
+// (month, por extenso: "dezembro"; sem ele a frase diz "do mês passado"). Texto sempre positivo: sem placar nem nomes. As frases dos desafios são UMA frase a mais no mesmo aviso, nunca um aviso novo:
+// só a semana, só o mês, ou as duas numa frase só ("A turma venceu o desafio da semana (X) e o do mês de dezembro (Y).").
 export function weekMessage(w) {
   const hits = Math.max(0, Math.floor(+w.hits) || 0), total = Math.max(0, Math.floor(+w.total) || 0);
   const mine = w.mine == null ? 0 : Math.max(0, Math.min(7, Math.floor(+w.mine) || 0));
-  const won = typeof w.won === 'string' ? w.won.trim().slice(0, 60) : '', win = won ? ' A turma venceu o desafio da semana: ' + won + '.' : '';
+  const won = typeof w.won === 'string' ? w.won.trim().slice(0, 60) : '', monthWon = typeof w.monthWon === 'string' ? w.monthWon.trim().slice(0, 60) : '';
+  const month = typeof w.month === 'string' ? w.month.trim().slice(0, 12) : '', ofMonth = month ? 'do mês de ' + month : 'do mês passado';
+  const win = won && monthWon ? ' A turma venceu o desafio da semana (' + won + ') e o ' + ofMonth + ' (' + monthWon + ').'
+    : won ? ' A turma venceu o desafio da semana: ' + won + '.'
+      : monthWon ? ' A turma venceu o desafio ' + ofMonth + ': ' + monthWon + '.' : '';
   const body = total > 0 && hits >= total ? 'Semana perfeita! Todo mundo bateu a meta todos os dias.' + win
     : 'A turma bateu a meta ' + (hits === 1 ? '1 vez' : hits + ' vezes') + ' nos últimos 7 dias.' + (mine ? ' Você bateu em ' + plural(mine, 'dia', 'dias') + '.' : '') + win + ' Toque para ver a turma.';
   return { title: 'Resumo da semana da turma' + NB + '🌊', body: body, tag: 'mare-turma-semana', url: URL_FRIENDS };

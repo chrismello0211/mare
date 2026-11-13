@@ -47,7 +47,17 @@ const CHEIO = dayWhere((k) => C.missionsOf(k).hard.id === 'hv17');
 const SEMANA = dayWhere((k) => sunday(k) && weekId(k) === 'wused');
 // um dia em que a missão do dia é "Beba água 6 vezes", a leve é de volume (metade da meta ou 1 L) e a ousada é "em que parte do dia": com 650 ml em 6 registros só a do dia fecha
 const SOZINHA = dayWhere((k) => { const t = C.missionsOf(k); return t.main.id === 'six' && ['ehalf', 'e1l'].indexOf(t.easy.id) >= 0 && t.hard.f === 'spr'; });
-const MES = dayWhere((k) => k.slice(8) === '28' && monthId(k) === 'mused' && ['wmorn', 'wthirds', 'wsix', 'wmis', 'wtrio'].indexOf(weekId(k)) >= 0, '2026-06-28', 1500);
+// 1.14.0: o dia 28 de um mês de "Presença" (mused) em que, com o histórico do teste (os 24 dias de antes com 2.800 ml às 10h) e o copo de 250 ml de hoje, ao meio-dia, fecha só o desafio do mês e nenhum da semana junto.
+// Antes isso era uma lista de desafios da semana que não fecham com esse histórico; com as listas crescendo, a conta pelo próprio core.js (challengesDue) acha o dia sem depender de quais desafios existem
+const soMesFecha = (k) => {
+  if (k.slice(8) !== '28' || monthId(k) !== 'mused') return false;
+  const S = clean(), at = (dk, h) => { const p = dk.split('-'); return new Date(+p[0], +p[1] - 1, +p[2], h, 0).getTime(); };
+  for (let i = 1; i <= 24; i++) { const dk = C.addDays(k, -i); S.days[dk] = { goal: 2800, entries: [{ id: 'h' + i, t: at(dk, 10), ml: 2800, d: 'water' }] }; }
+  S.days[k] = { goal: 2800, entries: [{ id: 'n', t: at(k, 12), ml: 250, d: 'water' }] };
+  const due = C.challengesDue(S, k);
+  return due.length === 1 && due[0].kind === 'm';
+};
+const MES = dayWhere(soMesFecha, '2026-06-28', 1500);
 // 1.12.0: um dia em que a leve é "Chegue a 1 L hoje", um em que a do dia é "Beba 500 ml antes das 10h" (para ver a barra parar em 99% antes da conta fechar) e, depois da estreia das novas (7/12/2026), um em que a leve é "Beba água 2 vezes à tarde"
 const MIL = dayWhere((k) => C.missionsOf(k).easy.id === 'e1l');
 const ANTES10 = dayWhere((k) => C.missionsOf(k).main.id === 'am500');
@@ -266,7 +276,7 @@ test('jornada: a seção Desafios mostra a semana (um pontinho por dia), o mês 
   await expect(four).toContainText('2 de 4 desafios');
   await expect(medal(page, 'Sete trios')).toContainText('1 de 7 dias');
   await expect(medal(page, 'Trimestre de desafios')).toContainText('2 de 12 desafios');
-  await expect(page.locator('.medals .medal')).toHaveCount(39);
+  await expect(page.locator('.medals .medal')).toHaveCount(41);
 });
 
 test('jornada: os pontinhos da semana trazem ✓ no dia que contou, ficam vazios no que não contou e apagados nos que ainda não chegaram, e o resumo do leitor de tela lista os dias', async ({ page }) => {
@@ -624,4 +634,17 @@ test('layout: os textos mais compridos (a missão ousada e os desafios da semana
   const p2 = await another(page);
   await lookAt(p2, info, TXT_DESAFIO, 'dark');
   await p2.close();
+});
+
+test('o painel de novidades conta só as 2 medalhas da 1.11.0, mesmo com as 41 conquistadas: "2 das 2", e as dos meses da turma (1.14.0) não entram na conta', async ({ page }) => {
+  await seed(page, { history: [3, 2800], insignias: OCEAN, medals: true, ui: { tip_news20: 0 } });
+  await page.goto('/');
+  await page.locator('#tTips .tip').getByRole('button', { name: 'Ver as novidades' }).click();
+  await expect(sheetOf(page).locator('#sheetTitle')).toHaveText('Novidades do Maré');
+  await expect(sheetOf(page)).toContainText('2 medalhas novas');
+  await expect(sheetOf(page)).toContainText('Você já conquistou 2 das 2.');
+  await expect(sheetOf(page)).not.toContainText('das 4');
+  await expect(sheetOf(page)).not.toContainText('4 medalhas novas');
+  await expect(sheetOf(page)).not.toContainText('Navegando juntos'); // elas chegam quando a turma vence, não por aviso
+  await expect(sheetOf(page)).not.toContainText('Frota da maré');
 });

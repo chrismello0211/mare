@@ -6,7 +6,7 @@
 //  • Painel de registro: #eMl, #eTime, #eErr. Onboarding: #obName, #obWeight, #obWake, #obSleep, #obGoal (data-total), #obDrop.
 //  • "Hoje" é montado em partes com id (TODAY_PARTS) para atualizar sem redesenhar a gota (#drop).
 //  • Barras com data-w crescem via ui.animBars; a gota enche via ui.dropTo(el, total, meta, dropOpts(total, meta)).
-import { WATERS, OTHERS, ACTIVITY, INSIGNIAS, ACHIEVEMENTS, MEDAL_GROUPS, MEDALS_1_6, MEDALS_1_9, MEDALS_1_10, PATTERN_MIN, HM_WEEKS, achievementById, context, medalProgress, nearestMedal, patterns,
+import { WATERS, OTHERS, ACTIVITY, INSIGNIAS, ACHIEVEMENTS, MEDAL_GROUPS, MEDALS_1_6, MEDALS_1_9, MEDALS_1_10, MEDALS_1_13, PATTERN_MIN, HM_WEEKS, achievementById, context, medalProgress, nearestMedal, patterns,
   months, heatmap,
   drink, isOther, dayTotal, dayOther, otherCounted, mixOn, isMet, calcGoal, goalToday, expectedBy,
   dayWindow, streak, bestStreak, insigniaById, unlockedInsignias, mascotOf, reefFor, missionFor, missionProgress, missionsOf, tierProgress, extraKey, weekGoal, monthGoal,
@@ -409,7 +409,12 @@ function challengesJourneyHTML(ctx) {
   const t = [];
   t.push(won.length ? 'Você já venceu ' + won.join(' e ') + ' de desafio.' : 'Nenhum desafio vencido ainda: o primeiro pode ser o desta semana.');
   if (ctx.trios) t.push('Dias cheios, com as 3 missões cumpridas: ' + ctx.trios + '.');
-  if (ctx.crewWins) t.push('Desafios da turma vencidos: ' + ctx.crewWins + '.');
+  if (ctx.crewWins || ctx.crewMonths) { // as semanas da turma (1.11.0) e, desde a 1.14.0, os meses
+    const cw = [];
+    if (ctx.crewWins) cw.push(plural(ctx.crewWins, 'semana', 'semanas'));
+    if (ctx.crewMonths) cw.push(plural(ctx.crewMonths, 'mês', 'meses'));
+    t.push('Desafios da turma vencidos: ' + cw.join(' e ') + '.');
+  }
   return '<section class="card chl-j">' + chlWeek(w, k) + chlMonth(m) + insRows([{ e: '🍀', t: t.join(' ') }]) + '</section>';
 }
 // A medalha que falta e está mais perto, no mesmo desenho da missão do dia
@@ -492,7 +497,7 @@ export function newsSheet() {
   const have = unlockedInsignias(S).length, ni = (e, b, t) => '<div class="news-i"><span class="em" aria-hidden="true">' + e + '</span><div><b>' + b + '</b><p>' + t + '</p></div></div>';
   const got = S.achievements || {}, fresh = ACHIEVEMENTS.slice(MEDALS_1_6, MEDALS_1_9).filter((a) => got[a.id]).length, added = MEDALS_1_9 - MEDALS_1_6;
   const fresh10 = ACHIEVEMENTS.slice(MEDALS_1_9, MEDALS_1_10).filter((a) => got[a.id]).length, added10 = MEDALS_1_10 - MEDALS_1_9, crew = !!(S.social && S.social.on);
-  const fresh11 = ACHIEVEMENTS.slice(MEDALS_1_10).filter((a) => got[a.id]).length, added11 = ACHIEVEMENTS.length - MEDALS_1_10;
+  const fresh11 = ACHIEVEMENTS.slice(MEDALS_1_10, MEDALS_1_13).filter((a) => got[a.id]).length, added11 = MEDALS_1_13 - MEDALS_1_10; // só as da 1.11.0 (as medalhas do mês da turma, da 1.14.0, não entram aqui)
   return sheetHead('Novidades do Maré') +
     ni('🌊', 'O desafio da turma', 'Toda semana, de segunda a domingo, a turma tem uma meta para cumprir junto, feita com os dias em que cada um bate a meta: por exemplo, 4 metas por pessoa, ou ' +
       'todo mundo em 3 dias. Ele aparece em Desafios, na Hoje, e na aba Amigos. Entram só você e os amigos que mostram o progresso, e a vitória pede que você também bata a meta em algum dia. ' +

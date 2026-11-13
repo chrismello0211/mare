@@ -1,5 +1,5 @@
-// Maré — testes do desafio da turma (1.11.0, 1.12.0 e 1.13.0): as dez regras (as quatro da 1.11.0, as duas que estreiam em 7/12/2026 e as quatro que estreiam em 21/12/2026), a conta da semana (crewInfo), quem entra (crewPeople),
-// a grade (crewGrid), o que acabou de ser vencido (crewDue), as duas medalhas que vêm dele e o estado guardado (S.crewWon). Rodar: npm test
+// Maré — testes do desafio da turma (1.11.0, 1.12.0, 1.13.0 e 1.14.0): as doze regras (as quatro da 1.11.0, as duas que estreiam em 7/12/2026, as quatro que estreiam em 21/12/2026 e as duas que estreiam em 4/1/2027), a conta da semana (crewInfo), quem entra (crewPeople),
+// a grade (crewGrid), o que acabou de ser vencido (crewDue), as quatro medalhas que vêm dele (duas das semanas, duas dos meses) e o estado guardado (S.crewWon). Rodar: npm test
 // (O arquivo tests/crew.test.js é outro assunto: a turma única e os avisos do servidor.) As datas são fixas (2026) e os horários, locais: valem em qualquer fuso.
 // 16/11/2026 é segunda-feira. A tela do desafio (a linha na Hoje, o cartão em Amigos, a festa) é conferida em tests/e2e-crew-challenge.spec.js.
 import { describe, it, expect } from 'vitest';
@@ -39,26 +39,27 @@ const fr = (n, o) => Object.assign({ uid: U('amigo' + n), nm: 'Amigo ' + n, mc: 
 const bits = (list) => list.reduce((m, i) => m | (1 << i), 0);
 const FULL = bits([0, 1, 2, 3, 4, 5, 6]); // 127: os 7 dias
 
-/* ---------- as seis regras ---------- */
-describe('desafio da turma: a lista e as dez regras, no limite', () => {
+/* ---------- as doze regras ---------- */
+describe('desafio da turma: a lista e as doze regras, no limite', () => {
   it('a lista é um contrato (ids na ordem, emoji, título, unidade, texto e conta); o texto muda com o tamanho da turma e cabe numa linha curta', () => {
-    expect(C.CREW_CHALLENGES.map((c) => c.id)).toEqual(['ctotal', 'ccrowd', 'call', 'cweek', 'cchain', 'cpairs', 'cgrow', 'cnear', 'cmid', 'crun']);
+    expect(C.CREW_CHALLENGES.map((c) => c.id)).toEqual(['ctotal', 'ccrowd', 'call', 'cweek', 'cchain', 'cpairs', 'cgrow', 'cnear', 'cmid', 'crun', 'cstart', 'chalves']);
     C.CREW_CHALLENGES.forEach((c) => {
       expect(c.e && c.t && c.unit && typeof c.d === 'function' && typeof c.calc === 'function', c.id).toBeTruthy();
       for (let n = 2; n <= 31; n++) { const t = c.d(n); expect(typeof t, c.id + ' ' + n).toBe('string'); expect(t.length, c.id + ' ' + n).toBeLessThan(100); expect(t, c.id + ' ' + n).not.toMatch(/undefined|NaN|\[object/); }
     });
     expect(C.CREW_MIN).toBe(3);
   });
-  it('as quatro da 1.11.0 não têm data de estreia (valem desde o começo); as duas da 1.12.0 estreiam numa segunda-feira, 7/12/2026, e as quatro da 1.13.0 em outra, 21/12/2026: cada leva nunca muda o que a turma já viu', () => {
-    expect(C.CREW_CHALLENGES.map((c) => c.since || '')).toEqual(['', '', '', '', '2026-12-07', '2026-12-07', '2026-12-21', '2026-12-21', '2026-12-21', '2026-12-21']);
-    expect(C.keyToDate('2026-12-07').getDay()).toBe(1); expect(C.keyToDate('2026-12-21').getDay()).toBe(1);
-    // a conta antiga de cada semana de 2026 até 30/11 não conhece as novas (nem as da 1.12.0, nem as da 1.13.0)
-    const old = [], later = ['cchain', 'cpairs', 'cgrow', 'cnear', 'cmid', 'crun'];
+  it('as quatro da 1.11.0 não têm data de estreia (valem desde o começo); as duas da 1.12.0 estreiam numa segunda-feira, 7/12/2026, as quatro da 1.13.0 em outra, 21/12/2026, e as duas da 1.14.0 em outra, 4/1/2027: cada leva nunca muda o que a turma já viu', () => {
+    expect(C.CREW_CHALLENGES.map((c) => c.since || '')).toEqual(['', '', '', '', '2026-12-07', '2026-12-07', '2026-12-21', '2026-12-21', '2026-12-21', '2026-12-21', '2027-01-04', '2027-01-04']);
+    expect(C.keyToDate('2026-12-07').getDay()).toBe(1); expect(C.keyToDate('2026-12-21').getDay()).toBe(1); expect(C.keyToDate('2027-01-04').getDay()).toBe(1);
+    // a conta antiga de cada semana de 2026 até 30/11 não conhece as novas (nem as da 1.12.0, nem as da 1.13.0, nem as da 1.14.0)
+    const old = [], later = ['cchain', 'cpairs', 'cgrow', 'cnear', 'cmid', 'crun', 'cstart', 'chalves'];
     for (let i = 0, mon = '2026-01-05'; i < 48; i++, mon = C.addDays(mon, 7)) old.push(C.crewInfo(C.defaults(1), none(2), mon, mon).c.id);
     expect(old.filter((id) => later.indexOf(id) >= 0)).toEqual([]);
     expect(new Set(old).size).toBe(4);
-    // e as duas semanas da época da 1.12.0 (7 e 14/12) só conhecem as seis primeiras
-    ['2026-12-07', '2026-12-14'].forEach((m) => { expect(['cgrow', 'cnear', 'cmid', 'crun'].indexOf(C.crewInfo(C.defaults(1), none(2), m, m).c.id), m).toBe(-1); });
+    // e as duas semanas da época da 1.12.0 (7 e 14/12) só conhecem as seis primeiras; as duas da 1.13.0 (21 e 28/12), as dez primeiras
+    ['2026-12-07', '2026-12-14'].forEach((m) => { expect(['cgrow', 'cnear', 'cmid', 'crun', 'cstart', 'chalves'].indexOf(C.crewInfo(C.defaults(1), none(2), m, m).c.id), m).toBe(-1); });
+    ['2026-12-21', '2026-12-28'].forEach((m) => { expect(['cstart', 'chalves'].indexOf(C.crewInfo(C.defaults(1), none(2), m, m).c.id), m).toBe(-1); });
   });
   it('Maré da semana: 4 metas por pessoa, somando os dias de todos até o último dia que já aconteceu', () => {
     const g = grid('1111000', '1100000', ZERO), r = X('ctotal');
@@ -336,6 +337,93 @@ describe('desafio da turma: a lista e as dez regras, no limite', () => {
     expect(X('cgrow').calc(crew(12, 3, '1111000'), 6).have).toBe(0);
     expect(X('cgrow').calc(crew(12, 8, '1111000'), 6).have).toBe(4);
   });
+  it('Começo da semana: na segunda e na terça, a maior parte da turma bate a meta, em cada dia (2 de 2, 2 de 3, 3 de 4, 3 de 5, 6 de 10); os outros dias não contam e só vale o que já aconteceu', () => {
+    const r = X('cstart');
+    expect(r.calc(crew(2, 2, '1100000'), 6)).toEqual({ have: 2, need: 2 });
+    expect(r.calc(crew(2, 1, '1100000'), 6)).toEqual({ have: 0, need: 2 }); // numa turma de 2, precisam bater as duas
+    expect(r.calc(crew(3, 2, '1100000'), 6)).toEqual({ have: 2, need: 2 }); // 2 de 3
+    expect(r.calc(crew(3, 1, '1100000'), 6)).toEqual({ have: 0, need: 2 });
+    expect(r.calc(crew(4, 3, '1100000'), 6)).toEqual({ have: 2, need: 2 }); // 3 de 4
+    expect(r.calc(crew(4, 2, '1100000'), 6)).toEqual({ have: 0, need: 2 });
+    expect(r.calc(crew(5, 3, '1100000'), 6)).toEqual({ have: 2, need: 2 }); // 3 de 5
+    expect(r.calc(crew(5, 2, '1100000'), 6)).toEqual({ have: 0, need: 2 });
+    expect(r.calc(crew(10, 6, '1100000'), 6)).toEqual({ have: 2, need: 2 }); // 6 de 10
+    expect(r.calc(crew(10, 5, '1100000'), 6)).toEqual({ have: 0, need: 2 });
+    expect(r.calc(crew(3, 2, '1000000'), 6)).toEqual({ have: 1, need: 2 }); // só a segunda
+    expect(r.calc(crew(3, 2, '0100000'), 6)).toEqual({ have: 1, need: 2 }); // só a terça
+    expect(r.calc(crew(3, 3, '0011111'), 6)).toEqual({ have: 0, need: 2 }); // os outros dias da semana não contam
+    expect(r.calc(grid('1000000', '1100000', '0100000'), 6)).toEqual({ have: 2, need: 2 }); // pessoas diferentes em cada dia: 2 de 3 na segunda e 2 de 3 na terça
+    expect(r.calc(crew(3, 3, '1100000'), 1)).toEqual({ have: 2, need: 2 }); // terça, o último dos dois
+    expect(r.calc(crew(3, 3, '1100000'), 0)).toEqual({ have: 1, need: 2 }); // na segunda à noite a terça ainda não aconteceu: um dia só nunca fecha
+    expect(r.calc(crew(3, 3, '1100000'), -1)).toEqual({ have: 0, need: 2 });
+    expect(r.d(2)).toBe('Na segunda e na terça, as 2 pessoas batem a meta, em cada dia');
+    expect(r.d(3)).toBe('Na segunda e na terça, pelo menos 2 das 3 pessoas batem a meta, em cada dia');
+    expect(r.d(4)).toContain('pelo menos 3 das 4 pessoas'); expect(r.d(10)).toContain('pelo menos 6 das 10 pessoas'); expect(r.d(31)).toContain('pelo menos 19 das 31 pessoas');
+    expect(r.unit).toBe('dias'); expect(r.t).toBe('Começo da semana');
+  });
+  it('Presença na semana: quase todos da turma (3 de cada 4; todos, numa turma de 2 ou 3) bateram a meta em algum dia de segunda a quarta E em algum dia de quinta a domingo; um lado só não vale, e cada pessoa conta com os próprios dias', () => {
+    const r = X('chalves');
+    expect([2, 3, 4, 5, 6, 8, 12, 31].map((n) => r.calc(none(n), 6).need)).toEqual([2, 3, 3, 4, 5, 6, 9, 24]);
+    expect(r.calc(crew(2, 2, '0100100'), 6)).toEqual({ have: 2, need: 2 }); // terça e sexta: um dia de cada lado
+    expect(r.calc(crew(2, 1, '0100100'), 6)).toEqual({ have: 1, need: 2 }); // numa turma de 2, as duas
+    expect(r.calc(crew(3, 3, '0100100'), 6)).toEqual({ have: 3, need: 3 });
+    expect(r.calc(crew(3, 2, '0100100'), 6)).toEqual({ have: 2, need: 3 }); // numa turma de 3, as três
+    expect(r.calc(crew(4, 3, '0100100'), 6)).toEqual({ have: 3, need: 3 }); // 3 de 4
+    expect(r.calc(crew(4, 2, '0100100'), 6)).toEqual({ have: 2, need: 3 });
+    expect(r.calc(crew(5, 4, '0100100'), 6)).toEqual({ have: 4, need: 4 }); // 4 de 5
+    expect(r.calc(crew(5, 3, '0100100'), 6)).toEqual({ have: 3, need: 4 });
+    expect(r.calc(crew(12, 9, '0100100'), 6)).toEqual({ have: 9, need: 9 }); // 9 de 12
+    expect(r.calc(crew(12, 8, '0100100'), 6)).toEqual({ have: 8, need: 9 });
+    expect(r.calc(crew(2, 2, '1110000'), 6)).toEqual({ have: 0, need: 2 }); // três dias, mas todos na primeira metade
+    expect(r.calc(crew(2, 2, '0001111'), 6)).toEqual({ have: 0, need: 2 }); // quatro dias, mas todos na segunda
+    expect(r.calc(crew(2, 2, '0001010'), 6)).toEqual({ have: 0, need: 2 }); // quinta e sábado: os dois da segunda metade
+    expect(r.calc(crew(2, 2, '0011000'), 6)).toEqual({ have: 2, need: 2 }); // quarta e quinta: o último dia de cada lado
+    expect(r.calc(crew(2, 2, '1000001'), 6)).toEqual({ have: 2, need: 2 }); // segunda e domingo: as pontas
+    expect(r.calc(grid('1000100', '0100010', '0010001'), 6)).toEqual({ have: 3, need: 3 }); // cada pessoa com os próprios dias
+    expect(r.calc(grid('1000100', '0100010', '1110000'), 6)).toEqual({ have: 2, need: 3 }); // a 3ª só tem a primeira metade
+    // só vale o que já aconteceu
+    expect(r.calc(crew(2, 2, '0011000'), 3)).toEqual({ have: 2, need: 2 }); // quinta: o segundo lado já tem um dia
+    expect(r.calc(crew(2, 2, '0011000'), 2)).toEqual({ have: 0, need: 2 }); // na quarta à noite a quinta ainda não aconteceu
+    expect(r.calc(crew(2, 2, '1000001'), 5)).toEqual({ have: 0, need: 2 }); // até sábado, o domingo ainda não aconteceu
+    expect(r.calc(crew(2, 2, '1111111'), 0)).toEqual({ have: 0, need: 2 }); // na segunda, ninguém tem os dois lados: um dia só nunca fecha
+    expect(r.calc(crew(2, 2, '1111111'), 2)).toEqual({ have: 0, need: 2 }); // até quarta, só o primeiro lado
+    expect(r.calc(crew(2, 2, '1111111'), 3)).toEqual({ have: 2, need: 2 });
+    expect(r.calc(crew(2, 2, '1111111'), -1)).toEqual({ have: 0, need: 2 });
+    expect(r.d(2)).toBe('Cada pessoa da turma bate a meta em algum dia até quarta e em algum de quinta em diante'); expect(r.d(3)).toBe(r.d(2));
+    expect(r.d(4)).toBe('Pelo menos 3 das 4 pessoas batem a meta em algum dia até quarta e em algum de quinta em diante');
+    expect(r.d(5)).toContain('Pelo menos 4 das 5 pessoas batem'); expect(r.d(12)).toContain('Pelo menos 9 das 12 pessoas batem'); expect(r.d(31)).toContain('Pelo menos 24 das 31 pessoas batem');
+    expect(r.unit).toBe('pessoas'); expect(r.t).toBe('Presença na semana');
+  });
+  it('as duas da 1.14.0 crescem com a turma: a "maior parte" é 60% e "quase todos" 3 de cada 4 (ambos de pelo menos 2, nunca mais do que a turma), em qualquer tamanho; uma turma inteira de dias cheios sempre fecha', () => {
+    for (let n = 2; n <= 40; n++) {
+      const most = Math.max(2, Math.ceil(n * 0.6)), near = Math.max(2, Math.ceil((n * 3) / 4));
+      expect(X('cstart').calc(crew(n, most, '1100000'), 6).have, 'cstart ' + n + '/' + most).toBe(2);
+      expect(X('cstart').calc(crew(n, most - 1, '1100000'), 6).have, 'cstart ' + n + '/' + (most - 1)).toBe(0);
+      expect(X('cstart').calc(none(n), 6).need, 'cstart ' + n).toBe(2); // a meta não cresce com a turma: são sempre 2 dias
+      expect(X('chalves').calc(none(n), 6).need, 'chalves ' + n).toBe(near);
+      expect(X('chalves').calc(crew(n, near, '0100100'), 6).have, 'chalves ' + n + '/' + near).toBe(near);
+      expect(X('chalves').calc(crew(n, near - 1, '0100100'), 6).have, 'chalves ' + n + '/' + (near - 1)).toBe(near - 1);
+      ['cstart', 'chalves'].forEach((id) => { const x = X(id).calc(crew(n, n, '1111111'), 6); expect(x.have >= x.need, id + ' com ' + n + ' pessoas, todas, a semana inteira').toBe(true); });
+    }
+  });
+  it('as duas da 1.14.0 não repetem as vizinhas: a mesma semana pode fechar uma e não a outra (Começo da semana pede segunda E terça; Presença na semana, um dia de cada lado e só uma vez)', () => {
+    for (let n = 2; n <= 12; n++) {
+      const g = crew(n, n, '1100000'); // segunda e terça, e mais nada
+      expect(X('cstart').calc(g, 6).have >= X('cstart').calc(g, 6).need, 'cstart ' + n).toBe(true);
+      expect(X('chalves').calc(g, 6).have < X('chalves').calc(g, 6).need, 'chalves ' + n).toBe(true); // os dois dias são da primeira metade
+      const h = crew(n, n, '0100100'); // terça e sexta
+      expect(X('chalves').calc(h, 6).have >= X('chalves').calc(h, 6).need, 'chalves ' + n).toBe(true);
+      expect(X('cstart').calc(h, 6).have < X('cstart').calc(h, 6).need, 'cstart ' + n).toBe(true); // só a terça vale: a segunda ficou em branco
+    }
+  });
+  it('nenhuma das doze fecha com um dia só, em nenhum dia da semana (não só na segunda): com todo mundo batendo a meta em UM dia e em nenhum outro, a conta nunca fecha, em turmas de 2 a 40 pessoas', () => {
+    for (let n = 2; n <= 40; n++) {
+      for (let j = 0; j < 7; j++) {
+        const pat = '0000000'.slice(0, j) + '1' + '0000000'.slice(j + 1);
+        C.CREW_CHALLENGES.forEach((c) => { const x = c.calc(crew(n, n, pat), 6); expect(x.have < x.need, c.id + ' com ' + n + ' pessoas, só no dia ' + j + ': ' + x.have + ' de ' + x.need).toBe(true); });
+      }
+    }
+  });
   it('a conta aceita o que a grade nunca traria (linhas curtas, vazias, lixo): não quebra e não inventa vitória', () => {
     C.CREW_CHALLENGES.forEach((c) => {
       [[], [[]], [[], []], [[1], [1]], [row('1111111'), []]].forEach((g) => { const x = c.calc(g, 6); expect(isFinite(x.have) && isFinite(x.need), c.id).toBe(true); expect(x.have, c.id).toBeGreaterThanOrEqual(0); });
@@ -451,23 +539,26 @@ describe('crewInfo: a conta da semana, vista de um dia dela', () => {
     S.crewWon = {}; S.crewWon[C.addDays(mon, 7)] = 99; expect(C.crewInfo(S, none(3), mon, mon).done).toBe(false); // a vitória de outra semana não vale para esta
     delete S.crewWon; expect(C.crewInfo(S, none(3), mon, mon).done).toBe(false); // estado sem o mapa (backup antigo)
   });
-  it('muda toda semana: nunca o mesmo desafio duas semanas seguidas (300 semanas, também nas viradas de 7/12/2026, quando a lista passa de 4 para 6, e de 21/12/2026, de 6 para 10); em quaisquer 7 semanas da lista de 4 saem os quatro e, depois da última virada, em quaisquer 19 saem os dez', () => {
-    const ids = [], cut = 48, cut2 = 50; // as 48 semanas de 5/1 a 30/11/2026 são da lista antiga (4 desafios); a de 6 vale em 7 e 14/12 (semanas 48 e 49); a de 10 começa na semana 50, em 21/12/2026
+  it('muda toda semana: nunca o mesmo desafio duas semanas seguidas (300 semanas, também nas viradas de 7/12/2026, quando a lista passa de 4 para 6, de 21/12/2026, de 6 para 10, e de 4/1/2027, de 10 para 12); em quaisquer 7 semanas da lista de 4 saem os quatro e, depois da última virada, em quaisquer 23 saem os doze', () => {
+    const ids = [], cut = 48, cut2 = 50, cut3 = 52; // as 48 semanas de 5/1 a 30/11/2026 são da lista antiga (4 desafios); a de 6 vale em 7 e 14/12 (semanas 48 e 49); a de 10, em 21 e 28/12 (50 e 51); a de 12 começa na semana 52, em 4/1/2027
     let mon = '2026-01-05';
-    for (let i = 0; i < cut2 + 250; i++) { ids.push(C.crewInfo(S0(), none(2), mon, mon).c.id); mon = C.addDays(mon, 7); }
+    for (let i = 0; i < cut3 + 300; i++) { ids.push(C.crewInfo(S0(), none(2), mon, mon).c.id); mon = C.addDays(mon, 7); }
     expect(C.addDays('2026-01-05', cut * 7)).toBe('2026-12-07');
     expect(C.addDays('2026-01-05', cut2 * 7)).toBe('2026-12-21');
+    expect(C.addDays('2026-01-05', cut3 * 7)).toBe('2027-01-04');
     for (let i = 1; i < ids.length; i++) expect(ids[i], 'semana ' + i).not.toBe(ids[i - 1]);
     for (let i = 0; i + 7 <= cut; i++) expect(new Set(ids.slice(i, i + 7)).size, 'lista de 4, a partir da semana ' + i).toBe(4);
     expect(new Set(ids.slice(0, cut)).size).toBe(4);
-    // a época de 6 só dura duas semanas: duas das seis, uma de cada vez
+    // a época de 6 só dura duas semanas: duas das seis, uma de cada vez; a de 10 também (duas das dez, e nenhuma das duas novas da 1.14.0)
     expect(ids.slice(cut, cut2).every((id) => C.CREW_CHALLENGES.slice(0, 6).map((c) => c.id).indexOf(id) >= 0)).toBe(true);
     expect(new Set(ids.slice(cut, cut2)).size).toBe(2);
-    // a lista de 10: a primeira volta tem os dez uma vez cada (as quatro novas entram logo, nenhuma fica esperando), e em quaisquer 2 × 10 − 1 semanas seguidas saem os dez
-    expect(ids.slice(cut2, cut2 + 10).sort()).toEqual(C.CREW_CHALLENGES.map((c) => c.id).sort());
-    for (let i = cut2; i + 19 <= ids.length; i++) expect(new Set(ids.slice(i, i + 19)).size, 'lista de 10, a partir da semana ' + i).toBe(10);
+    expect(ids.slice(cut2, cut3).every((id) => C.CREW_CHALLENGES.slice(0, 10).map((c) => c.id).indexOf(id) >= 0)).toBe(true);
+    expect(new Set(ids.slice(cut2, cut3)).size).toBe(2);
+    // a lista de 12: a primeira volta tem os doze uma vez cada (as duas novas entram logo, nenhuma fica esperando), e em quaisquer 2 × 12 − 1 semanas seguidas saem os doze
+    expect(ids.slice(cut3, cut3 + 12).sort()).toEqual(C.CREW_CHALLENGES.map((c) => c.id).sort());
+    for (let i = cut3; i + 23 <= ids.length; i++) expect(new Set(ids.slice(i, i + 23)).size, 'lista de 12, a partir da semana ' + i).toBe(12);
     // e 25 voltas depois cada um saiu exatamente 25 vezes
-    C.CREW_CHALLENGES.forEach((c) => { expect(ids.slice(cut2).filter((x) => x === c.id).length, c.id).toBe(25); });
+    C.CREW_CHALLENGES.forEach((c) => { expect(ids.slice(cut3).filter((x) => x === c.id).length, c.id).toBe(25); });
   });
   it('para a mesma turma e o mesmo dia o resultado é sempre o mesmo (puro: sem relógio, sem sorteio escondido)', () => {
     const mon = monOf('ccrowd'), g = grid('1110000', '1110000', '1100000');
@@ -653,16 +744,16 @@ describe('crewGoal e crewDue: o desafio da semana na tela e o que acabou de ser 
     expect(SO.crewDue(S, [fr(1, { day: thu, wm: bits([0, 1, 2]) }), fr(2, { day: thu, wm: 0 })], thu).map((x) => x.c.id)).toEqual(['crun']);
     expect(SO.crewDue(S, [fr(1, { day: thu, wm: bits([0, 2]) }), fr(2, { day: thu, wm: 0 })], thu)).toEqual([]); // o amigo salteou a quarta: nada de 3 seguidos
   });
-  it('segunda-feira: a semana nova ainda não pode ser vencida (nenhuma regra fecha com um dia só), então só a anterior aparece, no máximo uma vez (12 semanas da lista de 4, as da lista de 6 e 12 da lista de 10, com as dez regras)', () => {
+  it('segunda-feira: a semana nova ainda não pode ser vencida (nenhuma regra fecha com um dia só), então só a anterior aparece, no máximo uma vez (12 semanas da lista de 4, as da lista de 6, as da lista de 10 e 12 da lista de 12, com as doze regras)', () => {
     const nexts = [], seen = {};
-    for (let i = 0; i < 12; i++) nexts.push(C.addDays('2026-01-12', i * 7), C.addDays('2026-12-14', i * 7), C.addDays('2027-03-01', i * 7));
+    for (let i = 0; i < 12; i++) nexts.push(C.addDays('2026-01-12', i * 7), C.addDays('2026-12-14', i * 7), C.addDays('2027-01-11', i * 7)); // a última cadeia cobre a primeira volta da lista de 12 (4/1 a 22/3/2027)
     nexts.forEach((next) => {
       const mon = C.addDays(next, -7);
       const S = state({ days: Object.assign(myDays(mon, [0, 1, 2, 3, 4, 5, 6]), myDays(next, [0])) });
       const due = SO.crewDue(S, [fr(1, { day: next, wm: FULL }), fr(2, { day: next, wm: FULL })], next);
       expect(due.every((x) => x.key === mon && x.past === true), 'semana ' + next).toBe(true);
       expect(due.length).toBeLessThanOrEqual(1);
-      seen[C.crewInfo(S, none(2), mon, mon).c.id] = 1; // a regra da semana que acabou: as dez aparecem nestas semanas
+      seen[C.crewInfo(S, none(2), mon, mon).c.id] = 1; // a regra da semana que acabou: as doze aparecem nestas semanas
     });
     expect(Object.keys(seen).sort()).toEqual(C.CREW_CHALLENGES.map((c) => c.id).sort());
   });
@@ -675,11 +766,11 @@ describe('as 2 medalhas da 1.11.0: Remando juntos e Time da maré', () => {
   const metDay = (k) => ({ goal: 2000, entries: [{ id: k, t: ts(k, 10), ml: 2000, d: 'water' }] });
   const wins = (n) => { const S = base(); for (let i = 0; i < n; i++) { const mon = C.addDays('2026-01-05', i * 7); S.crewWon[mon] = ts(C.addDays(mon, 5), 12); } return S; };
   it('ficam no fim da lista (os bits 37 e 38), no grupo "Com a turma", com emoji, título e descrição', () => {
-    expect(C.ACHIEVEMENTS.slice(C.MEDALS_1_10).map((a) => a.id)).toEqual(['cw1', 'cw4']);
-    expect(C.ACHIEVEMENTS.length).toBe(39);
+    expect(C.ACHIEVEMENTS.slice(C.MEDALS_1_10, C.MEDALS_1_13).map((a) => a.id)).toEqual(['cw1', 'cw4']);
+    expect(C.ACHIEVEMENTS.length).toBe(41); // com as duas do mês da turma (1.14.0), depois delas
     const g = C.MEDAL_GROUPS.filter((x) => x.t === 'Com a turma');
     expect(g).toHaveLength(1);
-    expect(g[0].ids).toEqual(['crew', 'cw1', 'cw4']);
+    expect(g[0].ids).toEqual(['crew', 'cw1', 'cw4', 'cm1', 'cm3']);
     ['cw1', 'cw4'].forEach((id) => { const a = C.achievementById(id); expect(a.e && a.t && a.d && typeof a.test === 'function', id).toBeTruthy(); });
     expect(C.achievementById('cw1').t).toBe('Remando juntos');
     expect(C.achievementById('cw4').t).toBe('Time da maré');
@@ -734,8 +825,93 @@ describe('as 2 medalhas da 1.11.0: Remando juntos e Time da maré', () => {
   });
 });
 
+/* ---------- as medalhas do mês da turma (1.14.0) ---------- */
+describe('as 2 medalhas da 1.14.0: Navegando juntos e Frota da maré (o desafio do mês da turma)', () => {
+  const base = () => C.defaults(ts('2026-01-01', 9));
+  const ids = (S) => C.newAchievements(S).map((a) => a.id);
+  const metDay = (k) => ({ goal: 2000, entries: [{ id: k, t: ts(k, 10), ml: 2000, d: 'water' }] });
+  const ym = (i) => { const n = 2026 * 12 + 11 + i; return Math.floor(n / 12) + '-' + ((n % 12) + 1 < 10 ? '0' : '') + ((n % 12) + 1); }; // dezembro de 2026 mais i meses
+  const months = (n) => { const S = base(); for (let i = 0; i < n; i++) S.crewWon[ym(i)] = ts(C.addDays(ym(i) + '-28', 4), 12); return S; }; // a vitória fica guardada na carência (nos primeiros dias do mês seguinte)
+  it('ficam no fim da lista (os bits 39 e 40), no grupo "Com a turma", com emoji, título e descrição', () => {
+    expect(C.MEDALS_1_13).toBe(39);
+    expect(C.ACHIEVEMENTS.slice(C.MEDALS_1_13).map((a) => a.id)).toEqual(['cm1', 'cm3']);
+    expect(C.ACHIEVEMENTS.length).toBe(41);
+    const g = C.MEDAL_GROUPS.filter((x) => x.t === 'Com a turma');
+    expect(g).toHaveLength(1);
+    expect(g[0].ids.slice(-2)).toEqual(['cm1', 'cm3']);
+    ['cm1', 'cm3'].forEach((id) => { const a = C.achievementById(id); expect(a.e && a.t && a.d && typeof a.test === 'function', id).toBeTruthy(); });
+    expect(C.achievementById('cm1').t).toBe('Navegando juntos'); expect(C.achievementById('cm1').d).toBe('A turma venceu o desafio do mês');
+    expect(C.achievementById('cm3').t).toBe('Frota da maré'); expect(C.achievementById('cm3').d).toBe('A turma venceu o desafio do mês, 3 vezes');
+    expect(C.achievementById('cm1').p).toBeUndefined();
+    expect(C.medalProgress(C.achievementById('cm3'), { crewMonths: 2 })).toEqual({ have: 2, need: 3, unit: 'desafios', pct: 67 });
+    expect(C.medalProgress(C.achievementById('cm3'), { crewMonths: 9 }).have).toBe(3);
+    expect(C.medalProgress(C.achievementById('cm3'), {}).have).toBe(0); // contexto sem o campo (um teste antigo): não quebra
+  });
+  it('o primeiro mês vencido pela turma dá a primeira medalha; 2 não dão a segunda, 3 dão', () => {
+    expect(ids(months(0))).toEqual([]);
+    expect(ids(months(1))).toEqual(['cm1']);
+    expect(ids(months(2))).toEqual(['cm1']);
+    expect(ids(months(3)).sort()).toEqual(['cm1', 'cm3']);
+    expect(ids(months(8)).sort()).toEqual(['cm1', 'cm3']);
+  });
+  it('as semanas da turma e os desafios pessoais são outras contas: um não traz a medalha do outro, e os meses da turma não trazem as das semanas', () => {
+    const W = base();
+    for (let i = 0; i < 5; i++) { const mon = C.addDays('2026-01-05', i * 7); W.crewWon[mon] = ts(C.addDays(mon, 5), 12); }
+    expect(ids(W).sort()).toEqual(['cw1', 'cw4']); // cinco semanas da turma: as duas das semanas e nenhuma do mês
+    expect(C.context(W)).toMatchObject({ crewWins: 5, crewMonths: 0 });
+    const M = months(3);
+    expect(ids(M).sort()).toEqual(['cm1', 'cm3']); // três meses da turma: as duas do mês e nenhuma das semanas
+    expect(C.context(M)).toMatchObject({ crewWins: 0, crewMonths: 3 });
+    const both = months(1); both.crewWon['2026-01-05'] = ts('2026-01-09', 12);
+    expect(ids(both).sort()).toEqual(['cm1', 'cw1']); // cada uma conta o que é seu, no mesmo mapa
+    expect(C.context(both)).toMatchObject({ crewWins: 1, crewMonths: 1 });
+    const P = base(); P.challenges['2026-01-05'] = ts('2026-01-09', 12); P.challenges['2026-01'] = ts('2026-01-31', 12);
+    expect(ids(P)).not.toContain('cm1'); // o desafio do mês de cada um (S.challenges) também é outra conta
+    expect(C.context(P).crewMonths).toBe(0);
+  });
+  it('test e andamento concordam, valor a valor', () => {
+    const a = C.achievementById('cm3');
+    for (let v = 0; v <= 12; v++) { const c = { crewMonths: v }; expect(a.test(c), 'com ' + v).toBe(a.p(c)[0] >= a.p(c)[1]); }
+    expect([0, 1, 2].map((v) => C.achievementById('cm1').test({ crewMonths: v }))).toEqual([false, true, true]);
+    expect(C.achievementById('cm1').test({})).toBe(false); expect(C.achievementById('cm3').test({})).toBe(false); // contexto sem o campo: não quebra
+  });
+  it('lixo no mapa não vale: só a chave de 7 caracteres com um instante de verdade conta (nada de chave de outro tamanho, instante inválido, negativo, zero, texto ou nulo)', () => {
+    const S = base();
+    S.crewWon['2026'] = ts('2026-11-20', 10); S.crewWon['2026-1'] = ts('2026-11-20', 10); S.crewWon['2026-11-1'] = ts('2026-11-20', 10); S.crewWon['2026-11-16-x'] = ts('2026-11-20', 10); // tamanhos 4, 6, 9 e 12 não são semana (10) nem mês (7)
+    S.crewWon['2026-12'] = 'ontem'; S.crewWon['2027-01'] = -5; S.crewWon['2027-02'] = 0; S.crewWon['2027-03'] = NaN; S.crewWon['2027-04'] = Infinity; S.crewWon['2027-05'] = null; S.crewWon['2027-06'] = undefined;
+    expect(C.context(S)).toMatchObject({ crewWins: 0, crewMonths: 0 });
+    expect(ids(S)).toEqual([]);
+    S.crewWon['2026-11'] = ts('2026-12-03', 10); // um mês de verdade, no meio do lixo
+    expect(C.context(S)).toMatchObject({ crewWins: 0, crewMonths: 1 });
+    expect(ids(S)).toEqual(['cm1']);
+  });
+  it('context(S, upTo): conta só o que foi guardado até o dia (a vitória vale no dia do instante guardado, não no último dia do mês)', () => {
+    const S = base();
+    S.crewWon['2026-02'] = ts('2026-03-03', 21); // fevereiro, fechado na carência
+    S.crewWon['2026-03'] = ts('2026-03-31', 21); // março, fechado no último dia
+    expect(C.context(S, '2026-03-02').crewMonths).toBe(0);
+    expect(C.context(S, '2026-03-03').crewMonths).toBe(1);
+    expect(C.context(S, '2026-03-30').crewMonths).toBe(1);
+    expect(C.context(S, '2026-03-31').crewMonths).toBe(2);
+    expect(C.context(S).crewMonths).toBe(2);
+  });
+  it('medalDates: a data da medalha é o dia em que a vitória foi guardada (a 3ª, para a segunda medalha); sem 3 vitórias, sem data', () => {
+    const S = base();
+    const days = ['2026-03-03', '2026-04-02', '2026-05-05'];
+    days.forEach((k, i) => { S.days[k] = metDay(k); S.crewWon[C.addDays(k, -10).slice(0, 7)] = ts(k, 20 + i); });
+    const want = (k) => C.keyToDate(k).getTime();
+    const all = C.medalDates(S, ['cm1', 'cm3'].map(C.achievementById));
+    expect(all.cm1).toBe(want('2026-03-03'));
+    expect(all.cm3).toBe(want('2026-05-05'));
+    delete S.crewWon[C.addDays('2026-05-05', -10).slice(0, 7)];
+    const some = C.medalDates(S, ['cm1', 'cm3'].map(C.achievementById));
+    expect(some.cm1).toBe(want('2026-03-03'));
+    expect(some.cm3).toBeUndefined();
+  });
+});
+
 /* ---------- o estado ---------- */
-describe('S.crewWon: o mapa das semanas vencidas pela turma', () => {
+describe('S.crewWon: o mapa das semanas e dos meses vencidos pela turma', () => {
   it('começa vazio, e um backup antigo, sem o campo, ganha o mapa vazio ao ser lido', () => {
     expect(C.defaults(1).crewWon).toEqual({});
     expect(C.migrate({}).crewWon).toEqual({});

@@ -138,7 +138,7 @@ test.describe('sem conta', () => {
     await expect(page.getByRole('button', { name: 'Apagar', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Excluir', exact: true })).toHaveCount(0);
     await expect(page.locator('.about')).toContainText('a cópia na nuvem só volta com uma conta'); // sem conta, a cópia na nuvem não ajuda quem perde o aparelho
-    await expect(page.locator('.about')).toContainText('v1.13.0');
+    await expect(page.locator('.about')).toContainText('v1.14.0');
   });
 
   test('a dica da conta vem primeiro, só a partir do segundo dia; dispensar não tira o cartão de Ajustes', async ({ page }) => {
@@ -468,12 +468,12 @@ test.describe('entrar', () => {
     expect(Object.keys(s.missions).sort()).toEqual([d1, d2].sort());
     expect(Object.keys(s.extras).sort()).toEqual([d1 + ':e', d1 + ':h']);
     ['mission', 'trio', 'wk1', 'mo1', 'cw1'].forEach((id) => { expect(Object.keys(s.achievements), 'medalha ' + id).toContain(id); }); // as que o rastro já cumpre entram sem festa
-    ['wk4', 'mo3', 'cw4', 'trio7'].forEach((id) => { expect(Object.keys(s.achievements), 'ainda não: ' + id).not.toContain(id); });
+    ['wk4', 'mo3', 'cw4', 'trio7', 'cm1', 'cm3'].forEach((id) => { expect(Object.keys(s.achievements), 'ainda não: ' + id).not.toContain(id); }); // nenhuma vitória de mês da turma no rastro: as medalhas do mês não saem do nada
     // o andamento das medalhas que ainda faltam volta certo (antes da 1.11.0 recomeçava do zero)
     await tabJ(page).click();
     await expect(page.locator('.chl-j')).toContainText('Você já venceu 3 semanas e 1 mês de desafio.');
     await expect(page.locator('.chl-j')).toContainText('Dias cheios, com as 3 missões cumpridas: 1.');
-    await expect(page.locator('.chl-j')).toContainText('Desafios da turma vencidos: 1.');
+    await expect(page.locator('.chl-j')).toContainText('Desafios da turma vencidos: 1 semana.');
     await expect(medalTile(page, 'Quatro semanas vencidas')).toHaveClass(/\boff\b/);
     await expect(medalTile(page, 'Quatro semanas vencidas')).toContainText('3 de 4 desafios');
     await expect(medalTile(page, 'Time da maré')).toContainText('1 de 4 desafios');

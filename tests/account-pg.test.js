@@ -188,7 +188,7 @@ describe('pg: cabe nos 4.000 caracteres das regras (que não mudam)', () => {
     expect(Object.keys(p).sort()).toEqual(['j', 'u', 'v']);
     expect(typeof p.j).toBe('string');
   });
-  it('o pior caso de verdade (tudo cheio, as 39 medalhas, nome e apelido enormes, recados) cabe com folga, com o rastro inteiro', () => {
+  it('o pior caso de verdade (tudo cheio, as 41 medalhas, nome e apelido enormes, recados) cabe com folga, com o rastro inteiro', () => {
     const S = allMedals(heavy());
     S.profile.name = 'ç'.repeat(30); S.social.nick = '🐠'.repeat(20);
     for (let i = 0; i < 60; i++) S.ui['tip_' + 'x'.repeat(20) + i] = 1;
@@ -197,7 +197,7 @@ describe('pg: cabe nos 4.000 caracteres das regras (que não mudam)', () => {
     expect(p.j.length).toBeLessThanOrEqual(A.PREFS_MAX);
     expect(o.ui).toEqual({}); // os 60 recados saíram primeiro (como antes)
     expect(o.pg.w).toHaveLength(52); expect(o.pg.m).toHaveLength(24); expect(o.pg.c).toHaveLength(52); expect(o.pg.cm).toHaveLength(24); expect(o.pg.f).toHaveLength(400); // o rastro ficou inteiro
-    expect(Object.keys(o.ach)).toHaveLength(39);
+    expect(Object.keys(o.ach)).toHaveLength(41);
     // sem os recados, sobra bastante espaço: o rastro cheio ocupa pouco mais de um terço do limite
     expect(p.j.length).toBeLessThan(3100);
     expect(JSON.stringify(o.pg).length).toBeLessThan(1600); // 1.514 com os 24 meses da turma (eram 1.346 sem eles)
@@ -210,18 +210,18 @@ describe('pg: cabe nos 4.000 caracteres das regras (que não mudam)', () => {
     const half = give(0.5);
     expect(sizeAt(S, 1)).toBeGreaterThan(A.PREFS_MAX);
     expect(half.o.pg).toEqual(A.pgSnapshot(S, 0.5)); expect(half.o.pg.w).toHaveLength(26); expect(half.o.pg.f).toHaveLength(200);
-    expect(Object.keys(half.o.ach)).toHaveLength(39);
+    expect(Object.keys(half.o.ach)).toHaveLength(41);
     const quarter = give(0.25);
     expect(sizeAt(S, 0.5)).toBeGreaterThan(A.PREFS_MAX);
     expect(quarter.o.pg).toEqual(A.pgSnapshot(S, 0.25)); expect(quarter.o.pg.w).toHaveLength(13); expect(quarter.o.pg.f).toHaveLength(100);
     const tenth = give(0.1);
     expect(sizeAt(S, 0.25)).toBeGreaterThan(A.PREFS_MAX);
     expect(tenth.o.pg).toEqual(A.pgSnapshot(S, 0.1)); expect(tenth.o.pg.w).toHaveLength(6); expect(tenth.o.pg.f).toHaveLength(40);
-    expect(Object.keys(tenth.o.ach)).toHaveLength(39); // as medalhas ainda têm as datas
+    expect(Object.keys(tenth.o.ach)).toHaveLength(41); // as medalhas ainda têm as datas
     // com um único item de cada o texto ainda não cabe: o rastro vai embora de uma vez, e as datas das medalhas continuam
     const sem = give(0.0001);
     expect(sizeAt(S, 0.1)).toBeGreaterThan(A.PREFS_MAX);
-    expect('pg' in sem.o).toBe(false); expect(Object.keys(sem.o.ach)).toHaveLength(39);
+    expect('pg' in sem.o).toBe(false); expect(Object.keys(sem.o.ach)).toHaveLength(41);
     // e se nem assim cabe, as datas das medalhas saem; se nem assim, nada é enviado
     S.profile.name = 'x'.repeat(A.PREFS_MAX - 1000);
     const noAch = A.prefsPack(S, 1);

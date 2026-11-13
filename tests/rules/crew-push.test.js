@@ -213,10 +213,24 @@ async function weekCrew(list, wm, user) {
   await team(list, over);
   for (const u of list) await E.phone(u, 1, Object.assign({}, user && user[u]));
 }
+// O mesmo, para o mês: cada pessoa com perfil do dia day (JAN3 se não disser), a máscara wm[uid] (só o domingo, 1, se não disser: a turma não vence a semana), mm = 1 e mp[uid] = os dias do mês anterior
+async function monthCrew(list, mp, wm, user, day) {
+  const over = {};
+  list.forEach((u) => { over[u] = { day: day || JAN3, wm: wm && wm[u] != null ? wm[u] : 1, mm: 1, mp: mp && mp[u] != null ? mp[u] : 0 }; });
+  await team(list, over);
+  for (const u of list) await E.phone(u, 1, Object.assign({}, user && user[u]));
+}
 // Desde a 1.13.0, quando a turma venceu o desafio da semana, o aviso ganha UMA frase a mais (WON), logo depois da conta e antes do convite. A semana de 19/10/2026 é a do "Todos a bordo" (cada
 // pessoa bate a meta em pelo menos 3 dias) e a de 26/10/2026, a da "Turma cheia"; quem sorteia o desafio é o motor do app (functions/core.js), e tests/crew-challenge.test.js trava essas escolhas.
 const WON = (t) => ' A turma venceu o desafio da semana: ' + t + '.';
-const BODY = (hits, mine, won) => 'A turma bateu a meta ' + (hits === 1 ? '1 vez' : hits + ' vezes') + ' nos últimos 7 dias.' + (mine ? ' Você bateu em ' + (mine === 1 ? '1 dia' : mine + ' dias') + '.' : '') + (won ? WON(won) : '') + ' Toque para ver a turma.';
+// Desde a 1.14.0, no primeiro domingo do mês o aviso também fala do desafio do MÊS que fechou (a mesma frase única: só o mês, ou a semana e o mês juntos). O primeiro é o de 3/1/2027 (domingo; 19h30 em Fortaleza = 22h30 em
+// Greenwich), que fecha dezembro de 2026, o mês da "Turma firme" (17 dos 31 dias, a maior parte da turma). Cada perfil traz mm (os dias do mês do perfil até o dia dele) e mp (os do mês anterior: a conta que o servidor lê).
+const JAN3 = '2027-01-03', JAN3_AT = Date.UTC(2027, 0, 3, 22, 30, 0);
+const MONTH_WON = (t, m) => ' A turma venceu o desafio do mês de ' + m + ': ' + t + '.';
+const BOTH_WON = (w, t, m) => ' A turma venceu o desafio da semana (' + w + ') e o do mês de ' + m + ' (' + t + ').';
+const sentence = (won, monthWon, month) => (won && monthWon ? BOTH_WON(won, monthWon, month) : won ? WON(won) : monthWon ? MONTH_WON(monthWon, month) : '');
+const BODY = (hits, mine, won, monthWon, month) => 'A turma bateu a meta ' + (hits === 1 ? '1 vez' : hits + ' vezes') + ' nos últimos 7 dias.' + (mine ? ' Você bateu em ' + (mine === 1 ? '1 dia' : mine + ' dias') + '.' : '') + sentence(won, monthWon, month) + ' Toque para ver a turma.';
+const PERFECT = (won, monthWon, month) => 'Semana perfeita! Todo mundo bateu a meta todos os dias.' + sentence(won, monthWon, month);
 const TITLE = 'Resumo da semana da turma' + NB + '🌊';
 
 E.suite('sendWeekly: "resumo da semana da turma" (domingo, 19h, no relógio de cada um)', () => {
@@ -305,6 +319,90 @@ E.suite('sendWeekly: "resumo da semana da turma" (domingo, 19h, no relógio de c
     const reads = paths.filter((x) => x.indexOf('profiles/') === 0), crew = four.map((u) => 'profiles/' + u);
     expect(Array.from(new Set(reads)).sort()).toEqual(crew.slice().sort()); // todo perfil da turma foi lido, e só eles
     expect(reads.length).toBeLessThanOrEqual(four.length * four.length); // quatro pessoas recebem, cada uma pede os perfis da turma uma vez (a conta da vitória usa os mesmos, sem ler outra vez)
+  });
+
+  test('a frase do mês (1.14.0): no primeiro domingo do mês, só quando a turma venceu o mês que fechou, no mesmo aviso; um dia a menos de uma pessoa e ela some', async () => {
+    // dezembro de 2026 é o da "Turma firme": a maior parte da turma bate a meta em 17 dos 31 dias (3 pessoas pedem 2 com 17 ou mais)
+    await monthCrew([ANA, BIA, CAIO], { [ANA]: 31, [BIA]: 16, [CAIO]: 16 }, null, { [ANA]: E.AWAKE });
+    E.clock.t = JAN3_AT;
+    await sendWeekly(E.deps());
+    expect(E.lastTo(ANA).data.body).toBe(BODY(3, 1)); // só a Ana chega aos 17 dias: o aviso é o de sempre
+    await E.adb.doc('pushlog/' + ANA).delete();
+    await E.adb.doc('profiles/' + BIA).update({ mp: 17 }); // o 17º dia de Bia: 2 das 3 pessoas
+    await sendWeekly(E.deps());
+    expect(E.lastTo(ANA).data.body).toBe(BODY(3, 1, null, 'Turma firme', 'dezembro'));
+    expect(E.lastTo(ANA).data.body).toBe('A turma bateu a meta 3 vezes nos últimos 7 dias. Você bateu em 1 dia. A turma venceu o desafio do mês de dezembro: Turma firme. Toque para ver a turma.');
+    expect(E.sentTo(ANA)).toHaveLength(2); // um aviso por rodada: a vitória é só uma frase dentro do resumo, nunca um aviso à parte
+    expect(E.sentTo(ANA).map((m) => m.data.tag)).toEqual(['mare-turma-semana', 'mare-turma-semana']);
+    expect(E.sentTo(ANA).map((m) => m.data.title)).toEqual([TITLE, TITLE]);
+  });
+
+  test('a semana e o mês vencidos juntos: as duas viram uma frase só, no mesmo aviso (a semana de 28/12/2026 é a do "Quatro dias a bordo", cada pessoa em pelo menos 4 dias)', async () => {
+    await monthCrew([ANA, BIA, CAIO], { [ANA]: 31, [BIA]: 20, [CAIO]: 17 }, { [ANA]: 127, [BIA]: 127, [CAIO]: 127 }, { [ANA]: E.AWAKE });
+    E.clock.t = JAN3_AT;
+    await sendWeekly(E.deps());
+    expect(E.lastTo(ANA).data.body).toBe(PERFECT('Quatro dias a bordo', 'Turma firme', 'dezembro'));
+    expect(E.lastTo(ANA).data.body).toBe('Semana perfeita! Todo mundo bateu a meta todos os dias. A turma venceu o desafio da semana (Quatro dias a bordo) e o do mês de dezembro (Turma firme).');
+    await E.adb.doc('pushlog/' + ANA).delete();
+    await E.adb.doc('profiles/' + BIA).update({ wm: 126 }); // Bia não bateu no domingo (6 dias, de segunda a sábado): a semana deixa de ser perfeita, mas as duas vitórias continuam
+    await sendWeekly(E.deps());
+    expect(E.lastTo(ANA).data.body).toBe(BODY(20, 7, 'Quatro dias a bordo', 'Turma firme', 'dezembro'));
+    expect(E.sentTo(ANA)).toHaveLength(2);
+  });
+
+  test('eu preciso ter batido a meta em pelo menos 4 dias de dezembro: com a conta fechada só pelos outros, o aviso é o de sempre (o app diz "falta você"); com os meus 4 dias, a frase sai', async () => {
+    await monthCrew([ANA, BIA, CAIO], { [ANA]: 3, [BIA]: 31, [CAIO]: 31 }, null, { [ANA]: E.AWAKE });
+    E.clock.t = JAN3_AT;
+    await sendWeekly(E.deps());
+    expect(E.lastTo(ANA).data.body).toBe(BODY(3, 1)); // os outros dois fecham a conta, e eu tenho 3 dias
+    await E.adb.doc('pushlog/' + ANA).delete();
+    await E.adb.doc('profiles/' + ANA).update({ mp: 4 });
+    await sendWeekly(E.deps());
+    expect(E.lastTo(ANA).data.body).toBe(BODY(3, 1, null, 'Turma firme', 'dezembro'));
+  });
+
+  test('só no primeiro domingo do mês (dias 1 a 7): nos outros domingos e antes da estreia o aviso é o de sempre, mesmo com o mês perfeito; no primeiro de fevereiro a frase é a de janeiro (outra regra, outro nome)', async () => {
+    const run = async (day, at, mp) => {
+      await E.adb.doc('pushlog/' + ANA).delete();
+      await monthCrew([ANA, BIA, CAIO], mp, null, { [ANA]: E.AWAKE }, day);
+      E.clock.t = at;
+      await sendWeekly(E.deps());
+      return E.lastTo(ANA).data.body;
+    };
+    const perfect = { [ANA]: 31, [BIA]: 31, [CAIO]: 31 };
+    expect(await run('2027-01-10', Date.UTC(2027, 0, 10, 22, 30, 0), perfect)).toBe(BODY(3, 1)); // o segundo domingo de janeiro: a frase já passou
+    expect(await run('2027-01-31', Date.UTC(2027, 0, 31, 22, 30, 0), perfect)).toBe(BODY(3, 1)); // o último
+    expect(await run('2026-12-06', Date.UTC(2026, 11, 6, 22, 30, 0), perfect)).toBe(BODY(3, 1)); // o primeiro domingo de dezembro de 2026 fecha novembro, que não teve desafio da turma
+    expect(await run(JAN3, JAN3_AT, perfect)).toBe(BODY(3, 1, null, 'Turma firme', 'dezembro')); // e este é o primeiro de verdade
+    // 7/2/2027 fecha janeiro, o mês do "Quase todos a bordo": cada pessoa da turma bate a meta em pelo menos 14 dos 31 dias
+    const FEB7 = Date.UTC(2027, 1, 7, 22, 30, 0);
+    expect(await run('2027-02-07', FEB7, { [ANA]: 14, [BIA]: 14, [CAIO]: 14 })).toBe(BODY(3, 1, null, 'Quase todos a bordo', 'janeiro'));
+    expect(await run('2027-02-07', FEB7, { [ANA]: 14, [BIA]: 14, [CAIO]: 13 })).toBe(BODY(3, 1)); // um dia a menos de uma pessoa
+  });
+
+  test('a frase do mês não lê nada a mais do Firestore: o mesmo resumo, no primeiro domingo do mês e no seguinte, abre exatamente os mesmos documentos, e só os perfis da turma', async () => {
+    const four = [ANA, BIA, CAIO, DUDA], awake = {};
+    four.forEach((u) => { awake[u] = E.AWAKE; });
+    const pass = async (day, at) => {
+      await monthCrew(four, { [ANA]: 31, [BIA]: 31, [CAIO]: 31, [DUDA]: 31 }, null, awake, day);
+      await team([EDU], { [EDU]: { day: day, wm: 127, mm: 1, mp: 31 } }); // alguém de fora da turma, com perfil
+      for (const u of four) await E.adb.doc('pushlog/' + u).delete();
+      E.clock.t = at;
+      const paths = [];
+      const db = new Proxy(E.adb, { get(t, k) {
+        if (k === 'doc') return (path) => { paths.push(path); return t.doc(path); };
+        const v = t[k];
+        return typeof v === 'function' ? v.bind(t) : v;
+      } });
+      expect(await sendWeekly(E.deps({ db: db }))).toMatchObject({ seen: 4, sent: 4 });
+      return { paths: paths.slice().sort(), bodies: four.map((u) => E.lastTo(u).data.body) };
+    };
+    const first = await pass(JAN3, JAN3_AT), second = await pass('2027-01-10', Date.UTC(2027, 0, 10, 22, 30, 0));
+    first.bodies.forEach((b) => expect(b).toBe(BODY(4, 1, null, 'Turma firme', 'dezembro')));
+    second.bodies.forEach((b) => expect(b).toBe(BODY(4, 1))); // o segundo domingo: o mesmo aviso, sem a frase
+    expect(first.paths).toEqual(second.paths); // os mesmos documentos abertos, com ou sem a frase do mês
+    const reads = first.paths.filter((x) => x.indexOf('profiles/') === 0);
+    expect(Array.from(new Set(reads)).sort()).toEqual(four.map((u) => 'profiles/' + u).sort()); // todo perfil da turma foi lido, e só eles (o de fora, não)
   });
 
   test('nada a contar, nada enviado: sem amigos, ninguém mais mostra os 7 dias, ou a turma não bateu a meta nenhuma vez', async () => {
@@ -481,5 +579,14 @@ E.suite('o gatilho e o resumo de verdade (functions/index.js)', () => {
     try { await mod.weeklyCrew.run({}); await mod.weeklyCrew.run({}); } finally { vi.useRealTimers(); }
     expect(titlesTo(ANA)).toEqual([TITLE]);
     expect(titlesTo(BIA)).toEqual([TITLE]);
+  });
+
+  test('weeklyCrew no primeiro domingo do mês (3/1/2027, 19h30 em Fortaleza): o mesmo aviso, com a frase do mês que fechou, uma vez só', async () => {
+    await monthCrew([ANA, BIA], { [ANA]: 20, [BIA]: 20 }, null, { [ANA]: E.AWAKE, [BIA]: E.AWAKE }); // 2 pessoas pedem as duas com 17 dias ou mais
+    vi.useFakeTimers({ toFake: ['Date'], now: JAN3_AT });
+    try { await mod.weeklyCrew.run({}); await mod.weeklyCrew.run({}); } finally { vi.useRealTimers(); }
+    const bodies = sent.filter((x) => x.token === E.tokenOf(ANA)).map((x) => x.data.body);
+    expect(bodies).toEqual([BODY(2, 1, null, 'Turma firme', 'dezembro')]);
+    expect(titlesTo(ANA)).toEqual([TITLE]);
   });
 });

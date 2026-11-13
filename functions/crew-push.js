@@ -4,11 +4,13 @@
 //   sendWeekly   "Resumo da semana da turma": roda de hora em hora (weeklyCrew) e avisa quem está no domingo, entre 19:00 e 19:59 no relógio
 //                dele, e não desligou o resumo (users/{uid}.social.week; sem o campo vale ligado). Desde a 1.13.0, quando a turma venceu o
 //                desafio da semana, o mesmo aviso ganha UMA frase a mais (a conta é a do app: crewWonOf, abaixo; nunca é um push novo).
+//                Desde a 1.14.0, no primeiro domingo depois de um mês fechar, a mesma frase também fala do desafio do MÊS que a turma venceu
+//                (monthWonOf, abaixo; as duas viram uma frase só quando a turma venceu as duas coisas).
 // Os dois passam por route() (friend-push.js): limite contra repetição, horário de silêncio e FCM. Só o texto e a conta saem daqui.
 // A conta da semana é a mesma do app (weekOf em public/js/social.js; tests/crew.test.js compara as duas em milhares de perfis sorteados).
 // O desafio da turma usa o MESMO motor do app: functions/core.js é uma cópia idêntica de public/js/core.js (npm run sync:functions; o teste reprova se divergirem).
 import { tokensOf, wantsKind, messageOf, weekMessage } from './social-push.js';
-import { crewInfo, weekStart } from './core.js';
+import { crewInfo, crewMonthInfo, weekStart, addDays, monthEnd, MONTH_NAMES } from './core.js';
 import { route } from './friend-push.js';
 import { friendsOf } from './network.js';
 import { local, isWeeklyHour } from './clock.js';
@@ -63,6 +65,37 @@ export function crewWonOf(profiles, me, ids, today) {
   const grid = rows.map((w) => { const r = []; for (let j = 0; j < WEEK; j++) { const rel = idx - j; r.push(rel >= 0 && rel < WEEK && w.days[rel] ? 1 : 0); } return r; });
   const g = crewInfo({}, grid, mon, today);
   return g && g.done ? g.c.t : '';
+}
+// Os meses (AAAA-MM) e as contas de dias, iguais às de public/js/social.js (1.14.0): o mês anterior ao de k, o seguinte a ym (o dia 1 mais 31 dias sempre cai no mês seguinte), quantos dias tem ym
+const ymPrev = (k) => addDays(k.slice(0, 7) + '-01', -1).slice(0, 7);
+const ymNext = (ym) => addDays(ym + '-01', 31).slice(0, 7);
+const ymLen = (ym) => +monthEnd(ym + '-01').slice(8);
+const dayCount = (v) => (typeof v === 'number' && isFinite(v) ? int(v, 0, 31) : null); // contas de dias do mês (mm, mp): de 0 a 31, ou null se não é um número, como o app
+// Quantos dias do mês ym ('AAAA-MM') a pessoa p bateu a meta, vistos de today: a mesma conta de monthOf do app (public/js/social.js; tests/crew.test.js compara as duas em milhares de turmas sorteadas). mm conta o mês do dia
+// do perfil e mp o mês anterior a esse; null quando não dá para saber (sem os campos, progresso em pausa, um dia que ainda nem chegou, um perfil de mais de um mês depois de ym); se o perfil é de um mês ANTES de ym, 0.
+export function monthOf(p, ym, today) {
+  const q = obj(p), mm = q ? dayCount(q.mm) : null;
+  if (!q || mm == null || q.sh === false || typeof q.day !== 'string' || !DAY_RE.test(q.day) || daysBetween(today, q.day) > 2) return null;
+  const pm = q.day.slice(0, 7);
+  if (pm === ym) return Math.min(mm, ymLen(ym));
+  if (pm === ymNext(ym)) { const mp = dayCount(q.mp); return mp == null ? null : Math.min(mp, ymLen(ym)); }
+  return pm < ym ? 0 : null;
+}
+// O desafio da turma do MÊS que acabou de fechar, visto por me no primeiro domingo do mês novo (1.14.0): { t (o título), m (o nome do mês) } se a turma o venceu, senão null. É a conta de crewMonthDue do app para o mês
+// anterior, que só existe nos 7 primeiros dias do mês (o único domingo desses dias é o primeiro: nos outros, null): eu primeiro (sem a minha conta, ou seja, em pausa ou com um app antigo, fico de fora), mais os amigos
+// que mostram a conta do mês e apareceram nos últimos 3 dias; a vitória pede a conta fechada e eu com a meta batida em pelo menos CREW_MONTH_MINE dias do mês. O servidor não vê S.crewWon: vale só o que os perfis dizem
+// agora, então, no pior caso, a frase deixa de aparecer (nunca aparece uma vitória que o app não dá).
+export function monthWonOf(profiles, me, ids, today) {
+  if (typeof today !== 'string' || !DAY_RE.test(today) || today.slice(8) > '07') return null;
+  const ym = ymPrev(today), mine = monthOf(profiles.get(me), ym, today);
+  if (mine == null) return null;
+  const counts = [mine];
+  ids.filter((id) => id !== me).forEach((id) => {
+    const p = profiles.get(id), c = monthOf(p, ym, today);
+    if (c != null && daysBetween(p.day, today) <= 3) counts.push(c);
+  });
+  const g = crewMonthInfo({}, counts, ym, today);
+  return g && g.done ? { t: g.c.t, m: MONTH_NAMES[+ym.slice(5, 7) - 1] } : null;
 }
 // A semana da turma vista por uma pessoa: profiles = Map uid → perfil; ids = ela e os amigos; today = o dia dela. Devolve { hits, total, mine }
 // (acertos da turma, de quantos possíveis, e os dela) ou null se não há o que contar: ninguém mais mostra os 7 dias, ou ninguém bateu a meta.
@@ -133,7 +166,9 @@ export async function sendWeekly(d) {
           const ids = [doc.id].concat(friends), need = ids.filter((u) => !profiles.has(u));
           if (need.length) { const have = await docsOf(d.db, 'profiles', need); need.forEach((u) => { profiles.set(u, have.get(u) || null); }); }
           const day = local(now, doc.data().tz).day, w = weekOfCrew(profiles, doc.id, ids, day);
-          return w ? await route({ kind: 'week', from: 'crew', to: doc.id }, weekMessage(Object.assign({}, w, { won: crewWonOf(profiles, doc.id, ids, day) })), d) : 0;
+          if (!w) return 0;
+          const mw = monthWonOf(profiles, doc.id, ids, day); // só no primeiro domingo do mês, e só se a turma venceu o mês que fechou
+          return await route({ kind: 'week', from: 'crew', to: doc.id }, weekMessage(Object.assign({}, w, { won: crewWonOf(profiles, doc.id, ids, day), monthWon: mw ? mw.t : '', month: mw ? mw.m : '' })), d);
         } catch (e) { d.log.error('resumo da semana falhou', { err: e && e.message }); return 0; }
       }));
       out.sent += got.reduce((s, x) => s + x, 0);

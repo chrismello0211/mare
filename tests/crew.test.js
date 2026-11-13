@@ -358,15 +358,15 @@ describe('crewWonOf: o desafio da turma da semana, visto pelo servidor (a frase 
       expect(won(base(third))).toBe(TITLE);
     });
   });
-  it('na segunda-feira nenhuma das dez regras fecha com a turma inteira batendo a meta: um dia só nunca vence', () => {
-    for (let w = 0; w < 12; w++) {
+  it('na segunda-feira nenhuma das doze regras fecha com a turma inteira batendo a meta: um dia só nunca vence', () => {
+    for (let w = 0; w < 14; w++) { // as 2 semanas da época da 1.13.0 (10 regras) e a volta inteira da época da 1.14.0 (12 regras, a partir de 4/1/2027)
       const mon = addDays(MON, 7 * w), all = map({ [me]: prof(127, { day: mon }), [f1]: prof(127, { day: mon }), [f2]: prof(127, { day: mon }), [f3]: prof(127, { day: mon }) });
       expect([mon, won(all, [me, f1, f2, f3], mon)]).toEqual([mon, '']);
     }
   });
-  it('no domingo, com a turma inteira batendo a meta a semana toda, sai o título do desafio de cada uma das dez regras (e nenhuma outra coisa)', () => {
+  it('no domingo, com a turma inteira batendo a meta a semana toda, sai o título do desafio de cada uma das doze regras (e nenhuma outra coisa)', () => {
     const titles = [];
-    for (let w = 0; w < 12; w++) {
+    for (let w = 0; w < 14; w++) { // 2 semanas da época da 1.13.0 e a volta de 12 da época da 1.14.0: todas as regras aparecem
       const mon = addDays(MON, 7 * w), sun = addDays(mon, 6);
       const all = map({ [me]: prof(127, { day: sun }), [f1]: prof(127, { day: sun }), [f2]: prof(127, { day: sun }), [f3]: prof(127, { day: sun }) });
       const t = won(all, [me, f1, f2, f3], sun);
@@ -416,6 +416,214 @@ describe('crewWonOf: o desafio da turma da semana, visto pelo servidor (a frase 
       expect(typeof t).toBe('string');
       if (t) expect(t).toBe(TITLE);
     }
+  });
+});
+
+describe('monthOf e monthWonOf: o desafio da turma do MÊS, visto pelo servidor (a frase do mês no resumo de domingo, só no primeiro domingo do mês)', () => {
+  const JAN3 = '2027-01-03', DEC = '2026-12', RULE = 'Turma firme'; // 3/1/2027: domingo e o primeiro de janeiro. O mês que fechou é dezembro de 2026, o da "Turma firme" (17 dos 31 dias)
+  // mm = os dias do mês do dia do perfil (aqui, janeiro) em que a pessoa bateu a meta, mp = os do mês anterior a esse (aqui, dezembro: a conta que o servidor lê)
+  const mprof = (mm, mp, o) => Object.assign({ nm: 'X', mc: 'concha', ins: [], pct: 0, met: false, st: 0, day: JAN3, sh: true, mm: mm, mp: mp }, o || {});
+  const map = (obj) => new Map(Object.keys(obj).map((k) => [k, obj[k]]));
+  const me = uid(1), f1 = uid(2), f2 = uid(3), f3 = uid(4);
+  const won = (m, ids, today) => CP.monthWonOf(m, me, ids || [me, f1, f2], today || JAN3);
+  const trio = (a, b, c) => map({ [me]: mprof(0, a), [f1]: mprof(0, b), [f2]: mprof(0, c) }); // os dias de dezembro de cada um
+  const OK = { t: RULE, m: 'dezembro' };
+  const ymPrev = (k) => addDays(k.slice(0, 7) + '-01', -1).slice(0, 7);
+  it('3/1/2027 é o primeiro domingo de janeiro, e o mês que fechou é dezembro de 2026, o da "Turma firme" (17 dos 31 dias, a maior parte da turma)', () => {
+    expect(new Date(Date.UTC(2027, 0, 3)).getUTCDay()).toBe(0);
+    const g = C.crewMonthInfo(C.defaults(1), [0, 0, 0, 0], DEC, JAN3);
+    expect(g).toMatchObject({ key: DEC, D: 31, need: 3, text: 'Pelo menos 3 das 4 pessoas batem a meta em pelo menos 17 dias deste mês' });
+    expect(g.c).toMatchObject({ id: 'mmost', t: RULE });
+  });
+  it('monthOf: os dias do mês pedido que o perfil conta (mm se o perfil é do próprio mês, mp se é do mês seguinte, 0 se é de antes) ou null quando não dá para saber', () => {
+    expect(CP.monthOf(mprof(5, 17), DEC, JAN3)).toBe(17); // perfil de janeiro: dezembro é o mês anterior a ele, mp
+    expect(CP.monthOf(mprof(20, 3, { day: '2026-12-31' }), DEC, JAN3)).toBe(20); // perfil de 31/12: mm é o de dezembro
+    expect(CP.monthOf(mprof(20, 3, { day: '2026-11-30' }), DEC, JAN3)).toBe(0); // perfil de novembro: ainda não registrou nada em dezembro
+    expect(CP.monthOf(mprof(20, 3, { day: '2027-02-01' }), DEC, '2027-02-01')).toBeNull(); // perfil de fevereiro: dezembro ficou dois meses para trás
+    // dias que não cabem no mês: nunca mais que o tamanho do mês (fevereiro tem 28), nunca fora de 0 a 31, e a parte quebrada some
+    expect(CP.monthOf(mprof(31, 31, { day: '2027-03-02' }), '2027-02', '2027-03-02')).toBe(28);
+    expect(CP.monthOf(mprof(31, 99), DEC, JAN3)).toBe(31);
+    expect(CP.monthOf(mprof(99, 0, { day: '2026-12-31' }), DEC, JAN3)).toBe(31);
+    expect(CP.monthOf(mprof(0, -5), DEC, JAN3)).toBe(0);
+    expect(CP.monthOf(mprof(0, 17.9), DEC, JAN3)).toBe(17);
+    // sem como saber: app antigo (sem mm), texto ou número quebrado no lugar da conta, progresso em pausa, um dia que ainda nem chegou, um dia que não é dia
+    [mprof(undefined, 17), mprof(null, 17), mprof('9', 17), mprof(NaN, 17), mprof(Infinity, 17), mprof(5, 17, { sh: false }), mprof(5, 17, { day: addDays(JAN3, 3) }),
+      mprof(5, 17, { day: 'ontem' }), mprof(5, 17, { day: undefined })].forEach((q) => expect(CP.monthOf(q, DEC, JAN3)).toBeNull());
+    expect(CP.monthOf(mprof(5, undefined), DEC, JAN3)).toBeNull(); // perfil de janeiro sem o mês anterior (mp)
+    expect(CP.monthOf(mprof(5, '17'), DEC, JAN3)).toBeNull();
+    expect(CP.monthOf(mprof(5, undefined, { day: '2026-12-31' }), DEC, JAN3)).toBe(5); // o perfil de dezembro não precisa dele
+    expect(CP.monthOf(mprof(5, 17, { day: addDays(JAN3, 2) }), DEC, JAN3)).toBe(17); // dois dias à frente (o fuso explica) ainda vale
+    [null, undefined, 'x', 5, [], {}, true].forEach((q) => expect(CP.monthOf(q, DEC, JAN3)).toBeNull());
+  });
+  it('a turma fecha a conta de dezembro: o resultado é o título e o nome do mês; uma pessoa a menos nos 17 dias e a frase some (4 pessoas pedem 3 com 17 dias ou mais)', () => {
+    const four = (a, b, c, d) => map({ [me]: mprof(0, a), [f1]: mprof(0, b), [f2]: mprof(0, c), [f3]: mprof(0, d) }), ids4 = [me, f1, f2, f3];
+    expect(won(four(17, 17, 17, 0), ids4)).toEqual(OK);
+    expect(won(four(31, 17, 17, 0), ids4)).toEqual(OK);
+    expect(won(four(17, 17, 16, 0), ids4)).toBeNull(); // só 2 das 4 chegam a 17
+    expect(won(four(4, 31, 31, 31), ids4)).toEqual(OK); // eu não preciso estar entre os que chegam a 17: bastam 4 dias meus
+    expect(won(four(31, 31, 16, 16), ids4)).toBeNull();
+    expect(won(trio(17, 17, 0))).toEqual(OK); // 3 pessoas pedem 2
+    expect(won(trio(17, 16, 16))).toBeNull();
+  });
+  it('eu preciso ter batido a meta em pelo menos 4 dias do mês (CREW_MONTH_MINE): com a conta fechada só pelos outros, não há vitória (o app diz "falta você")', () => {
+    expect(C.CREW_MONTH_MINE).toBe(4);
+    [0, 1, 3].forEach((n) => expect([n, won(trio(n, 31, 31))]).toEqual([n, null]));
+    [4, 5, 31].forEach((n) => expect([n, won(trio(n, 31, 31))]).toEqual([n, OK]));
+  });
+  it('só nos 7 primeiros dias do mês (o único domingo deles é o primeiro): do dia 8 em diante nunca, nem com a turma perfeita; nos 7 primeiros, o mês que fechou, com o título dele', () => {
+    let inside = 0;
+    for (let i = 0; i < 365; i++) {
+      const today = addDays('2027-01-01', i), dom = +today.slice(8);
+      const all = map({ [me]: mprof(31, 31, { day: today }), [f1]: mprof(31, 31, { day: today }), [f2]: mprof(31, 31, { day: today }) });
+      const r = won(all, null, today), prev = ymPrev(today);
+      if (dom <= 7) { inside++; expect([today, r]).toEqual([today, { t: C.crewMonthInfo(C.defaults(1), [0, 0, 0], prev, today).c.t, m: C.MONTH_NAMES[+prev.slice(5, 7) - 1] }]); }
+      else expect([today, r]).toEqual([today, null]);
+    }
+    expect(inside).toBe(12 * 7); // sete dias por mês, todos os meses de 2027
+  });
+  it('antes da estreia (dezembro de 2026 é o primeiro mês com desafio da turma) não há vitória do mês, mesmo com a turma perfeita', () => {
+    expect(C.CREW_MONTH_FROM).toBe('2026-12');
+    const all = (today) => map({ [me]: mprof(31, 31, { day: today }), [f1]: mprof(31, 31, { day: today }), [f2]: mprof(31, 31, { day: today }) });
+    ['2026-11-01', '2026-11-05', '2026-12-01', '2026-12-06', '2026-12-07'].forEach((d) => expect([d, won(all(d), null, d)]).toEqual([d, null]));
+    expect(won(all('2027-01-01'), null, '2027-01-01')).toEqual(OK);
+  });
+  it('em cada primeiro domingo de 2027 a vitória do mês que fechou sai com o título da regra daquele mês e o nome certo (fevereiro com 28 dias, os meses de 30 e 31)', () => {
+    const want = [['2027-01-03', 'Turma firme', 'dezembro'], ['2027-02-07', 'Quase todos a bordo', 'janeiro'], ['2027-03-07', 'Turma firme', 'fevereiro'], ['2027-04-04', 'Maré do mês', 'março'],
+      ['2027-05-02', 'Ritmo forte', 'abril'], ['2027-06-06', 'Quase todos a bordo', 'maio'], ['2027-07-04', 'Maré do mês', 'junho'], ['2027-08-01', 'Ritmo forte', 'julho'],
+      ['2027-09-05', 'Turma firme', 'agosto'], ['2027-10-03', 'Ritmo forte', 'setembro'], ['2027-11-07', 'Turma firme', 'outubro'], ['2027-12-05', 'Maré do mês', 'novembro']];
+    want.forEach(([today, t, m]) => {
+      expect(new Date(Date.parse(today + 'T00:00:00Z')).getUTCDay()).toBe(0); // é domingo
+      expect(+today.slice(8)).toBeLessThanOrEqual(7); // e o primeiro do mês
+      const all = map({ [me]: mprof(31, 31, { day: today }), [f1]: mprof(31, 31, { day: today }), [f2]: mprof(31, 31, { day: today }) });
+      expect([today, won(all, null, today)]).toEqual([today, { t: t, m: m }]);
+    });
+    expect(new Set(want.map((w) => w[1]))).toEqual(new Set(C.CREW_MONTHLY.map((c) => c.t)));
+  });
+  it('os limites de cada regra são os do app: fevereiro (28 dias) pede 15 na "Turma firme"; março (31) pede 18 por pessoa, em média, na "Maré do mês"; o terceiro, um a menos, e a frase some', () => {
+    const FEB = '2027-03-07', MAR = '2027-04-04';
+    const at = (today, a, b, c) => map({ [me]: mprof(0, a, { day: today }), [f1]: mprof(0, b, { day: today }), [f2]: mprof(0, c, { day: today }) });
+    expect(won(at(FEB, 15, 15, 0), null, FEB)).toEqual({ t: 'Turma firme', m: 'fevereiro' });
+    expect(won(at(FEB, 15, 14, 0), null, FEB)).toBeNull();
+    expect(won(at(FEB, 31, 31, 31), null, FEB)).toEqual({ t: 'Turma firme', m: 'fevereiro' }); // 31 num mês de 28 conta 28
+    expect(won(at(MAR, 18, 18, 18), null, MAR)).toEqual({ t: 'Maré do mês', m: 'março' }); // 54 metas = 3 × 18
+    expect(won(at(MAR, 18, 18, 17), null, MAR)).toBeNull(); // 53
+    expect(won(at(MAR, 31, 20, 3), null, MAR)).toEqual({ t: 'Maré do mês', m: 'março' }); // a média é da turma: 54 também
+  });
+  it('sem a minha conta (progresso em pausa, app antigo, sem perfil, perfil de um dia à frente) não há turma para mim: nada', () => {
+    const friends = { [f1]: mprof(0, 31), [f2]: mprof(0, 31) };
+    [mprof(0, 31, { sh: false }), mprof(undefined, 31), mprof(0, undefined), null, mprof(0, 31, { day: addDays(JAN3, 3) })].forEach((mine, i) => {
+      const m = map(Object.assign({}, friends)); if (mine) m.set(me, mine);
+      expect([i, won(m)]).toEqual([i, null]);
+    });
+    expect(won(map(Object.assign({ [me]: mprof(0, 31) }, friends)))).toEqual(OK); // com a minha conta, a vitória aparece
+  });
+  it('um amigo parado há até 3 dias ainda conta (do perfil dele, vale mm se é de dezembro e mp se é de janeiro); parado há 4, não: a turma volta a ser só eu', () => {
+    const two = (b) => map({ [me]: mprof(0, 31), [f1]: b }), ids2 = [me, f1];
+    expect(won(two(mprof(31, 0, { day: '2026-12-31' })), ids2)).toEqual(OK); // parado há 3 dias: perfil de dezembro, vale o mm (31)
+    expect(won(two(mprof(16, 31, { day: '2026-12-31' })), ids2)).toBeNull(); // 16 de 17
+    expect(won(two(mprof(31, 0, { day: '2026-12-30' })), ids2)).toBeNull(); // parado há 4 dias: fora da conta, sobra uma pessoa, e uma pessoa só não tem desafio
+    expect(won(two(mprof(5, 31, { day: '2027-01-02' })), ids2)).toEqual(OK); // perfil de janeiro: vale o mp (31), não o mm (5)
+    expect(won(two(mprof(31, 5, { day: '2027-01-02' })), ids2)).toBeNull(); // o mp é 5
+  });
+  it('quem não mostra a conta do mês (pausa, app antigo, sem perfil, dia à frente demais, parado há mais de 3 dias) fica fora da conta de quantas pessoas', () => {
+    // eu com 4 dias e o primeiro amigo com 31: com 2 pessoas na conta a regra pede as duas com 17 dias (eu não chego); com 3 pessoas pede 2, e um terceiro com 31 fecha
+    const base = (third) => { const m = map({ [me]: mprof(0, 4), [f1]: mprof(0, 31) }); if (third) m.set(f2, third); return m; };
+    expect(won(base(null), [me, f1, f2])).toBeNull();
+    expect(won(base(mprof(0, 31)))).toEqual(OK); // o terceiro mostra a conta e bateu: fecha
+    expect(won(base(mprof(31, 0, { day: '2026-12-31' })))).toEqual(OK); // parado há 3 dias: ainda conta
+    [mprof(0, 31, { sh: false }), mprof(undefined, 31), mprof(0, undefined), null, mprof(0, 31, { day: addDays(JAN3, 3) }), mprof(31, 0, { day: '2026-12-30' })].forEach((third, i) => {
+      expect([i, won(base(third))]).toEqual([i, null]);
+    });
+  });
+  it('o resultado nunca depende da ordem dos amigos nem de eles estarem repetidos; só a minha conta vem primeiro', () => {
+    const m = map({ [me]: mprof(0, 20), [f1]: mprof(0, 17), [f2]: mprof(0, 3), [f3]: mprof(0, 25) });
+    const base = won(m, [me, f1, f2, f3]);
+    expect(base).toEqual(OK); // 20, 17 e 25 chegam a 17 (3 de 4)
+    [[me, f3, f2, f1], [me, f2, f1, f3], [me, f1, f3, f2]].forEach((ids) => expect(won(m, ids)).toEqual(base));
+  });
+  // o app de quem olha: os meus dias batidos (hits = os dias 'AAAA-MM-DD') e o "mostrar o progresso" (shares), meta manual de 2.000 ml
+  const appState = (hits, shares) => {
+    const base = C.defaults(1), S = Object.assign({}, base, { onboarded: true, social: { on: true, nick: 'Eu', share: shares, code: '' }, days: {} });
+    S.goal = Object.assign({}, base.goal, { mode: 'manual', manual: 2000 });
+    hits.forEach((d) => { S.days[d] = { goal: 2000, entries: [{ id: 'a', t: 1, ml: 2000, d: 'water' }] }; });
+    return S;
+  };
+  const MONTHS = ['2026-11-01', '2026-12-01', '2027-01-01', '2027-02-01', '2027-03-01', '2027-04-01', '2027-05-01', '2027-06-01', '2027-07-01', '2027-08-01', '2027-09-01', '2027-10-01', '2027-11-01', '2027-12-01'];
+  // uma pessoa sorteada: os dias batidos do mês anterior ao de today e deste (até today), cada dia com a chance dens
+  const hitsOfPerson = (today, dens) => {
+    const first = ymPrev(today) + '-01', out = [];
+    for (let d = first; d <= today; d = addDays(d, 1)) if (rnd() < dens) out.push(d);
+    return out;
+  };
+  it('é a mesma conta do app (crewMonthDue) em milhares de turmas sorteadas, nos 7 primeiros dias do mês e nos outros, antes e depois da estreia', () => {
+    let wins = 0, quiet = 0; const titles = new Set(), names = new Set();
+    for (let i = 0; i < 3000; i++) {
+      const today = addDays(pick(MONTHS), rnd() < 0.8 ? Math.floor(rnd() * 7) : 7 + Math.floor(rnd() * 21)), n = 2 + Math.floor(rnd() * 7), dens = 0.25 + rnd() * 0.75;
+      const ids = Array.from({ length: n }, (_, k) => uid(2000 + k + i * 10)), profiles = new Map(), friends = [];
+      const shares = rnd() < 0.92, S = appState(hitsOfPerson(today, Math.min(1, dens + (rnd() - 0.5) * 0.4)), shares);
+      profiles.set(ids[0], SO.profilePayload(S, today)); // o meu perfil é o que o app publica de verdade
+      ids.slice(1).forEach((id) => {
+        if (rnd() < 0.08) return; // sem perfil
+        const k = rnd() < 0.8 ? today : addDays(today, pick([-1, -2, -3, -4, -5, -40, 1, 2, 3])), F = appState(hitsOfPerson(k > today ? today : k, Math.min(1, dens + (rnd() - 0.5) * 0.4)), true);
+        const p = SO.profilePayload(F, k);
+        if (rnd() < 0.1) { delete p.mm; delete p.mp; } // app antigo
+        if (rnd() < 0.08) { p.sh = false; delete p.mm; delete p.mp; } // em pausa
+        profiles.set(id, p); friends.push(Object.assign({ uid: id }, p));
+      });
+      const due = SO.crewMonthDue(S, friends, today).filter((x) => x.past), prev = ymPrev(today);
+      const want = due.length ? { t: due[0].c.t, m: C.MONTH_NAMES[+prev.slice(5, 7) - 1] } : null;
+      expect([today, n, CP.monthWonOf(profiles, ids[0], ids, today)]).toEqual([today, n, want]);
+      if (want) { wins++; titles.add(want.t); names.add(want.m); } else quiet++;
+    }
+    expect(wins).toBeGreaterThan(150); // o sorteio exercita os dois lados: há vitórias e há meses sem vitória
+    expect(quiet).toBeGreaterThan(150);
+    expect(titles.size).toBe(4); // e as quatro regras do mês
+    expect(names.size).toBeGreaterThan(6);
+  });
+  it('se o MEU perfil é de uns dias atrás (o app tem dias que o perfil ainda não tem), o servidor pode deixar de dar uma vitória, mas nunca dá uma que o app não dá', () => {
+    let differ = 0, both = 0;
+    for (let i = 0; i < 2000; i++) {
+      const today = addDays(pick(MONTHS), Math.floor(rnd() * 7)), n = 2 + Math.floor(rnd() * 5), dens = 0.3 + rnd() * 0.7;
+      const ids = Array.from({ length: n }, (_, k) => uid(9000 + k + i * 10)), profiles = new Map(), friends = [];
+      const S = appState(hitsOfPerson(today, dens), true), k = addDays(today, -Math.floor(rnd() * 12));
+      profiles.set(ids[0], SO.profilePayload(S, k)); // publicado há 0 a 11 dias, com os dias que vieram depois já no aparelho
+      ids.slice(1).forEach((id) => { const p = SO.profilePayload(appState(hitsOfPerson(today, Math.min(1, dens + (rnd() - 0.5) * 0.4)), true), today); profiles.set(id, p); friends.push(Object.assign({ uid: id }, p)); });
+      const due = SO.crewMonthDue(S, friends, today).filter((x) => x.past), srv = CP.monthWonOf(profiles, ids[0], ids, today);
+      if (srv) { expect([today, due.length]).toEqual([today, 1]); expect(srv.t).toBe(due[0].c.t); both++; } else if (due.length) differ++;
+    }
+    expect(both).toBeGreaterThan(100);
+    expect(differ).toBeGreaterThan(20); // e o sorteio mostra que isso acontece: há meses em que o app dá a vitória e o servidor, que só vê o perfil, ainda não
+  });
+  it('perfis e dias estranhos (texto, número, lista, objeto vazio, contas fora do limite) nunca quebram a conta, e o resultado é null ou o título e o nome do mês', () => {
+    const junk = [null, undefined, 'x', 5, [], {}, { mm: 'a', day: 3 }, { mm: 7, day: JAN3, sh: 'yes' }, { mm: 7, mp: 30, day: JAN3 }, { mm: {}, mp: [], day: JAN3 }, mprof(31, 31), mprof(1e9, -4), mprof(31.7, 31.2), mprof(NaN, 3), mprof(0, 17, { day: 20270103 })];
+    const titles = C.CREW_MONTHLY.map((c) => c.t);
+    for (let i = 0; i < 800; i++) {
+      const ids = [me, f1, f2, f3, f1], profiles = new Map(ids.map((id) => [id, pick(junk)])), r = CP.monthWonOf(profiles, me, ids, JAN3);
+      if (r !== null) { expect(titles).toContain(r.t); expect(r.m).toBe('dezembro'); }
+    }
+    [undefined, null, 5, '', 'x', '2027-1-3', '2027-01-3', {}, []].forEach((today) => expect(CP.monthWonOf(trio(31, 31, 31), me, [me, f1, f2], today)).toBeNull());
+    expect(CP.monthWonOf(new Map(), me, [me], JAN3)).toBeNull(); // sozinho, sem perfil
+    expect(CP.monthWonOf(trio(31, 31, 31), me, [], JAN3)).toBeNull(); // sem a lista de pessoas, só eu
+  });
+  it('datas que não são datas (fora do formato, com lixo no fim ou no começo, ou um objeto que vira texto de data) nunca viram uma conta (0 dias) nem quebram nada: null', () => {
+    const parece = { toString: () => '2026-12-31' }; // um objeto que "parece" uma data quando vira texto (o Firestore não manda isso, a conta não pode confiar em quem manda)
+    ['1999-xx-xx', '2026-12', '20261231', '2026/12/31', ' 2026-12-31', '2026-12-31\n', '', parece, ['2026-12-31'], 20261231, true].forEach((day) => {
+      expect([String(day), CP.monthOf(mprof(5, 17, { day: day }), DEC, JAN3)]).toEqual([String(day), null]);
+    });
+    // o "hoje" do servidor também: só AAAA-MM-DD de verdade abre a conta (a sabotagem que tirava essa conferência dava a vitória a '2027-01-0' e a '2027-01-03\n')
+    ['2027-01-0', '2027-01-', '2027-01', '2027-01-03\n', ' 2027-01-03', '2027-01-03 ', { toString: () => JAN3 }, [JAN3]].forEach((today) => {
+      expect([String(today), CP.monthWonOf(trio(31, 31, 31), me, [me, f1, f2], today)]).toEqual([String(today), null]);
+    });
+    expect(CP.monthWonOf(trio(31, 31, 31), me, [me, f1, f2], JAN3)).toEqual(OK); // e com a data certa a mesma turma vence
+  });
+  it('monthOf: o mês pedido tem o tamanho dele (28 dias em fevereiro, 29 no bissexto, 30 em novembro), mesmo com 31 dias contados no perfil, tanto no mês do próprio perfil (mm) quanto no seguinte (mp)', () => {
+    expect(CP.monthOf(mprof(31, 0, { day: '2027-02-28' }), '2027-02', '2027-02-28')).toBe(28);
+    expect(CP.monthOf(mprof(31, 0, { day: '2028-02-29' }), '2028-02', '2028-02-29')).toBe(29);
+    expect(CP.monthOf(mprof(31, 0, { day: '2026-11-30' }), '2026-11', '2026-11-30')).toBe(30);
+    expect(CP.monthOf(mprof(31, 0, { day: '2026-12-31' }), '2026-12', '2026-12-31')).toBe(31);
+    expect(CP.monthOf(mprof(0, 31, { day: '2026-12-01' }), '2026-11', '2026-12-01')).toBe(30); // no mês seguinte quem fala é o mp
+    expect(CP.monthOf(mprof(0, 31, { day: '2027-03-01' }), '2027-02', '2027-03-01')).toBe(28);
+    expect(CP.monthOf(mprof(0, 31, { day: '2028-03-01' }), '2028-02', '2028-03-01')).toBe(29);
   });
 });
 

@@ -245,7 +245,7 @@ export const missionProgress = (k, day, goal) => Math.min(1, missionFor(k).p((da
 // conta nas de "beber água"; as de quantidade seguem o total da meta (inclusive os outros líquidos, se "Somar na meta" estiver ligado).
 const nWater = (es) => es.filter(isWater).length;
 const inWindow = (es, a, b) => (es.some((e) => isWater(e) && minOf(e.t) >= a && minOf(e.t) < b) ? 1 : 0); // 1 se houve água entre a e b (minutos do dia), senão 0
-const hoursOf = (es, from) => { const s = {}, lo = from || 0; es.forEach((e) => { if (isWater(e)) { const m = minOf(e.t); if (m >= lo) s[Math.floor(m / 60)] = 1; } }); return Object.keys(s).length; }; // em quantas horas diferentes houve água (só a partir do minuto `from` do dia, se dado)
+const hoursOf = (es, from, to) => { const s = {}, lo = from || 0, hi = to || 1440; es.forEach((e) => { if (isWater(e)) { const m = minOf(e.t); if (m >= lo && m < hi) s[Math.floor(m / 60)] = 1; } }); return Object.keys(s).length; }; // em quantas horas diferentes houve água (só a partir do minuto `from` do dia e antes de `to`, se dados; 1.14.0: o `to`)
 const byPart = (es, f) => { const s = [0, 0, 0]; es.forEach((e) => { if (isWater(e)) { const m = minOf(e.t); s[m < 720 ? 0 : m < 1080 ? 1 : 2] += f(e); } }); return s; }; // manhã, tarde e noite
 const waterIn = (es, a, b) => es.filter((e) => isWater(e) && minOf(e.t) >= a && minOf(e.t) < b).length; // quantos registros de água entre a e b (minutos do dia)
 const spans = (es, from, width, n) => { let c = 0; for (let i = 0; i < n; i++) c += inWindow(es, from + i * width, from + (i + 1) * width); return c; }; // em quantas das n janelas seguidas (de `width` minutos, a primeira em `from`) houve água
@@ -261,6 +261,9 @@ const SINCE_1_12 = { day: '2026-12-07', week: '2026-12-07', month: '2027-01', cr
 // 1.13.0: mais uma leva, duas semanas depois da anterior (segunda-feira 21/12/2026; as do mês, em fevereiro de 2027): as 10 entradas novas das listas, mais quatro desafios novos da turma. Entre elas estão as versões
 // que crescem com a turma de "Turma cheia" e "Todos a bordo" (decisão 13 da Parte 22), com outro `id` e a mesma data de estreia das outras. tests/fixtures/picks-1.12.0.json trava as escolhas da 1.12.0 até a véspera.
 const SINCE_1_13 = { day: '2026-12-21', week: '2026-12-21', month: '2027-02', crew: '2026-12-21' };
+// 1.14.0: mais uma leva, de novo duas semanas depois da anterior (segunda-feira 4/1/2027; as do mês, em março de 2027): 3 missões leves, 3 ousadas, 3 desafios da semana, 3 do mês e 2 desafios novos da turma.
+// tests/fixtures/picks-1.13.0.json trava as escolhas da 1.13.0 até a véspera destas datas (e picks-1.12.0.json, picks-1.11.0.json e picks-1.10.0.json, as de antes).
+const SINCE_1_14 = { day: '2027-01-04', week: '2027-01-04', month: '2027-03', crew: '2027-01-04' };
 const poolAt = (pool, k) => pool.filter((m) => !m.since || m.since <= k); // as entradas que já valem no dia k (ou na semana, ou no mês: a chave de texto também compara)
 export const MISSIONS_EASY = [
   { id: 'ehalf', f: 'vol', e: '🌓', t: 'Chegue à metade da meta', p: (es, g) => counted(es, g) / (g / 2) },
@@ -282,6 +285,10 @@ export const MISSIONS_EASY = [
   { id: 'ehalf16', since: SINCE_1_13.day, f: 'vol', e: '🕓', t: 'Chegue à metade da meta antes das 16h', p: (es, g) => sumBefore(es, 960, g) / (g / 2) },
   { id: 'e2eve', since: SINCE_1_13.day, f: 'cnt', e: '🌉', t: 'Beba água 2 vezes à noite, depois das 18h', p: (es) => waterIn(es, 1080, 1440) / 2 },
   { id: 'emid', since: SINCE_1_13.day, f: 'spr', e: '🌻', t: 'Beba água no meio da manhã, entre 9h e 11h', p: (es) => inWindow(es, 540, 660) },
+  // 1.14.0 (a partir de SINCE_1_14.day)
+  { id: 'e23', since: SINCE_1_14.day, f: 'vol', e: '🏊', t: 'Chegue a dois terços da meta antes das 18h', p: (es, g) => sumBefore(es, 1080, g) / ((g * 2) / 3) },
+  { id: 'eblocks4', since: SINCE_1_14.day, f: 'cnt', e: '⏲️', t: 'Beba água a cada 4 horas, das 8h às 20h', p: (es) => spans(es, 480, 240, 3) / 3 },
+  { id: 'emorneve', since: SINCE_1_14.day, f: 'spr', e: '🌅', t: 'Beba água antes das 12h e depois das 18h', p: (es) => (inWindow(es, 0, 720) + inWindow(es, 1080, 1440)) / 2 },
 ];
 export const MISSIONS_HARD = [
   { id: 'hv17', f: 'vol', e: '🏁', t: 'Bata a meta antes das 17h', p: (es, g) => sumBefore(es, 1020, g) / g },
@@ -304,6 +311,10 @@ export const MISSIONS_HARD = [
   { id: 'h13a', since: SINCE_1_13.day, f: 'vol', e: '⚡', t: 'Chegue a um terço da meta antes das 10h', p: (es, g) => sumBefore(es, 600, g) / (g / 3) },
   { id: 'hhours8', since: SINCE_1_13.day, f: 'cnt', e: '🕗', t: 'Beba água em 8 horários diferentes', p: (es) => hoursOf(es) / 8 },
   { id: 'hthree', since: SINCE_1_13.day, f: 'spr', e: '🍴', t: 'Beba água antes das 10h, no almoço e depois das 18h', p: (es) => (inWindow(es, 0, 600) + inWindow(es, 660, 900) + inWindow(es, 1080, 1440)) / 3 },
+  // 1.14.0 (a partir de SINCE_1_14.day)
+  { id: 'h34', since: SINCE_1_14.day, f: 'vol', e: '🚵', t: 'Chegue a três quartos da meta antes das 17h', p: (es, g) => sumBefore(es, 1020, g) / ((g * 3) / 4) },
+  { id: 'h4am', since: SINCE_1_14.day, f: 'cnt', e: '☀️', t: 'Beba água 4 vezes antes do meio-dia', p: (es) => waterIn(es, 0, 720) / 4 },
+  { id: 'hafter4', since: SINCE_1_14.day, f: 'spr', e: '🌴', t: 'Beba água em 4 horários diferentes à tarde, entre 12h e 18h', p: (es) => hoursOf(es, 720, 1080) / 4 },
 ];
 // O hash acima é linear: datas seguidas (e baralhos de ids parecidos) dão números parecidos, e o sorteio sairia em sequência. Este misturador (o final do MurmurHash3) espalha.
 const mix32 = (h) => { h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; return h >>> 0; };
@@ -378,11 +389,16 @@ export const ACHIEVEMENTS = [
   // de cada medalha, no histórico, é a do dia em que a turma venceu (medalDates).
   { id: 'cw1', e: '🚣', t: 'Remando juntos', d: 'A turma venceu o desafio da semana', test: (c) => c.crewWins >= 1 },
   { id: 'cw4', e: '🛶', t: 'Time da maré', d: 'A turma venceu o desafio da semana, 4 vezes', p: (c) => [c.crewWins, 4, 'desafios'], test: (c) => c.crewWins >= 4 },
+  // 1.14.0: os bits 39 e 40 (os bits 15 e 16 de md2). Vêm do desafio do mês da turma, que fica na mesma tabela S.crewWon, com a chave AAAA-MM (as chaves de 10 caracteres, as das semanas, seguem nas duas medalhas de cima): a data
+  // de cada medalha, no histórico, é a do dia em que a turma venceu o mês (medalDates). Ainda cabem no limite da nuvem: o md2 vai até 2147483647 (31 bits), e estas ficam nos bits 15 e 16.
+  { id: 'cm1', e: '🛳️', t: 'Navegando juntos', d: 'A turma venceu o desafio do mês', test: (c) => c.crewMonths >= 1 },
+  { id: 'cm3', e: '🐳', t: 'Frota da maré', d: 'A turma venceu o desafio do mês, 3 vezes', p: (c) => [c.crewMonths, 3, 'desafios'], test: (c) => c.crewMonths >= 3 },
 ];
 export const MEDALS_1_5 = 12; // quantas medalhas já existiam até a 1.5.x: as do índice 12 em diante chegaram na 1.6.0
 export const MEDALS_1_6 = 24; // até a 1.6.x: as do índice 24 em diante chegaram na 1.7.0 (e vão na segunda palavra da máscara)
 export const MEDALS_1_9 = 30; // até a 1.9.x: as do índice 30 em diante chegaram na 1.10.0 (também na segunda palavra: nada a publicar no Firebase)
 export const MEDALS_1_10 = 37; // até a 1.10.x: as do índice 37 em diante chegaram na 1.11.0 (também na segunda palavra)
+export const MEDALS_1_13 = 39; // até a 1.13.x (a 1.11.0 trouxe as de índice 37 e 38; a 1.12.0 e a 1.13.0 não trouxeram nenhuma): as do índice 39 em diante chegaram na 1.14.0 (também na segunda palavra)
 export const CREW_MIN = 3; // a medalha "Turma completa" pede você e pelo menos 2 amigos (3 pessoas) na meta no mesmo dia
 export const achievementById = (id) => { for (let i = 0; i < ACHIEVEMENTS.length; i++) if (ACHIEVEMENTS[i].id === id) return ACHIEVEMENTS[i]; return null; };
 // Como a Jornada agrupa as medalhas (do mais simples ao mais difícil dentro de cada grupo). Só a tela usa isto: o bit de cada medalha segue a ordem de ACHIEVEMENTS.
@@ -394,7 +410,7 @@ export const MEDAL_GROUPS = [
   { t: 'Rotina do dia', ids: ['early', 'early7', 'sunset', 'sunset5', 'thirds7'] },
   { t: 'Fins de semana e datas', ids: ['weekend', 'weekends4', 'weekends12', 'summer', 'wwd', 'oceans'] },
   { t: 'Desafios', ids: ['trio', 'trio7', 'wk1', 'wk4', 'wk12', 'mo1', 'mo3'] },
-  { t: 'Com a turma', ids: ['crew', 'cw1', 'cw4'] },
+  { t: 'Com a turma', ids: ['crew', 'cw1', 'cw4', 'cm1', 'cm3'] },
 ];
 
 /* Fatos de um dia para as medalhas. goal = day.goal || 2000; hit = o minuto do dia em que a meta foi batida (-1 = não bateu), com a mesma regra de
@@ -431,6 +447,7 @@ const EMPTY_FACT = { k: '', cum: 0, n: 0, morning: 0, m10: 0, hit: -1, first: -1
 const hitBy = (f, min) => f.hit >= 0 && f.hit < min; // a meta foi batida antes do minuto min
 const wasDone = (m, k) => !!(m && m[k]);
 const halfBy = (d, min) => !!d && sumBefore(d.entries || [], min, d.goal || 2000) * 2 >= (d.goal || 2000); // o dia chegou à metade da meta antes do minuto min
+const fracBy = (d, min, num, den) => !!d && sumBefore(d.entries || [], min, d.goal || 2000) * den >= (d.goal || 2000) * num; // o dia chegou a num/den da meta antes do minuto min (1.14.0; halfBy é o caso 1/2)
 const waterBetween = (d, a, b) => !!d && inWindow(d.entries || [], a, b) === 1; // houve água entre a e b (minutos do dia)
 export const WEEKLY = [
   { id: 'wgoal', e: '🎯', t: 'Meta em 5 dias', d: 'Bata a meta em 5 dias desta semana', need: 5, day: (f) => f.hit >= 0 },
@@ -458,6 +475,10 @@ export const WEEKLY = [
   { id: 'whalf13', since: SINCE_1_13.week, e: '🕐', t: 'Metade até as 13h', d: 'Chegue à metade da meta antes das 13h em 3 dias desta semana', need: 3, day: (f, d) => halfBy(d, 780) },
   { id: 'wsnack', since: SINCE_1_13.week, e: '🍪', t: 'Água no lanche', d: 'Beba água no lanche da tarde, entre 15h e 17h, em 5 dias desta semana', need: 5, day: (f, d) => waterBetween(d, 900, 1020) },
   { id: 'wbook', since: SINCE_1_13.week, e: '📖', t: 'Começo e fim do dia', d: 'Beba água antes das 10h e depois das 18h, no mesmo dia, em 4 dias desta semana', need: 4, day: (f, d) => waterBetween(d, 0, 600) && waterBetween(d, 1080, 1440) },
+  // 1.14.0 (a partir de SINCE_1_14.week, uma segunda-feira)
+  { id: 'wblocks4', since: SINCE_1_14.week, e: '⏲️', t: 'Água a cada 4 horas', d: 'Beba água a cada 4 horas, das 8h às 20h, em 5 dias desta semana', need: 5, day: (f, d) => !!d && spans(d.entries || [], 480, 240, 3) === 3 },
+  { id: 'w23', since: SINCE_1_14.week, e: '🏊', t: 'Dois terços até as 17h', d: 'Chegue a dois terços da meta antes das 17h em 4 dias desta semana', need: 4, day: (f, d) => fracBy(d, 1020, 2, 3) },
+  { id: 'wmid', since: SINCE_1_14.week, e: '🌻', t: 'Água no meio da manhã', d: 'Beba água no meio da manhã, entre 9h e 11h, em 5 dias desta semana', need: 5, day: (f, d) => waterBetween(d, 540, 660) },
 ];
 export const MONTHLY = [
   { id: 'mgoal', e: '🏅', t: 'Meta em 20 dias', d: 'Bata a meta em 20 dias deste mês', need: 20, day: (f) => f.hit >= 0 },
@@ -483,6 +504,10 @@ export const MONTHLY = [
   { id: 'mlunch', since: SINCE_1_13.month, e: '🍽️', t: 'Água no almoço', d: 'Beba água na hora do almoço, entre 11h e 15h, em 20 dias deste mês', need: 20, day: (f, d) => waterBetween(d, 660, 900) },
   { id: 'm8', since: SINCE_1_13.month, e: '💦', t: 'Oito goles por dia', d: 'Beba água pelo menos 8 vezes em 12 dias deste mês', need: 12, day: (f) => f.n >= 8 },
   { id: 'mbook', since: SINCE_1_13.month, e: '📖', t: 'Começo e fim do dia', d: 'Beba água antes das 10h e depois das 18h, no mesmo dia, em 15 dias deste mês', need: 15, day: (f, d) => waterBetween(d, 0, 600) && waterBetween(d, 1080, 1440) },
+  // 1.14.0 (a partir de SINCE_1_14.month): as versões do mês dos desafios da semana de "Metade até as 13h" e "Água no lanche" (1.13.0) e "Água no meio da manhã" (1.14.0)
+  { id: 'mhalf13', since: SINCE_1_14.month, e: '🕐', t: 'Metade até as 13h', d: 'Chegue à metade da meta antes das 13h em 12 dias deste mês', need: 12, day: (f, d) => halfBy(d, 780) },
+  { id: 'msnack', since: SINCE_1_14.month, e: '🍪', t: 'Água no lanche', d: 'Beba água no lanche da tarde, entre 15h e 17h, em 20 dias deste mês', need: 20, day: (f, d) => waterBetween(d, 900, 1020) },
+  { id: 'mmid', since: SINCE_1_14.month, e: '🌻', t: 'Água no meio da manhã', d: 'Beba água no meio da manhã, entre 9h e 11h, em 20 dias deste mês', need: 20, day: (f, d) => waterBetween(d, 540, 660) },
 ];
 export const weekStart = (k) => addDays(k, -((keyToDate(k).getDay() + 6) % 7)); // a segunda-feira da semana de k
 export const monthStart = (k) => k.slice(0, 7) + '-01';
@@ -559,6 +584,7 @@ const hasPair = (r, last) => { for (let j = 1; j <= last; j++) if (r[j - 1] && r
 const halfOf = (n) => Math.max(2, Math.ceil(n / 2)); // "metade da turma" (1.13.0): nunca menos de 2 pessoas (todas, numa turma de 2)
 const hasRun = (r, last, k) => runOf(last, (j) => !!r[j]) >= k; // a pessoa bateu a meta em k dias seguidos (1.13.0)
 const peopleSay = (k, n, verb) => (k === n ? 'as ' + n + ' pessoas ' + verb : 'pelo menos ' + k + ' das ' + n + ' pessoas ' + verb); // "as 2 pessoas batem" ou "pelo menos 3 das 4 pessoas batem" (1.13.0)
+const hitIn = (r, a, b, last) => { for (let j = a; j <= b && j <= last; j++) if (r[j]) return true; return false; }; // a pessoa bateu a meta em algum dia de a a b (índices da semana, até o último que já aconteceu) (1.14.0)
 export const CREW_CHALLENGES = [
   { id: 'ctotal', e: '🌊', t: 'Maré da semana', unit: 'metas', d: (n) => 'Juntos, a turma bate a meta ' + 4 * n + ' vezes nesta semana: 4 por pessoa, em média',
     calc: (g, last) => ({ have: g.reduce((s, r) => s + rowSum(r, last), 0), need: 4 * g.length }) },
@@ -589,13 +615,21 @@ export const CREW_CHALLENGES = [
   { id: 'crun', since: SINCE_1_13.crew, e: '🐬', t: 'Três seguidos', unit: 'pessoas',
     d: (n) => 'Nesta semana, ' + peopleSay(mostOf(n), n, 'têm') + ' 3 dias seguidos na meta',
     calc: (g, last) => ({ have: g.filter((r) => hasRun(r, last, 3)).length, need: mostOf(g.length) }) },
+  // 1.14.0 (a partir de SINCE_1_14.crew, uma segunda-feira): "Começo da semana" é o par que faltava (segunda e terça, ao lado de "Meio da semana" e "Fim de semana da turma"); "Presença na semana" pede de cada pessoa um dia na primeira
+  // metade da semana (segunda a quarta) e outro na segunda (quinta a domingo): a mais leve da lista, para a semana em que ninguém some pela metade. Como as de cima, nenhuma fecha com um dia só e nenhuma olha quanto alguém bebeu.
+  { id: 'cstart', since: SINCE_1_14.crew, e: '🛥️', t: 'Começo da semana', unit: 'dias',
+    d: (n) => 'Na segunda e na terça, ' + peopleSay(mostOf(n), n, 'batem') + ' a meta, em cada dia',
+    calc: (g, last) => ({ have: [0, 1].filter((j) => j <= last && colSum(g, j) >= mostOf(g.length)).length, need: 2 }) },
+  { id: 'chalves', since: SINCE_1_14.crew, e: '🌓', t: 'Presença na semana', unit: 'pessoas',
+    d: (n) => (nearAll(n) === n ? 'Cada pessoa da turma bate' : 'Pelo menos ' + nearAll(n) + ' das ' + n + ' pessoas batem') + ' a meta em algum dia até quarta e em algum de quinta em diante',
+    calc: (g, last) => ({ have: g.filter((r) => hitIn(r, 0, 2, last) && hitIn(r, 3, 6, last)).length, need: nearAll(g.length) }) },
 ];
 /* ---------- desafio do mês da turma (1.13.0) ---------- */
 // O mesmo desafio da turma, para o mês de calendário: um por mês, sorteado pela data (o mesmo para todo mundo, nunca o mesmo em dois meses seguidos), a meta cresce com a turma e a vitória só vale se EU também
 // bati a meta em alguns dias (CREW_MONTH_MINE). Em vez da grade de 7 dias (que não cobre um mês), cada pessoa entra com UMA conta: quantos dias do mês ela bateu a meta (os campos mm e mp do perfil; ver social.js, monthOf).
 // Os limites são frações dos dias do mês (round(f × dias)), então um mês de 28 dias e um de 31 pedem a mesma proporção. Como as semanais, as regras olham a constância de cada pessoa (nunca quanto bebeu) e nenhuma
 // fecha antes de o mês passar de 40% (o menor limite é 45% dos dias). A primeira regra pede a média da turma, as outras a fração da turma (a maior parte, quase todos, a metade) que atinge a fração dos dias.
-// Quem vence guarda o mês em S.crewWon, na mesma tabela das semanas, com a chave 'AAAA-MM' (as medalhas só contam as chaves de 10 caracteres, as segundas-feiras).
+// Quem vence guarda o mês em S.crewWon, na mesma tabela das semanas, com a chave 'AAAA-MM' (as medalhas das semanas, cw1 e cw4, só contam as chaves de 10 caracteres, as segundas-feiras; desde a 1.14.0 as dos meses, cm1 e cm3, contam as de 7).
 export const CREW_MONTH_FROM = '2026-12'; // o primeiro mês com desafio da turma (os celulares têm até 1/12 para publicar os campos novos)
 export const CREW_MONTH_MINE = 4; // dias do mês em que eu preciso ter batido a meta para a vitória da turma valer para mim
 const MF = { total: 0.58, most: 0.55, near: 0.45, half: 0.65 }; // a fração dos dias do mês que cada regra pede (calibrada por simulação: decisão 7 da Parte 23)
@@ -650,13 +684,13 @@ export function challengesDue(S, today) {
 }
 // Os dias (chaves, em ordem) de cada coisa cumprida, para as medalhas: o trio de missões (o dia das missões) e os desafios da semana e do mês (o dia em que fecharam)
 function goalDays(S) {
-  const ex = S.extras || {}, ch = S.challenges || {}, cw = S.crewWon || {}, trio = [], weeks = [], months = [], crew = [];
+  const ex = S.extras || {}, ch = S.challenges || {}, cw = S.crewWon || {}, trio = [], weeks = [], months = [], crew = [], crewMonths = [];
   Object.keys(ex).forEach((x) => { const k = x.slice(0, 10); if (x.slice(10) === ':e' && ex[x] && isTrio(S, k)) trio.push(k); });
   Object.keys(ch).forEach((x) => { const t = +ch[x]; if (t > 0 && isFinite(t)) (x.length === 10 ? weeks : x.length === 7 ? months : []).push(dayKey(new Date(t))); });
-  Object.keys(cw).forEach((x) => { const t = +cw[x]; if (x.length === 10 && t > 0 && isFinite(t)) crew.push(dayKey(new Date(t))); }); // o desafio da turma: a chave é a segunda-feira da semana
-  return { trio: trio.sort(), weeks: weeks.sort(), months: months.sort(), crew: crew.sort() };
+  Object.keys(cw).forEach((x) => { const t = +cw[x]; if (t > 0 && isFinite(t)) (x.length === 10 ? crew : x.length === 7 ? crewMonths : []).push(dayKey(new Date(t))); }); // o desafio da turma: a chave é a segunda-feira da semana (10 caracteres) ou o mês (7, desde a 1.14.0)
+  return { trio: trio.sort(), weeks: weeks.sort(), months: months.sort(), crew: crew.sort(), crewMonths: crewMonths.sort() };
 }
-const NO_GOALS = { trio: [], weeks: [], months: [], crew: [] };
+const NO_GOALS = { trio: [], weeks: [], months: [], crew: [], crewMonths: [] };
 
 // O que as medalhas olham, somado de todos os dias até upTo (uma chave de dia; sem ele, o histórico inteiro). missionKeys = os dias das missões cumpridas;
 // goals = os dias do trio de missões e dos desafios cumpridos (goalDays).
@@ -693,7 +727,7 @@ function contextFrom(facts, upTo, missionKeys, goals) {
   const upc = (list) => (upTo ? list.filter((k) => k <= upTo).length : list.length), missions = upc(missionKeys), gd = goals || NO_GOALS;
   return { totalMl, entries, daysMet: met.length, early: earlyDays >= 1, sunset: sunsetDays >= 1, weekend: weekends >= 1,
     earlyDays, sunsetDays, thirdsDays, weekends, win30, back, wwd, best, missions, daysUsed, summer, oceans,
-    trios: upc(gd.trio), weeksWon: upc(gd.weeks), monthsWon: upc(gd.months), crewWins: upc(gd.crew || []) };
+    trios: upc(gd.trio), weeksWon: upc(gd.weeks), monthsWon: upc(gd.months), crewWins: upc(gd.crew || []), crewMonths: upc(gd.crewMonths || []) };
 }
 // As medalhas de "primeiros registros" olham só a água (500 ml de água antes das 9h, primeira gota); o volume total de água
 // agora vira insígnia (ver INSIGNIAS), não medalha. Já "bater a meta" (e a hora em que isso aconteceu) segue o total da meta,

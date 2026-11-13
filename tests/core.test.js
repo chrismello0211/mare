@@ -417,11 +417,13 @@ describe('conquistas', () => {
       's60', 's100', 'd30', 'd100', 'm30', 'early7', 'sunset5', 'thirds7', 'win25', 'back', 'weekends4', 'wwd', // 1.6.0: bits 12 a 23 (a 1ª palavra, "md", fica cheia)
       'm1', 'use100', 'summer', 'weekends12', 'oceans', 'crew', // 1.7.0: bits 24 a 29 (a 2ª palavra, "md2"), só no fim
       'trio', 'trio7', 'wk1', 'wk4', 'wk12', 'mo1', 'mo3', // 1.10.0: bits 30 a 36 (os de 6 a 12 do "md2")
-      'cw1', 'cw4']); // 1.11.0: bits 37 e 38 (os de 13 e 14 do "md2"), ainda no fim
+      'cw1', 'cw4', // 1.11.0: bits 37 e 38 (os de 13 e 14 do "md2")
+      'cm1', 'cm3']); // 1.14.0: bits 39 e 40 (os de 15 e 16 do "md2"), ainda no fim
     expect(C.MEDALS_1_5).toBe(12);
     expect(C.MEDALS_1_6).toBe(24);
     expect(C.MEDALS_1_9).toBe(30);
     expect(C.MEDALS_1_10).toBe(37);
+    expect(C.MEDALS_1_13).toBe(39);
     expect(new Set(C.ACHIEVEMENTS.map((a) => a.id)).size).toBe(C.ACHIEVEMENTS.length);
     expect(C.MEDAL_MAX).toBe(24); // as regras do Firestore de 30/10/2026 aceitam até 24 bits em "md" (16777215)
     expect(C.MEDAL_MAX2).toBe(31); // e a 1.7.0 acrescenta "md2", com até 31 bits (2147483647)
@@ -455,15 +457,18 @@ describe('conquistas', () => {
     const one = (id) => { const S = { achievements: {} }; S.achievements[id] = 5; return [C.medalMask(S), C.medalMask2(S)]; };
     expect(one('first')).toEqual([1, 0]); expect(one('wwd')).toEqual([8388608, 0]); expect(one('m1')).toEqual([0, 1]); expect(one('crew')).toEqual([0, 32]);
     expect(one('trio')).toEqual([0, 64]); expect(one('mo3')).toEqual([0, 4096]); expect(one('cw1')).toEqual([0, 8192]); expect(one('cw4')).toEqual([0, 16384]);
-    expect(ix('wwd')).toBe(23); expect(ix('m1')).toBe(24); expect(ix('crew')).toBe(29); expect(ix('trio')).toBe(30); expect(ix('mo3')).toBe(36); expect(ix('cw1')).toBe(37); expect(ix('cw4')).toBe(38);
+    expect(one('cm1')).toEqual([0, 32768]); expect(one('cm3')).toEqual([0, 65536]);
+    expect(ix('wwd')).toBe(23); expect(ix('m1')).toBe(24); expect(ix('crew')).toBe(29); expect(ix('trio')).toBe(30); expect(ix('mo3')).toBe(36); expect(ix('cw1')).toBe(37); expect(ix('cw4')).toBe(38); expect(ix('cm1')).toBe(39); expect(ix('cm3')).toBe(40);
     const full = {}; C.ACHIEVEMENTS.forEach((a) => { full[a.id] = 5; });
-    expect([C.medalMask({ achievements: full }), C.medalMask2({ achievements: full })]).toEqual([16777215, 32767]);
+    expect([C.medalMask({ achievements: full }), C.medalMask2({ achievements: full })]).toEqual([16777215, 131071]);
     // a leitura: o que um app novo faz com os dois números
     expect(C.medalsFromMask(16777215).length).toBe(24); // sem a 2ª palavra: só as 24 primeiras (amigo que ainda está na 1.6.0)
-    expect(C.medalsFromMask(0, 2147483647).map((a) => a.id)).toEqual(['m1', 'use100', 'summer', 'weekends12', 'oceans', 'crew', 'trio', 'trio7', 'wk1', 'wk4', 'wk12', 'mo1', 'mo3', 'cw1', 'cw4']); // bits que não existem ainda (15 a 30) ficam de fora
+    expect(C.medalsFromMask(0, 2147483647).map((a) => a.id)).toEqual(['m1', 'use100', 'summer', 'weekends12', 'oceans', 'crew', 'trio', 'trio7', 'wk1', 'wk4', 'wk12', 'mo1', 'mo3', 'cw1', 'cw4', 'cm1', 'cm3']); // bits que não existem ainda (17 a 30) ficam de fora
     expect(C.medalsFromMask(0, 1 << 30)).toEqual([]);
-    expect(C.medalsFromMask(0, 1 << 15)).toEqual([]); // o primeiro bit livre da 2ª palavra
-    expect(C.medalsFromMask(0, 1 << 14).map((a) => a.id)).toEqual(['cw4']); // e o último que existe
+    expect(C.medalsFromMask(0, 1 << 17)).toEqual([]); // o primeiro bit livre da 2ª palavra
+    expect(C.medalsFromMask(0, 1 << 16).map((a) => a.id)).toEqual(['cm3']); // e o último que existe
+    expect(C.medalsFromMask(0, 1 << 15).map((a) => a.id)).toEqual(['cm1']);
+    expect(C.medalsFromMask(0, 1 << 14).map((a) => a.id)).toEqual(['cw4']);
     expect(C.medalsFromMask(0, 1 << 13).map((a) => a.id)).toEqual(['cw1']);
     expect(C.medalsFromMask(0, 1 << 12).map((a) => a.id)).toEqual(['mo3']);
     expect(C.medalsFromMask((1 << 24) | (1 << 3), 0).map((a) => a.id)).toEqual(['s7']); // o bit 24 de "md" não existe: ignorado (a 2ª palavra é que traz as outras)
